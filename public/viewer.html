@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Light Show</title>
+  <link rel="stylesheet" href="/viewer.css" />
+</head>
+<body>
+  <main class="viewer">
+    <header>
+      <h1 id="showName">Light Show</h1>
+      <div class="status">
+        <span id="viewerCount">0</span> watching now
+      </div>
+    </header>
+
+    <section class="now-playing">
+      <h2>Now Playing</h2>
+      <div id="nowPlayingName" class="now-playing-name">—</div>
+    </section>
+
+    <section id="modeVoting" class="mode hidden">
+      <h2>Vote for the Next Song</h2>
+      <p class="hint">Pick one. Most votes wins.</p>
+      <ul id="voteList" class="sequence-list"></ul>
+    </section>
+
+    <section id="modeJukebox" class="mode hidden">
+      <h2>Request a Song</h2>
+      <p class="hint">Add your pick to the queue.</p>
+      <ul id="jukeboxList" class="sequence-list"></ul>
+      <h3>Up Next</h3>
+      <ol id="queueList" class="queue-list"></ol>
+    </section>
+
+    <section id="modeOff" class="mode hidden">
+      <h2>Viewer Control Paused</h2>
+      <p>Enjoy the show!</p>
+    </section>
+
+    <footer>
+      <small>Powered by OpenFalcon</small>
+    </footer>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/viewer.js?v=0.5.1"></script>
+</body>
+</html>

@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenFalcon Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           background: #0d1117; color: #e6edf3; padding: 2rem; line-height: 1.5; }
+    .app { max-width: 960px; margin: 0 auto; }
+    h1 { margin-bottom: 1.5rem; color: #c4b5fd; }
+    h2 { margin: 1.5rem 0 0.5rem; color: #a5b4fc; }
+    .hidden { display: none; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+            padding: 1.5rem; margin-bottom: 1rem; }
+    label { display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.9rem; color: #9ca3af; }
+    input, select, textarea { width: 100%; padding: 0.6rem; background: #0d1117;
+            border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 0.95rem;
+            font-family: inherit; margin-bottom: 0.75rem; }
+    textarea { min-height: 120px; font-family: monospace; }
+    button { background: #2563eb; color: white; border: none; padding: 0.6rem 1.2rem;
+             border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 500; }
+    button:hover { background: #1d4ed8; }
+    button.danger { background: #dc2626; }
+    button.secondary { background: #374151; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+    .stat { text-align: center; padding: 1rem; background: #0d1117; border-radius: 6px; }
+    .stat-num { font-size: 2rem; font-weight: 700; color: #c4b5fd; }
+    .stat-label { font-size: 0.85rem; color: #9ca3af; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #30363d; font-size: 0.9rem; }
+    th { background: #0d1117; color: #9ca3af; font-weight: 500; }
+    .row { display: flex; gap: 0.5rem; align-items: center; }
+    .err { color: #f87171; margin-top: 0.5rem; }
+    .ok { color: #4ade80; margin-top: 0.5rem; }
+
+    /* Settings tabs */
+    .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid #30363d; margin-bottom: 1rem;
+            flex-wrap: wrap; }
+    .tab { padding: 0.6rem 1rem; cursor: pointer; color: #9ca3af; border-bottom: 2px solid transparent;
+           font-size: 0.9rem; }
+    .tab.active { color: #c4b5fd; border-bottom-color: #c4b5fd; font-weight: 500; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .setting-row { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: start;
+                   padding: 1rem 0; border-bottom: 1px solid #21262d; }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-label { font-weight: 500; color: #e6edf3; font-size: 0.95rem; margin-bottom: 0.25rem; }
+    .setting-desc { font-size: 0.85rem; color: #9ca3af; line-height: 1.4; }
+    .setting-control { min-width: 140px; }
+    .setting-control input, .setting-control select { margin: 0; }
+
+    /* Toggle switch */
+    .toggle { position: relative; display: inline-block; width: 50px; height: 26px; margin: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; padding: 0; margin: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: #374151; border-radius: 26px;
+              transition: 0.2s; }
+    .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px;
+                     background: white; border-radius: 50%; transition: 0.2s; }
+    .toggle input:checked + .slider { background: #059669; }
+    .toggle input:checked + .slider:before { transform: translateX(24px); }
+
+    /* Sequence table extras */
+    .drag-handle { cursor: grab; color: #6b7280; user-select: none; padding: 0.25rem; font-weight: bold; }
+    .drag-handle:hover { color: #e6edf3; }
+    tr.dragging { opacity: 0.4; }
+    tr.drag-over-top { border-top: 2px solid #a78bfa; }
+    tr.drag-over-bottom { border-bottom: 2px solid #a78bfa; }
+    .art-thumb { width: 44px; height: 44px; border-radius: 6px; background: #0d1117;
+                 object-fit: cover; border: 1px solid #30363d; cursor: pointer; }
+    .art-placeholder { width: 44px; height: 44px; border-radius: 6px; background: #0d1117;
+                       border: 1px dashed #30363d; display: flex; align-items: center; justify-content: center;
+                       color: #6b7280; font-size: 0.75rem; cursor: pointer; }
+    .editable { cursor: text; padding: 0.25rem; border-radius: 4px; }
+    .editable:hover { background: #21262d; }
+    .editable:focus { outline: 2px solid #a78bfa; background: #0d1117; }
+
+    /* Template list */
+    .tpl-item { padding: 0.6rem 0.75rem; border-bottom: 1px solid #21262d; cursor: pointer;
+                font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; }
+    .tpl-item:hover { background: #21262d; }
+    .tpl-item.selected { background: #1e3a5f; color: #e6edf3; }
+    .tpl-item .tpl-badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 999px;
+                            background: #065f46; color: #a7f3d0; }
+    .tpl-item .tpl-badge.builtin { background: #374151; color: #9ca3af; }
+  </style>
+  <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
+</head>
+<body>
+  <div class="app">
+    <h1>🦅 OpenFalcon Admin</h1>
+
+    <div id="loginView" class="card hidden">
+      <h2>Log in</h2>
+      <p style="color:#9ca3af; font-size:0.9rem; margin-bottom:0.75rem;">
+        First time? Any password you enter will be saved as the admin password.
+      </p>
+      <input type="password" id="loginPassword" placeholder="Admin password" />
+      <button onclick="login()">Log in</button>
+      <div id="loginMsg"></div>
+    </div>
+
+    <div id="appView" class="hidden">
+      <div class="card">
+        <h2>Show Control</h2>
+
+        <div class="row" style="align-items: center; margin-bottom: 0.75rem;">
+          <strong style="font-size: 1.1rem;">Viewer Control:</strong>
+          <span id="viewerControlStatus" style="padding: 0.25rem 0.75rem; border-radius: 999px; background: #374151; color: #e6edf3; font-weight: 600; font-size: 0.9rem;">—</span>
+          <button id="toggleViewerBtn" onclick="toggleViewerControl()" style="margin-left: auto;">Toggle</button>
+        </div>
+
+        <div class="row">
+          <label style="margin:0;">Mode:</label>
+          <select id="modeSelect" onchange="updateMode(this.value)">
+            <option value="OFF">Off</option>
+            <option value="VOTING">Voting</option>
+            <option value="JUKEBOX">Jukebox</option>
+          </select>
+          <button class="secondary" onclick="resetVotes()">Reset Votes</button>
+          <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Settings</h2>
+        <div class="tabs">
+          <div class="tab active" data-tab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
+          <div class="tab" data-tab="voting" onclick="switchTab('voting')">Voting</div>
+          <div class="tab" data-tab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
+        </div>
+
+        <!-- JUKEBOX TAB -->
+        <div class="tab-content active" data-tab="jukebox">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Jukebox Queue Depth</div>
+              <div class="setting-desc">Maximum pending requests in the queue. Use 0 for unlimited.</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="cfg_jukebox_queue_depth" min="0" onchange="saveSetting('jukebox_queue_depth', parseInt(this.value) || 0)" />
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Jukebox Sequence Request Limit</div>
+              <div class="setting-desc">Max times the same sequence can be in the queue. Use 0 to allow unlimited.</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="cfg_jukebox_sequence_request_limit" min="0" onchange="saveSetting('jukebox_sequence_request_limit', parseInt(this.value) || 0)" />
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Prevent Multiple Requests</div>
+              <div class="setting-desc">Blocks a viewer from making more than one request while their song is queued or playing.</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle"><input type="checkbox" id="cfg_prevent_multiple_requests" onchange="saveSetting('prevent_multiple_requests', this.checked ? 1 : 0)" /><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- VOTING TAB -->
+        <div class="tab-content" data-tab="voting">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Prevent Multiple Votes</div>
+              <div class="setting-desc">Blocks a viewer from voting more than once per round.</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle"><input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0)" /><span class="slider"></span></label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Reset Votes After Round</div>
+              <div class="setting-desc">Resets all vote counts to zero after each voting round. If off, votes carry forward.</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle"><input type="checkbox" id="cfg_reset_votes_after_round" onchange="saveSetting('reset_votes_after_round', this.checked ? 1 : 0)" /><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- SAFEGUARDS TAB -->
+        <div class="tab-content" data-tab="safeguards">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Play PSA</div>
+              <div class="setting-desc">Plays a PSA sequence after a specified number of viewer interactions.</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle"><input type="checkbox" id="cfg_play_psa_enabled" onchange="saveSetting('play_psa_enabled', this.checked ? 1 : 0)" /><span class="slider"></span></label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">PSA Frequency</div>
+              <div class="setting-desc">Play a PSA every N viewer interactions (votes or requests). Mark sequences as PSA via the Sequences list.</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="cfg_psa_frequency" min="1" onchange="saveSetting('psa_frequency', parseInt(this.value) || 5)" />
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Check Viewer Present</div>
+              <div class="setting-desc">Requires viewers to be near the show (via GPS) before they can vote or request. Strict mode — blocks if check fails.</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle"><input type="checkbox" id="cfg_check_viewer_present" onchange="saveSetting('check_viewer_present', this.checked ? 1 : 0)" /><span class="slider"></span></label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Show Location</div>
+              <div class="setting-desc">GPS coordinates of the show. Use the "Detect" button from a device at the show location, or paste in manually.</div>
+            </div>
+            <div class="setting-control" style="min-width: 260px;">
+              <div class="row" style="gap:0.3rem;">
+                <input type="number" step="0.000001" id="cfg_show_latitude" placeholder="Latitude" onchange="saveSetting('show_latitude', parseFloat(this.value) || 0)" style="margin:0;" />
+                <input type="number" step="0.000001" id="cfg_show_longitude" placeholder="Longitude" onchange="saveSetting('show_longitude', parseFloat(this.value) || 0)" style="margin:0;" />
+              </div>
+              <button class="secondary" style="margin-top:0.4rem; padding:0.4rem 0.8rem; font-size:0.85rem;" onclick="detectMyLocation()">Detect my location</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Check Radius (miles)</div>
+              <div class="setting-desc">How close viewers must be to the show location. Default 0.5 miles.</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" step="0.1" min="0" id="cfg_check_radius_miles" onchange="saveSetting('check_radius_miles', parseFloat(this.value) || 0.5)" />
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Hide Sequence After Played</div>
+              <div class="setting-desc">After a requested sequence finishes, hide it from the list until this many other sequences have played. Use 0 to never hide.</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" min="0" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', parseInt(this.value) || 0)" />
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Block Viewer IP Addresses</div>
+              <div class="setting-desc">Comma-separated list of IPs that can't vote or request. Use this to block abusers.</div>
+            </div>
+            <div class="setting-control" style="min-width: 260px;">
+              <input type="text" id="cfg_blocked_ips" placeholder="1.2.3.4, 5.6.7.8" onchange="saveSetting('blocked_ips', this.value)" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Show Token (for OpenFalcon Plugin)</h2>
+        <p style="color:#9ca3af; font-size:0.9rem; margin-bottom:0.5rem;">
+          Paste this into the <code>Show Token</code> field of the OpenFalcon plugin on your FPP.
+        </p>
+        <input type="text" id="showToken" readonly />
+        <p style="color:#9ca3af; font-size:0.85rem; margin-top:0.5rem;">
+          Server URL for plugin: <code id="pluginUrl"></code>
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Stats</h2>
+        <div class="grid">
+          <div class="stat"><div class="stat-num" id="statActive">0</div><div class="stat-label">Active viewers</div></div>
+          <div class="stat"><div class="stat-num" id="statTotal">0</div><div class="stat-label">Total unique</div></div>
+          <div class="stat"><div class="stat-num" id="statVotes">0</div><div class="stat-label">Votes (round)</div></div>
+          <div class="stat"><div class="stat-num" id="statQueue">0</div><div class="stat-label">Queue length</div></div>
+          <div class="stat"><div class="stat-num" id="statPlays">0</div><div class="stat-label">Total plays</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h2 style="margin: 0;">Sequences <span id="sequenceCount" style="color:#9ca3af; font-weight: normal; font-size: 0.9rem;"></span></h2>
+          <div class="row" style="gap: 0.5rem;">
+            <button class="secondary" onclick="sortSequencesAlphabetically()">Sort Alphabetically</button>
+            <button class="danger" onclick="deleteInactiveSequences()">Delete Inactive</button>
+          </div>
+        </div>
+        <p style="color:#9ca3af; font-size:0.85rem; margin-bottom:0.5rem;">
+          Drag rows by the <span style="color:#e6edf3;">⋮⋮</span> handle to reorder. The order here is also the playlist index sent to FPP.
+        </p>
+        <table id="sequencesTable">
+          <thead>
+            <tr>
+              <th style="width: 24px;"></th>
+              <th style="width: 60px;">Art</th>
+              <th>Display Name</th>
+              <th>FPP Name</th>
+              <th>Artist</th>
+              <th>Visible</th>
+              <th>Vote</th>
+              <th>Jukebox</th>
+              <th>PSA</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="sequencesBody"></tbody>
+        </table>
+        <h3 style="margin-top:1rem;">Add Sequence</h3>
+        <div class="row" style="flex-wrap:wrap;">
+          <input type="text" id="newSeqName" placeholder="FPP sequence name" style="flex:1;" />
+          <input type="text" id="newSeqDisplay" placeholder="Display name" style="flex:1;" />
+          <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
+          <button onclick="addSequence()">Add</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Top Sequences (all time)</h2>
+        <table>
+          <thead><tr><th>Sequence</th><th>Plays</th></tr></thead>
+          <tbody id="topBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h2 style="margin: 0;">Viewer Page</h2>
+          <div class="row" style="gap: 0.5rem;">
+            <button class="secondary" onclick="newTemplate()">+ New</button>
+            <button class="secondary" onclick="duplicateTemplate()" id="tplDupBtn" disabled>Duplicate</button>
+            <button onclick="activateTemplate()" id="tplActivateBtn" disabled>Set Active</button>
+            <button class="secondary" onclick="saveTemplate()" id="tplSaveBtn" disabled>Save</button>
+            <button class="danger" onclick="deleteTemplate()" id="tplDeleteBtn" disabled>Delete</button>
+          </div>
+        </div>
+
+        <p style="color:#9ca3af; font-size:0.85rem; margin-bottom:0.75rem;">
+          Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>.
+          <a href="/" target="_blank" style="color: #a78bfa;">Open viewer page →</a>
+        </p>
+
+        <div style="display: grid; grid-template-columns: 240px 1fr; gap: 1rem;">
+          <div style="border: 1px solid #30363d; border-radius: 6px; overflow: hidden; max-height: 480px; overflow-y: auto;">
+            <div style="padding: 0.5rem 0.75rem; background: #0d1117; border-bottom: 1px solid #30363d; font-size: 0.85rem; color: #9ca3af;">Templates</div>
+            <div id="templateList"></div>
+          </div>
+
+          <div>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center;">
+              <input type="text" id="tplName" placeholder="Template name" style="margin: 0; flex: 1;" />
+              <span id="tplMeta" style="font-size: 0.85rem; color: #9ca3af;"></span>
+            </div>
+            <div id="monacoContainer" style="height: 420px; border: 1px solid #30363d; border-radius: 6px; overflow: hidden;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="secondary" onclick="logout()">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function api(path, opts = {}) {
+      const res = await fetch('/api/admin' + path, { credentials: 'include', ...opts });
+      const data = res.ok ? await res.json() : null;
+      if (res.status === 401) { show('loginView'); hide('appView'); }
+      return { ok: res.ok, status: res.status, data };
+    }
+    function show(id) { document.getElementById(id).classList.remove('hidden'); }
+    function hide(id) { document.getElementById(id).classList.add('hidden'); }
+    function msg(id, text, ok) {
+      const e = document.getElementById(id);
+      e.className = ok ? 'ok' : 'err';
+      e.textContent = text;
+    }
+
+    async function checkAuth() {
+      const r = await api('/me');
+      if (r.ok) { hide('loginView'); show('appView'); await loadAll(); }
+      else { show('loginView'); hide('appView'); }
+    }
+
+    async function login() {
+      const password = document.getElementById('loginPassword').value;
+      const r = await api('/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (r.ok) { hide('loginView'); show('appView'); await loadAll(); }
+      else { msg('loginMsg', (r.data?.error) || 'Login failed', false); }
+    }
+
+    async function logout() {
+      await api('/logout', { method: 'POST' });
+      show('loginView'); hide('appView');
+    }
+
+    async function loadAll() {
+      await Promise.all([loadConfig(), loadStats(), loadSequences(), loadToken(), loadTemplates()]);
+    }
+
+    async function loadConfig() {
+      const r = await api('/config');
+      if (!r.ok) return;
+      const c = r.data;
+      document.getElementById('modeSelect').value = c.viewer_control_mode;
+      updateViewerControlBadge(c.viewer_control_mode);
+
+      // Populate safeguard settings
+      setVal('cfg_jukebox_queue_depth', c.jukebox_queue_depth);
+      setVal('cfg_jukebox_sequence_request_limit', c.jukebox_sequence_request_limit);
+      setChk('cfg_prevent_multiple_requests', c.prevent_multiple_requests);
+      setChk('cfg_prevent_multiple_votes', c.prevent_multiple_votes);
+      setChk('cfg_reset_votes_after_round', c.reset_votes_after_round);
+      setChk('cfg_play_psa_enabled', c.play_psa_enabled);
+      setVal('cfg_psa_frequency', c.psa_frequency);
+      setChk('cfg_check_viewer_present', c.check_viewer_present);
+      setVal('cfg_show_latitude', c.show_latitude);
+      setVal('cfg_show_longitude', c.show_longitude);
+      setVal('cfg_check_radius_miles', c.check_radius_miles);
+      setVal('cfg_hide_sequence_after_played', c.hide_sequence_after_played);
+      setVal('cfg_blocked_ips', c.blocked_ips || '');
+    }
+
+    function setVal(id, v) {
+      const el = document.getElementById(id);
+      if (el) el.value = v ?? '';
+    }
+    function setChk(id, v) {
+      const el = document.getElementById(id);
+      if (el) el.checked = !!v;
+    }
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.dataset.tab === name));
+    }
+
+    async function saveSetting(key, value) {
+      const body = {};
+      body[key] = value;
+      const r = await api('/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        alert('Failed to save ' + key);
+      }
+    }
+
+    async function detectMyLocation() {
+      if (!navigator.geolocation) {
+        alert('Your browser does not support geolocation');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          document.getElementById('cfg_show_latitude').value = lat.toFixed(6);
+          document.getElementById('cfg_show_longitude').value = lng.toFixed(6);
+          await saveSetting('show_latitude', lat);
+          await saveSetting('show_longitude', lng);
+          alert('Location saved: ' + lat.toFixed(6) + ', ' + lng.toFixed(6));
+        },
+        (err) => {
+          alert('Could not get location: ' + err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+
+    function updateViewerControlBadge(mode) {
+      const badge = document.getElementById('viewerControlStatus');
+      const btn = document.getElementById('toggleViewerBtn');
+      if (!badge) return;
+
+      if (mode === 'OFF') {
+        badge.textContent = 'OFF';
+        badge.style.background = '#7f1d1d';
+        badge.style.color = '#fecaca';
+        if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
+      } else {
+        badge.textContent = 'ON · ' + mode;
+        badge.style.background = '#065f46';
+        badge.style.color = '#a7f3d0';
+        if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+      }
+    }
+
+    async function toggleViewerControl() {
+      const current = document.getElementById('modeSelect').value;
+      const next = (current === 'OFF') ? 'ON-RESTORE' : 'OFF';
+      // "ON-RESTORE" means: use whatever mode the select dropdown is set to IF non-OFF,
+      // otherwise fall back to VOTING. We resolve this on the client to keep admin simple.
+      if (next === 'OFF') {
+        await updateMode('OFF');
+      } else {
+        // Go to the dropdown's non-OFF value; if dropdown is OFF, default to VOTING
+        const dropdown = document.getElementById('modeSelect').value;
+        const restored = dropdown === 'OFF' ? 'VOTING' : dropdown;
+        document.getElementById('modeSelect').value = restored;
+        await updateMode(restored);
+      }
+      await loadConfig();
+    }
+
+    async function loadStats() {
+      const r = await api('/stats');
+      if (!r.ok) return;
+      document.getElementById('statActive').textContent = r.data.activeViewers;
+      document.getElementById('statTotal').textContent = r.data.totalViewers;
+      document.getElementById('statVotes').textContent = r.data.totalVotes;
+      document.getElementById('statQueue').textContent = r.data.queueLength;
+      document.getElementById('statPlays').textContent = r.data.totalPlays;
+      const tbody = document.getElementById('topBody');
+      tbody.innerHTML = '';
+      (r.data.topSequences || []).forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    let sequencesCache = [];
+
+    async function loadSequences() {
+      const r = await api('/sequences');
+      if (!r.ok) return;
+      sequencesCache = r.data;
+      document.getElementById('sequenceCount').textContent = `(${r.data.length})`;
+      const tbody = document.getElementById('sequencesBody');
+      tbody.innerHTML = '';
+      r.data.forEach(seq => {
+        tbody.appendChild(buildSequenceRow(seq));
+      });
+    }
+
+    function buildSequenceRow(seq) {
+      const tr = document.createElement('tr');
+      tr.draggable = true;
+      tr.dataset.id = seq.id;
+
+      const art = seq.image_url
+        ? `<img class="art-thumb" src="${escapeAttr(seq.image_url)}" onclick="promptImageUrl(${seq.id}, ${JSON.stringify(seq.image_url || '').replace(/"/g,'&quot;')})" title="Click to change artwork" />`
+        : `<div class="art-placeholder" onclick="promptImageUrl(${seq.id}, '')" title="Click to add artwork">+</div>`;
+
+      tr.innerHTML = `
+        <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
+        <td>${art}</td>
+        <td><span class="editable" contenteditable="true"
+                  onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
+        <td><code>${escapeHtml(seq.name)}</code></td>
+        <td><span class="editable" contenteditable="true"
+                  onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
+        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td><button class="danger" onclick="delSeq(${seq.id})">Delete</button></td>
+      `;
+
+      // Drag handlers
+      tr.addEventListener('dragstart', onDragStart);
+      tr.addEventListener('dragover', onDragOver);
+      tr.addEventListener('dragleave', onDragLeave);
+      tr.addEventListener('drop', onDrop);
+      tr.addEventListener('dragend', onDragEnd);
+
+      return tr;
+    }
+
+    function escapeAttr(s) {
+      return String(s || '').replace(/"/g, '&quot;');
+    }
+
+    async function updateSeqField(id, field, value) {
+      const trimmed = typeof value === 'string' ? value.trim() : value;
+      await api('/sequences/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: trimmed }),
+      });
+      // Update local cache silently; don't reload to avoid yanking the user's focus
+      const seq = sequencesCache.find(s => s.id === id);
+      if (seq) seq[field] = trimmed;
+    }
+
+    async function promptImageUrl(id, current) {
+      const url = prompt('Artwork image URL (leave blank to remove):', current || '');
+      if (url === null) return;
+      await updateSeqField(id, 'image_url', url);
+      loadSequences();
+    }
+
+    // ======= Drag-and-drop reorder =======
+    let draggedRow = null;
+
+    function onDragStart(e) {
+      draggedRow = this;
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function onDragOver(e) {
+      e.preventDefault();
+      if (!draggedRow || this === draggedRow) return;
+      const rect = this.getBoundingClientRect();
+      const midpoint = rect.top + rect.height / 2;
+      this.classList.remove('drag-over-top', 'drag-over-bottom');
+      if (e.clientY < midpoint) this.classList.add('drag-over-top');
+      else this.classList.add('drag-over-bottom');
+    }
+
+    function onDragLeave() {
+      this.classList.remove('drag-over-top', 'drag-over-bottom');
+    }
+
+    function onDrop(e) {
+      e.preventDefault();
+      if (!draggedRow || this === draggedRow) return;
+      const rect = this.getBoundingClientRect();
+      const midpoint = rect.top + rect.height / 2;
+      const parent = this.parentNode;
+      if (e.clientY < midpoint) parent.insertBefore(draggedRow, this);
+      else parent.insertBefore(draggedRow, this.nextSibling);
+      this.classList.remove('drag-over-top', 'drag-over-bottom');
+      persistOrder();
+    }
+
+    function onDragEnd() {
+      this.classList.remove('dragging');
+      document.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over-top', 'drag-over-bottom'));
+      draggedRow = null;
+    }
+
+    async function persistOrder() {
+      const ids = Array.from(document.querySelectorAll('#sequencesBody tr')).map(tr => Number(tr.dataset.id));
+      const r = await api('/sequences/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!r.ok) {
+        alert('Failed to save new order');
+        loadSequences();
+      }
+    }
+
+    // ======= Bulk actions =======
+    async function sortSequencesAlphabetically() {
+      if (!confirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to FPP playlist position).')) return;
+      const r = await api('/sequences/sort-alphabetically', { method: 'POST' });
+      if (r.ok) loadSequences();
+      else alert('Sort failed');
+    }
+
+    async function deleteInactiveSequences() {
+      // "Inactive" = not visible AND not votable AND not jukeboxable
+      if (!confirm('Delete all sequences that are NOT visible, NOT votable, and NOT jukeboxable?')) return;
+      const r = await api('/sequences/delete-inactive', { method: 'POST' });
+      if (r.ok) {
+        alert('Deleted ' + (r.data.deleted || 0) + ' sequence(s)');
+        loadSequences();
+      } else {
+        alert('Delete failed');
+      }
+    }
+
+    async function loadToken() {
+      const r = await api('/show-token');
+      if (!r.ok) return;
+      document.getElementById('showToken').value = r.data.showToken;
+      const base = window.location.origin;
+      document.getElementById('pluginUrl').textContent = base;
+    }
+
+    async function updateMode(mode) {
+      await api('/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewer_control_mode: mode }),
+      });
+      updateViewerControlBadge(mode);
+      loadStats();
+    }
+
+    async function resetVotes() {
+      if (!confirm('Reset all votes for current round?')) return;
+      await api('/reset-votes', { method: 'POST' });
+      loadStats();
+    }
+
+    async function purgeQueue() {
+      if (!confirm('Delete all pending jukebox requests?')) return;
+      await api('/purge-queue', { method: 'POST' });
+      loadStats();
+    }
+
+    async function addSequence() {
+      const name = document.getElementById('newSeqName').value.trim();
+      const display_name = document.getElementById('newSeqDisplay').value.trim();
+      const artist = document.getElementById('newSeqArtist').value.trim();
+      if (!name || !display_name) return alert('FPP name and display name required');
+      const r = await api('/sequences', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, display_name, artist }),
+      });
+      if (r.ok) {
+        document.getElementById('newSeqName').value = '';
+        document.getElementById('newSeqDisplay').value = '';
+        document.getElementById('newSeqArtist').value = '';
+        loadSequences();
+      } else {
+        alert(r.data?.error || 'Failed to add');
+      }
+    }
+
+    async function delSeq(id) {
+      if (!confirm('Delete this sequence?')) return;
+      await api('/sequences/' + id, { method: 'DELETE' });
+      loadSequences();
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    checkAuth();
+    setInterval(() => { if (!document.getElementById('appView').classList.contains('hidden')) loadStats(); }, 5000);
+
+    // Listen for external mode changes (FPP scheduler commands, other admin tabs, etc.)
+    try {
+      const adminSocketScript = document.createElement('script');
+      adminSocketScript.src = '/socket.io/socket.io.js';
+      adminSocketScript.onload = () => {
+        try {
+          const socket = io();
+          socket.on('viewerModeChanged', (data) => {
+            if (data && data.mode) {
+              document.getElementById('modeSelect').value = data.mode;
+              updateViewerControlBadge(data.mode);
+            }
+          });
+        } catch (e) { /* non-fatal */ }
+      };
+      document.head.appendChild(adminSocketScript);
+    } catch (e) { /* socket.io is a nice-to-have */ }
+
+    // ============================================================
+    // Viewer Page Templates + Monaco editor
+    // ============================================================
+    let monacoEditor = null;
+    let templates = [];
+    let selectedTplId = null;
+    let loadedContent = '';
+
+    function initMonacoIfNeeded() {
+      if (monacoEditor) return Promise.resolve();
+      return new Promise((resolve) => {
+        if (typeof require === 'undefined') return resolve();
+        require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.45.0/min/vs' } });
+        require(['vs/editor/editor.main'], () => {
+          monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
+            value: '',
+            language: 'html',
+            theme: 'vs-dark',
+            automaticLayout: true,
+            wordWrap: 'on',
+            minimap: { enabled: false },
+            fontSize: 13,
+          });
+          resolve();
+        });
+      });
+    }
+
+    async function loadTemplates() {
+      const r = await api('/templates');
+      if (!r.ok) return;
+      templates = r.data;
+      renderTemplateList();
+      // If nothing selected yet, load the active one
+      if (selectedTplId === null) {
+        const active = templates.find(t => t.is_active) || templates[0];
+        if (active) selectTemplate(active.id);
+      }
+    }
+
+    function renderTemplateList() {
+      const list = document.getElementById('templateList');
+      list.innerHTML = '';
+      templates.forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'tpl-item' + (t.id === selectedTplId ? ' selected' : '');
+        const activeBadge = t.is_active ? '<span class="tpl-badge">ACTIVE</span>' : '';
+        const builtinBadge = t.is_builtin ? '<span class="tpl-badge builtin">BUILT-IN</span>' : '';
+        div.innerHTML = `<span style="flex:1;">${escapeHtml(t.name)}</span>${activeBadge}${builtinBadge}`;
+        div.onclick = () => selectTemplate(t.id);
+        list.appendChild(div);
+      });
+    }
+
+    async function selectTemplate(id) {
+      if (selectedTplId !== null && monacoEditor) {
+        const current = monacoEditor.getValue();
+        if (current !== loadedContent) {
+          if (!confirm('Unsaved changes to the current template will be lost. Continue?')) return;
+        }
+      }
+      selectedTplId = id;
+      await initMonacoIfNeeded();
+      const r = await api('/templates/' + id);
+      if (!r.ok) return;
+      document.getElementById('tplName').value = r.data.name;
+      loadedContent = r.data.html;
+      monacoEditor.setValue(loadedContent);
+
+      const meta = document.getElementById('tplMeta');
+      const flags = [];
+      if (r.data.is_active) flags.push('active');
+      if (r.data.is_builtin) flags.push('built-in');
+      meta.textContent = flags.length ? '· ' + flags.join(' · ') : '';
+
+      // Button states
+      document.getElementById('tplActivateBtn').disabled = !!r.data.is_active;
+      document.getElementById('tplSaveBtn').disabled = false;
+      document.getElementById('tplDupBtn').disabled = false;
+      document.getElementById('tplDeleteBtn').disabled = r.data.is_active || r.data.is_builtin;
+
+      renderTemplateList();
+    }
+
+    async function saveTemplate() {
+      if (selectedTplId === null) return;
+      const name = document.getElementById('tplName').value.trim();
+      const html = monacoEditor.getValue();
+      if (!name) { alert('Template name required'); return; }
+      const r = await api('/templates/' + selectedTplId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, html }),
+      });
+      if (r.ok) {
+        loadedContent = html;
+        await loadTemplates();
+      } else {
+        alert('Save failed');
+      }
+    }
+
+    async function activateTemplate() {
+      if (selectedTplId === null) return;
+      const r = await api('/templates/' + selectedTplId + '/activate', { method: 'POST' });
+      if (r.ok) await loadTemplates();
+      else alert('Activate failed');
+    }
+
+    async function duplicateTemplate() {
+      if (selectedTplId === null) return;
+      const r = await api('/templates/' + selectedTplId + '/duplicate', { method: 'POST' });
+      if (r.ok) {
+        await loadTemplates();
+        selectTemplate(r.data.id);
+      }
+    }
+
+    async function deleteTemplate() {
+      if (selectedTplId === null) return;
+      const current = templates.find(t => t.id === selectedTplId);
+      if (!current) return;
+      if (!confirm(`Delete template "${current.name}"?`)) return;
+      const r = await api('/templates/' + selectedTplId, { method: 'DELETE' });
+      if (r.ok) {
+        selectedTplId = null;
+        await loadTemplates();
+      } else {
+        alert('Delete failed: ' + (r.data?.error || 'unknown'));
+      }
+    }
+
+    async function newTemplate() {
+      const name = prompt('Name for new template?', 'New Template');
+      if (!name) return;
+      const starter = `<!DOCTYPE html>
+<html>
+<head><title>${escapeHtml(name)}</title></head>
+<body>
+  <h1>{NOW_PLAYING}</h1>
+  <div {playlist-voting-dynamic-container}>
+    <h2>Vote for a song:</h2>
+    <div class="voting_table">{PLAYLISTS}</div>
+  </div>
+  <div {jukebox-dynamic-container}>
+    <h2>Pick a song:</h2>
+    <div class="jukebox_table">{PLAYLISTS}</div>
+    <h3>Queue</h3>
+    {JUKEBOX_QUEUE}
+  </div>
+  <div id="requestSuccessful" style="display:none;">Added!</div>
+  <div id="requestFailed" style="display:none;">Error</div>
+  <div id="alreadyVoted" style="display:none;">Already voted</div>
+</body>
+</html>`;
+      const r = await api('/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, html: starter }),
+      });
+      if (r.ok) {
+        await loadTemplates();
+        selectTemplate(r.data.id);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "openfalcon",
+  "version": "0.6.1",
+  "description": "Self-hosted light show viewer control server. Falcon Player (FPP) plugin compatible. Replaces Remote Falcon for self-hosters.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/frankietest6/openfalcon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/frankietest6/openfalcon/issues"
+  },
+  "homepage": "https://github.com/frankietest6/openfalcon#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1"
+  }
+}

@@ -353,7 +353,13 @@ router.get('/now-playing-audio', (req, res) => {
 // Audio proxy — fetches the file from FPP, streams it through. Supports HTTP
 // Range requests so the browser audio element can seek/resume properly.
 router.get('/audio-stream/:sequence', async (req, res) => {
-  const seq = getSequenceByName(req.params.sequence);
+  // Case-insensitive lookup in case viewer page or admin renamed the sequence
+  // with different casing than what we have in DB.
+  const reqName = String(req.params.sequence || '');
+  let seq = getSequenceByName(reqName);
+  if (!seq) {
+    seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
+  }
   if (!seq || !seq.media_name) {
     return res.status(404).send('Audio not available for this sequence');
   }

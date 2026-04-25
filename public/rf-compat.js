@@ -544,19 +544,32 @@
 
       stopAudio();
 
-      // Determine stream URL — prefer direct daemon, fall back to proxy
-      const streamUrl = data.directStreamUrl || data.streamUrl;
-      if (!streamUrl) {
+      // Try direct daemon URL first, fall back to OpenFalcon proxy if it fails
+      const candidateUrls = [];
+      if (data.directStreamUrl) candidateUrls.push(data.directStreamUrl);
+      if (data.streamUrl) candidateUrls.push(window.location.origin + data.streamUrl);
+      if (candidateUrls.length === 0) {
         statusEl.textContent = 'No audio source';
         return;
       }
 
       try {
         statusEl.textContent = 'Downloading…';
-        const fullUrl = streamUrl.startsWith('http') ? streamUrl : (window.location.origin + streamUrl);
-        const audioRes = await fetch(fullUrl);
-        if (!audioRes.ok) throw new Error('HTTP ' + audioRes.status);
-        const arrayBuf = await audioRes.arrayBuffer();
+        let arrayBuf = null;
+        let lastErr = null;
+        for (const url of candidateUrls) {
+          try {
+            const audioRes = await fetch(url);
+            if (!audioRes.ok) throw new Error('HTTP ' + audioRes.status);
+            arrayBuf = await audioRes.arrayBuffer();
+            break;
+          } catch (err) {
+            lastErr = err;
+            console.warn('Stream fetch failed for', url, err);
+          }
+        }
+        if (!arrayBuf) throw lastErr || new Error('All sources failed');
+
         statusEl.textContent = 'Decoding…';
         currentBuffer = await audioCtx.decodeAudioData(arrayBuf);
         statusEl.textContent = 'Syncing…';

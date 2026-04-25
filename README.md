@@ -9,10 +9,96 @@ OpenFalcon pairs with a Falcon Player (FPP) plugin to let your visitors:
 
 You get an admin dashboard with stats, queue management, sequence configuration, viewer-page editor, theming, and multi-user authentication.
 
+> **Migrating from Remote Falcon?** OpenFalcon's viewer page renderer is **fully compatible with Remote Falcon templates**. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into OpenFalcon's editor and it just works — no template rewrite needed.
+
+---
+
+## Features
+
+### Visitor experience
+
+- **Voting & Jukebox modes** — switch between letting viewers vote for the next sequence or queue songs to play in order
+- **Listen-on-Phone audio player** — built-in web audio streaming directly from FPP. Visitors hear synchronized show audio on their phones with no native app, no extra service, no Icecast setup. Works on iOS Safari, Android Chrome, and desktop browsers
+- **Mobile-first viewer page** — designed for cold winter hands tapping with gloves. Large hit targets, high-contrast cards, marquee-scrolling long titles, optional snow effects, optional themed player decorations (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's, Hanukkah, Thanksgiving, generic snow)
+- **Cover art support** — automatic MusicBrainz/iTunes cover lookup per sequence with admin override, displayed inline on song cards
+- **Now Playing + Up Next** — real-time updates pushed via Socket.io, plus polled fallback for slower connections
+
+### Visual page designer
+
+- **Three editing modes** — pick what fits your comfort level:
+  - **Settings mode**: form-based editor for show name, colors, fonts, hours, social links, FM frequency. No HTML knowledge required
+  - **Blocks mode**: drag-and-drop sections (Hero, Now Playing, Queue, Vote/Jukebox instructions, Song List, Location Code, Social Links, Custom HTML) onto a canvas. Reorder by dragging or with arrow buttons
+  - **Code mode**: full Monaco editor for hand-written HTML. Standard Remote Falcon placeholders supported
+- **Live preview iframe** — see your changes update next to the editor as you type, before committing
+- **Drafts** — edits save as drafts automatically (debounced 500ms). Visitors keep seeing the live page until you click Save Changes
+- **Multiple templates** — keep separate templates for Christmas vs Halloween, switch with one click
+- **Built-in starter templates** — Christmas/Halloween mobile-first templates included
+
+### Audio & copyright safeguards
+
+- **GPS audio gate (optional)** — restrict audio playback to listeners physically present at your show. Tapping the 🎧 button forces a fresh GPS check (cached location won't bypass it). Re-verifies every 15 minutes during playback to catch listeners who walked away
+- **Refresh-to-recover latch** — once the gate trips, audio stays blocked until the page is refreshed. Prevents auto-resume when admin toggles control modes
+- **External audio access** — set your public domain so listeners on cellular can stream the audio without VPN. Local listeners still use the direct path for best performance
+- **Watermarking ready** — direct stream URL exposed for use with external watermarking tools if your jurisdiction requires it
+
+### Location tools
+
+- **Address-to-coordinates lookup** — type any address ("1234 Main St, Branson MO"), click Find Coordinates, lat/lng auto-fill. Powered by OpenStreetMap Nominatim
+- **Detect-my-location button** — uses browser GPS to set show coordinates if you're at the venue
+- **Visual map preview** — embedded OpenStreetMap shows exactly where your coordinates point, scales to your radius. Verify your config without leaving admin
+
+### FPP integration
+
+- **Plugin auto-discovery** — install the OpenFalcon plugin from the FPP plugin manager. Plugin handshakes with the server, syncs sequences, reports playing status
+- **Sequence playlist sync** — playlists pulled from FPP, displayed and reorderable in admin
+- **Sequence control** — start/stop/skip from admin. Test triggers. Stats per sequence
+- **Mid-track resume** — when a viewer-requested song interrupts the original, resuming the original picks up at the correct elapsed position (not the start)
+- **PSA injection** — auto-inject PSAs (sponsor messages, holiday greetings) every N interactions
+
+### Admin & operations
+
+- **Multi-user authentication** — username + password, bcrypt hashed, JWT session cookies. Per-user "remember me" (30-day cookie or session-only). Force-password-change flag for new accounts
+- **User management** — add/edit/disable/delete users. Self-protection: can't disable yourself, can't delete the last user
+- **Themes** — Stage·Dark, Stage·Light, plus seasonal themes (Easter, St. Patrick's, Independence Day, Valentine's, Hanukkah, Thanksgiving) for the admin UI
+- **Sequence snapshots** — save your current playlist configuration (display names, artists, sort order, visibility) as a named snapshot. Restore later when switching seasons. Non-destructive: preserves play history, vote stats, queue state
+- **Live stats dashboard** — votes per round, jukebox queue depth, plays per sequence, last-played times, viewer count
+- **IP blocking** — block individual IPs or CIDR ranges. Useful when one user gets too enthusiastic with the request button
+- **Per-sequence visibility/votability/jukeboxability** — fine-grained control over what shows up where
+- **Auto-fill song info** — looks up sequence titles online to populate display name + artist automatically (no more "JinglePopXmas2019_v3.fseq" shown to viewers)
+- **GPS proximity check** — separate from the audio gate; restricts who can vote/queue based on their physical location
+- **PSA frequency control** — drop in promotional or sponsor announcements every N interactions
+- **Configurable request limits** — per-viewer cap on jukebox requests per session (1-20)
+- **Real-time plugin status** — admin header shows whether FPP plugin is connected and last sync time
+
+### Self-hosted, owned, free
+
+- **No cloud dependency** — runs on a Pi, a NAS, a VM, anywhere with Node.js
+- **SQLite database** — single file, easy backup, no separate database server
+- **Open source** — MIT-licensed, hackable, no vendor lock-in
+- **No telemetry** — your data stays on your hardware
+
+---
+
+## ⚠️ Important: HTTPS is required for geolocation features
+
+The viewer page uses browser geolocation APIs for the **GPS audio gate** and **GPS proximity check**. **Browsers refuse to expose location data on insecure (`http://`) origins** — this is a hardcoded security restriction, not something OpenFalcon controls.
+
+If you plan to use any location-based feature, you **must** serve OpenFalcon over HTTPS. Options:
+
+- **Nginx Proxy Manager** (easiest) with a Let's Encrypt cert — point it at OpenFalcon on port 3100
+- **Caddy** with automatic HTTPS — single-line reverse proxy config
+- **Cloudflare Tunnel** — free TLS without opening ports
+- **Standalone reverse proxy** (Nginx/Apache) with your own cert
+
+Localhost (`http://localhost:3100` or `http://127.0.0.1:3100`) is also exempt from this restriction, so local development works without HTTPS. But anything visitors hit needs a cert.
+
+If you don't use any location features, plain HTTP is fine.
+
 ---
 
 ## Quick links
 
+- [Features](#features)
 - [Requirements](#requirements)
 - [Install on Linux (Debian/Ubuntu/Raspberry Pi OS)](#install--linux-debian--ubuntu--raspberry-pi-os)
 - [Install on Linux (RHEL/Fedora/Rocky/Alma)](#install--linux-rhel--fedora--rocky--alma)

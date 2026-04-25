@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.11</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.12</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1046,7 +1046,7 @@
           <div class="row">
             <div style="flex: 1;">
               <label for="cfg_player_decoration">Decoration theme</label>
-              <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value)">
+              <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value); updatePlayerCustomColorVisibility();">
                 <option value="none">None</option>
                 <option value="christmas">🎄 Christmas — string lights</option>
                 <option value="halloween">🎃 Halloween — bats &amp; pumpkins</option>
@@ -1058,6 +1058,26 @@
                 <option value="thanksgiving">🍂 Thanksgiving — autumn leaves</option>
                 <option value="snow">❄️ Snow (winter generic)</option>
               </select>
+            </div>
+          </div>
+          <div class="row" id="cfg_player_custom_color_row" style="display:none;">
+            <div style="flex: 1;">
+              <label for="cfg_player_custom_color">Custom player bar color (only used when decoration is "None")</label>
+              <div style="display:flex; gap:0.5rem; align-items:center;">
+                <input type="color" id="cfg_player_custom_color"
+                       style="width:60px; height:38px; padding:2px; cursor:pointer;"
+                       onchange="saveSetting('player_custom_color', this.value); document.getElementById('cfg_player_custom_color_text').value = this.value;" />
+                <input type="text" id="cfg_player_custom_color_text" placeholder="#1a1a2e or empty for default"
+                       style="flex:1;"
+                       onchange="document.getElementById('cfg_player_custom_color').value = this.value || '#1a1a2e'; saveSetting('player_custom_color', this.value);" />
+                <button class="secondary" type="button"
+                        onclick="document.getElementById('cfg_player_custom_color').value = '#1a1a2e'; document.getElementById('cfg_player_custom_color_text').value = ''; saveSetting('player_custom_color', '');">
+                  Reset to default
+                </button>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
+                Leave empty for the default dark player. Useful when you have a themed viewer page and want the player to match.
+              </p>
             </div>
           </div>
           <div class="row">
@@ -1329,6 +1349,18 @@
       setVal('cfg_player_decoration', c.player_decoration || 'none');
       setChk('cfg_player_decoration_animated', c.player_decoration_animated);
       setChk('cfg_page_snow_enabled', c.page_snow_enabled);
+      const customColor = c.player_custom_color || '';
+      setVal('cfg_player_custom_color_text', customColor);
+      const colorInput = document.getElementById('cfg_player_custom_color');
+      if (colorInput) colorInput.value = customColor || '#1a1a2e';
+      updatePlayerCustomColorVisibility();
+    }
+
+    function updatePlayerCustomColorVisibility() {
+      const sel = document.getElementById('cfg_player_decoration');
+      const row = document.getElementById('cfg_player_custom_color_row');
+      if (!sel || !row) return;
+      row.style.display = (sel.value === 'none') ? '' : 'none';
     }
 
     function setVal(id, v) {

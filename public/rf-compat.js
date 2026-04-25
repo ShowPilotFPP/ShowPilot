@@ -444,7 +444,7 @@
       backdrop-filter: blur(8px);
     `;
     panel.innerHTML = `
-      <div style="max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: center;">
+      <div style="max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: center; position: relative; z-index: 2;">
         <img id="of-listen-cover" src="" alt=""
              style="width: 48px; height: 48px; border-radius: 6px; object-fit: cover;
                     background: #333; flex-shrink: 0;" />
@@ -650,7 +650,7 @@
         clockOffset = data.serverNowMs - reqEnd + oneWayLatency;
 
         // Apply decoration theme (cheap — only does work if it changed)
-        applyDecoration(data.playerDecoration, data.playerDecorationAnimated);
+        applyDecoration(data.playerDecoration, data.playerDecorationAnimated, data.playerCustomColor);
 
         // Track changed?
         if (data.sequenceName !== currentSequence) {
@@ -784,14 +784,17 @@
     // ---- Player decoration ----
     let currentDecoration = null;
     let currentDecorationAnimated = null;
+    let currentCustomColor = null;
     let decoLayer = null;
 
-    function applyDecoration(theme, animated) {
+    function applyDecoration(theme, animated, customColor) {
       theme = theme || 'none';
       animated = (animated !== false);
-      if (theme === currentDecoration && animated === currentDecorationAnimated) return;
+      const customColorKey = customColor || '';
+      if (theme === currentDecoration && animated === currentDecorationAnimated && customColorKey === currentCustomColor) return;
       currentDecoration = theme;
       currentDecorationAnimated = animated;
+      currentCustomColor = customColorKey;
 
       // Update panel theme class — strip all existing of-theme-* and add new one
       panel.className = panel.className.split(/\s+/)
@@ -799,23 +802,32 @@
         .join(' ').trim();
       if (theme !== 'none') {
         panel.classList.add('of-theme-' + theme);
+        panel.style.backgroundImage = '';  // clear any custom override
+      } else if (customColorKey) {
+        // Apply custom color when no theme + admin set a color
+        panel.style.backgroundImage = 'none';
+        panel.style.backgroundColor = customColorKey;
+      } else {
+        panel.style.backgroundImage = '';
+        panel.style.backgroundColor = '';
       }
 
       // Create overlay layer if missing.
-      // Sits ABOVE the player panel as a banner — taller decorations like bats
-      // and falling leaves need vertical space. The themed player bar gives them
-      // a colored backdrop so they read clearly.
+      // Lives INSIDE the player bar (top:0, left:0, full width/height) so the
+      // colored player background gives decorations contrast. overflow:visible
+      // so animations like falling leaves can spill below the player edge.
       if (!decoLayer) {
         decoLayer = document.createElement('div');
         decoLayer.id = 'of-deco';
         decoLayer.style.cssText = `
-          position: absolute; top: -36px; left: 0; right: 0;
-          height: 40px; pointer-events: none; overflow: visible;
-          z-index: 10000;
+          position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+          pointer-events: none; overflow: visible;
+          z-index: 0;
         `;
         panel.style.position = panel.style.position || 'fixed';
         panel.style.overflow = 'visible';
-        panel.appendChild(decoLayer);
+        // Insert decoration as the FIRST child so player content sits on top
+        panel.insertBefore(decoLayer, panel.firstChild);
       }
 
       // Honor user's prefers-reduced-motion at OS level
@@ -847,8 +859,8 @@
     // ---- Decoration renderers (each returns HTML string) ----
 
     function christmasLights(animClass) {
-      // Realistic string lights: SVG bulbs with radial gradients, bright glow
-      // when twinkling, dark caps where they screw into the wire.
+      // String of bulbs across the TOP edge of the player, hanging down slightly.
+      // Wire sits at top:0 (player edge), bulbs hang from it into the player area.
       const colors = [
         { core: '#fff5f0', mid: '#ef4444', edge: '#7f1d1d' }, // red
         { core: '#fffbeb', mid: '#facc15', edge: '#854d0e' }, // gold
@@ -856,7 +868,7 @@
         { core: '#eff6ff', mid: '#3b82f6', edge: '#1e3a8a' }, // blue
         { core: '#faf5ff', mid: '#a855f7', edge: '#581c87' }, // purple
       ];
-      const count = 16;
+      const count = 18;
       let bulbs = '';
       for (let i = 0; i < count; i++) {
         const left = (i / (count - 1)) * 100;
@@ -864,7 +876,7 @@
         const delay = ((i * 0.23) % 2.0).toFixed(2);
         const id = 'ofg' + i;
         bulbs += `
-          <svg class="of-bulb${animClass}" viewBox="0 0 14 22" width="20" height="32"
+          <svg class="of-bulb${animClass}" viewBox="0 0 14 22" width="18" height="28"
                style="left:${left}%;animation-delay:${delay}s;--bulb-color:${c.mid};">
             <defs>
               <radialGradient id="${id}" cx="35%" cy="40%" r="60%">
@@ -882,13 +894,13 @@
       return `
         <style>
           #of-deco .of-wire {
-            position:absolute; top:14px; left:0; right:0; height:2px;
+            position:absolute; top:6px; left:0; right:0; height:2px;
             background: linear-gradient(180deg, #1f2937 0%, #0f172a 100%);
             border-radius: 1px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.5);
           }
           #of-deco .of-bulb {
-            position:absolute; top:6px; transform:translateX(-50%);
+            position:absolute; top:0; transform:translateX(-50%);
             filter: drop-shadow(0 0 6px var(--bulb-color));
           }
           #of-deco .of-bulb.of-deco-animate {
@@ -905,9 +917,8 @@
     }
 
     function halloweenSpooky(animClass) {
-      // Real bat SVGs flapping wings + flying across; pumpkin SVGs in corners
       const batSvg = `
-        <svg viewBox="0 0 40 24" width="44" height="26">
+        <svg viewBox="0 0 40 24" width="42" height="25">
           <g fill="#0a0a0a">
             <ellipse cx="20" cy="14" rx="3.5" ry="4"/>
             <path class="of-wing-l" d="M 17,12 Q 8,6 0,8 Q 4,11 6,16 Q 2,18 4,22 Q 10,18 14,18 Q 17,18 17,16 Z"
@@ -920,7 +931,7 @@
           </g>
         </svg>`;
       const pumpkinSvg = `
-        <svg viewBox="0 0 24 22" width="36" height="33">
+        <svg viewBox="0 0 24 22" width="34" height="32">
           <defs>
             <radialGradient id="ofPump" cx="40%" cy="40%" r="60%">
               <stop offset="0%" stop-color="#fb923c"/>
@@ -940,7 +951,7 @@
         <style>
           #of-deco .of-bat {
             position:absolute; top:8px; left:-50px;
-            filter: drop-shadow(0 0 4px rgba(168,85,247,0.6));
+            filter: drop-shadow(0 0 5px rgba(168,85,247,0.7));
           }
           #of-deco .of-bat.of-deco-animate { animation: ofBatFly 9s linear infinite; }
           #of-deco .of-bat.of-deco-animate .of-wing-l { animation: ofWingL 0.25s ease-in-out infinite; }
@@ -948,20 +959,20 @@
           @keyframes ofBatFly {
             0%   { transform: translateX(0)    translateY(0)  scale(0.8); opacity:0; }
             5%   { opacity: 1; }
-            25%  { transform: translateX(28vw) translateY(-8px) scale(0.95); }
-            50%  { transform: translateX(55vw) translateY(4px)  scale(1.1); }
-            75%  { transform: translateX(80vw) translateY(-6px) scale(0.95); }
+            25%  { transform: translateX(28vw) translateY(-6px) scale(0.95); }
+            50%  { transform: translateX(55vw) translateY(8px)  scale(1.05); }
+            75%  { transform: translateX(80vw) translateY(-4px) scale(0.95); }
             95%  { opacity: 1; }
             100% { transform: translateX(110vw) translateY(0)   scale(0.8); opacity:0; }
           }
           @keyframes ofWingL { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(0.4); } }
           @keyframes ofWingR { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(0.4); } }
           #of-deco .of-pumpkin {
-            position:absolute; top:4px;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+            position:absolute; bottom:6px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
           }
-          #of-deco .of-pumpkin.left { left:8px; }
-          #of-deco .of-pumpkin.right { right:8px; }
+          #of-deco .of-pumpkin.left  { left: 8px;  }
+          #of-deco .of-pumpkin.right { right: 8px; }
           #of-deco .of-pumpkin.of-deco-animate { animation: ofPumpBob 2.8s ease-in-out infinite; }
           @keyframes ofPumpBob {
             0%, 100% { transform: translateY(0) rotate(-5deg); }
@@ -977,30 +988,31 @@
     }
 
     function easterEggs(animClass) {
-      // Pastel decorated eggs with stripes + dots
       const eggColors = [
-        { body: '#fbcfe8', stripe: '#ec4899' },  // pink
-        { body: '#bae6fd', stripe: '#0284c7' },  // blue
-        { body: '#bbf7d0', stripe: '#16a34a' },  // green
-        { body: '#fef08a', stripe: '#ca8a04' },  // yellow
-        { body: '#ddd6fe', stripe: '#7c3aed' },  // purple
+        { body: '#fbcfe8', stripe: '#ec4899' },
+        { body: '#bae6fd', stripe: '#0284c7' },
+        { body: '#bbf7d0', stripe: '#16a34a' },
+        { body: '#fef08a', stripe: '#ca8a04' },
+        { body: '#ddd6fe', stripe: '#7c3aed' },
       ];
       let html = `<style>
-        #of-deco { height: 18px; top: -6px; }
-        #of-deco .of-egg { position:absolute; top:0; transform:translateX(-50%); }
+        #of-deco .of-egg {
+          position:absolute; top:6px; transform:translateX(-50%);
+          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+        }
         #of-deco .of-egg.of-deco-animate { animation: ofEggWiggle 2.6s ease-in-out infinite; }
         @keyframes ofEggWiggle {
-          0%,100% { transform: translateX(-50%) rotate(-12deg); }
-          50%     { transform: translateX(-50%) rotate(12deg) translateY(-2px); }
+          0%,100% { transform: translateX(-50%) rotate(-12deg) translateY(0); }
+          50%     { transform: translateX(-50%) rotate(12deg) translateY(-4px); }
         }
       </style>`;
-      const count = 8;
+      const count = 9;
       for (let i = 0; i < count; i++) {
         const left = 6 + (i * 88 / (count - 1));
         const c = eggColors[i % eggColors.length];
         const delay = ((i * 0.32) % 2.6).toFixed(2);
         html += `
-          <svg class="of-egg${animClass}" viewBox="0 0 12 16" width="11" height="14"
+          <svg class="of-egg${animClass}" viewBox="0 0 12 16" width="22" height="28"
                style="left:${left}%;animation-delay:${delay}s;">
             <ellipse cx="6" cy="9" rx="5" ry="6.5" fill="${c.body}"/>
             <path d="M 1.5,8 Q 6,7 10.5,8" stroke="${c.stripe}" stroke-width="0.8" fill="none"/>
@@ -1014,9 +1026,8 @@
     }
 
     function stPatricksClovers(animClass) {
-      // Real shamrock SVG with three rounded leaves
       const cloverSvg = `
-        <svg viewBox="0 0 16 16" width="14" height="14">
+        <svg viewBox="0 0 16 16" width="22" height="22">
           <g fill="#16a34a" stroke="#14532d" stroke-width="0.4">
             <path d="M 8,8 Q 4,4 5,2 Q 7,1 8,4 Z"/>
             <path d="M 8,8 Q 12,4 11,2 Q 9,1 8,4 Z"/>
@@ -1026,19 +1037,18 @@
           </g>
         </svg>`;
       let html = `<style>
-        #of-deco { height: 18px; top: -6px; }
         #of-deco .of-clover {
-          position:absolute; top:1px; transform:translateX(-50%);
-          filter: drop-shadow(0 0 2px rgba(34,197,94,0.4));
+          position:absolute; top:8px; transform:translateX(-50%);
+          filter: drop-shadow(0 0 4px rgba(34,197,94,0.7));
         }
         #of-deco .of-clover.of-deco-animate { animation: ofCloverSpin 5s linear infinite; }
         @keyframes ofCloverSpin {
           0%   { transform: translateX(-50%) rotate(0deg)   scale(1); }
-          50%  { transform: translateX(-50%) rotate(180deg) scale(1.1); }
+          50%  { transform: translateX(-50%) rotate(180deg) scale(1.15); }
           100% { transform: translateX(-50%) rotate(360deg) scale(1); }
         }
       </style>`;
-      const count = 7;
+      const count = 8;
       for (let i = 0; i < count; i++) {
         const left = 7 + (i * 86 / (count - 1));
         const delay = ((i * 0.5) % 5).toFixed(2);
@@ -1048,17 +1058,15 @@
     }
 
     function independenceFireworks(animClass) {
-      // Radial burst pattern — 12 lines fanning out, each its own color
       const colors = ['#ef4444','#3b82f6','#ffffff','#facc15'];
       let html = `<style>
-        #of-deco { height: 30px; top: -12px; overflow: visible; }
         #of-deco .of-burst {
-          position:absolute; top:6px; width:30px; height:30px;
+          position:absolute; top:14px; width:50px; height:50px;
           transform:translateX(-50%);
         }
         #of-deco .of-burst .of-ray {
           position:absolute; top:50%; left:50%;
-          width:14px; height:1.5px;
+          width:24px; height:2px;
           transform-origin: 0 50%;
           border-radius: 1px;
         }
@@ -1069,15 +1077,15 @@
           100% { transform: translateX(-50%) scale(1.4); opacity:0; }
         }
       </style>`;
-      const burstCount = 5;
+      const burstCount = 6;
       for (let b = 0; b < burstCount; b++) {
-        const left = 10 + (b * 80 / (burstCount - 1));
+        const left = 8 + (b * 84 / (burstCount - 1));
         const color = colors[b % colors.length];
-        const delay = ((b * 0.5) % 2.6).toFixed(2);
+        const delay = ((b * 0.45) % 2.6).toFixed(2);
         let rays = '';
         for (let r = 0; r < 12; r++) {
           const angle = r * 30;
-          rays += `<div class="of-ray" style="background:linear-gradient(90deg,${color},transparent);transform:translate(0,-50%) rotate(${angle}deg);"></div>`;
+          rays += `<div class="of-ray" style="background:linear-gradient(90deg,${color},transparent);transform:translate(0,-50%) rotate(${angle}deg);box-shadow:0 0 6px ${color};"></div>`;
         }
         html += `<div class="of-burst${animClass}" style="left:${left}%;animation-delay:${delay}s;">${rays}</div>`;
       }
@@ -1085,9 +1093,8 @@
     }
 
     function valentinesHearts(animClass) {
-      // Proper heart SVG with glossy highlight
       const heartSvg = `
-        <svg viewBox="0 0 16 14" width="14" height="12">
+        <svg viewBox="0 0 16 14" width="22" height="20">
           <defs>
             <radialGradient id="ofHeart" cx="35%" cy="35%" r="65%">
               <stop offset="0%" stop-color="#fbcfe8"/>
@@ -1100,18 +1107,17 @@
           <ellipse cx="5.5" cy="4" rx="1.5" ry="1" fill="rgba(255,255,255,0.5)"/>
         </svg>`;
       let html = `<style>
-        #of-deco { height: 16px; top: -6px; }
         #of-deco .of-heart {
-          position:absolute; top:1px; transform:translateX(-50%);
-          filter: drop-shadow(0 0 2px rgba(236,72,153,0.5));
+          position:absolute; top:8px; transform:translateX(-50%);
+          filter: drop-shadow(0 0 4px rgba(236,72,153,0.7));
         }
         #of-deco .of-heart.of-deco-animate { animation: ofHeartPulse 1.4s ease-in-out infinite; }
         @keyframes ofHeartPulse {
           0%, 100% { transform: translateX(-50%) scale(1); }
-          50%      { transform: translateX(-50%) scale(1.25); }
+          50%      { transform: translateX(-50%) scale(1.3); }
         }
       </style>`;
-      const count = 8;
+      const count = 9;
       for (let i = 0; i < count; i++) {
         const left = 6 + (i * 88 / (count - 1));
         const delay = ((i * 0.18) % 1.4).toFixed(2);
@@ -1121,9 +1127,8 @@
     }
 
     function hanukkahStars(animClass) {
-      // Star of David SVG — two overlapping triangles
       const starSvg = `
-        <svg viewBox="0 0 16 16" width="13" height="13">
+        <svg viewBox="0 0 16 16" width="22" height="22">
           <defs>
             <linearGradient id="ofStar" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stop-color="#dbeafe"/>
@@ -1135,17 +1140,16 @@
           <path d="M 8,15 L 2,4 L 14,4 Z" fill="url(#ofStar)" stroke="#1e3a8a" stroke-width="0.5" opacity="0.85"/>
         </svg>`;
       let html = `<style>
-        #of-deco { height: 18px; top: -6px; }
         #of-deco .of-hstar {
-          position:absolute; top:1px; transform:translateX(-50%);
+          position:absolute; top:8px; transform:translateX(-50%);
         }
         #of-deco .of-hstar.of-deco-animate { animation: ofStarShine 2.2s ease-in-out infinite; }
         @keyframes ofStarShine {
-          0%, 100% { filter: drop-shadow(0 0 1px #60a5fa) brightness(0.9); }
-          50%      { filter: drop-shadow(0 0 7px #60a5fa) brightness(1.2); }
+          0%, 100% { filter: drop-shadow(0 0 2px #60a5fa) brightness(0.9); }
+          50%      { filter: drop-shadow(0 0 12px #60a5fa) brightness(1.3); }
         }
       </style>`;
-      const count = 6;
+      const count = 7;
       for (let i = 0; i < count; i++) {
         const left = 8 + (i * 84 / (count - 1));
         const delay = ((i * 0.35) % 2.2).toFixed(2);
@@ -1155,33 +1159,27 @@
     }
 
     function thanksgivingLeaves(animClass) {
-      // Maple/oak leaves in autumn colors
-      const leafColors = [
-        '#dc2626', // red
-        '#ea580c', // orange
-        '#ca8a04', // gold
-        '#78350f', // dark brown
-      ];
+      const leafColors = ['#dc2626','#ea580c','#ca8a04','#78350f'];
       const leafSvg = (color) => `
-        <svg viewBox="0 0 16 18" width="14" height="16">
+        <svg viewBox="0 0 16 18" width="22" height="25">
           <path d="M 8,1 Q 5,3 5,5 Q 2,5 2,8 Q 4,9 4,11 Q 2,12 3,14 Q 5,14 6,15 L 8,17 L 10,15 Q 11,14 13,14 Q 14,12 12,11 Q 12,9 14,8 Q 14,5 11,5 Q 11,3 8,1 Z"
                 fill="${color}" stroke="#451a03" stroke-width="0.4"/>
           <path d="M 8,17 L 8,5" stroke="#451a03" stroke-width="0.5"/>
         </svg>`;
       let html = `<style>
-        #of-deco { height: 22px; top: -6px; overflow: visible; }
         #of-deco .of-leaf {
           position:absolute; top:-6px; transform:translateX(-50%);
+          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
         }
         #of-deco .of-leaf.of-deco-animate { animation: ofLeafFall 6s ease-in-out infinite; }
         @keyframes ofLeafFall {
           0%   { transform: translateX(-50%) translateY(-12px) rotate(-30deg); opacity:0; }
           15%  { opacity: 1; }
-          50%  { transform: translateX(-30%) translateY(20px)  rotate(60deg);  opacity:0.9; }
-          100% { transform: translateX(-70%) translateY(70px)  rotate(220deg); opacity:0; }
+          50%  { transform: translateX(-30%) translateY(30px)  rotate(60deg);  opacity:0.9; }
+          100% { transform: translateX(-70%) translateY(80px)  rotate(220deg); opacity:0; }
         }
       </style>`;
-      const count = 7;
+      const count = 8;
       for (let i = 0; i < count; i++) {
         const left = 6 + (i * 88 / (count - 1));
         const delay = ((i * 0.7) % 6).toFixed(2);
@@ -1192,9 +1190,8 @@
     }
 
     function snowFall(animClass) {
-      // 6-fold symmetric snowflake SVG (small version for player decoration)
       const flakeSvg = `
-        <svg viewBox="0 0 14 14" width="11" height="11">
+        <svg viewBox="0 0 14 14" width="18" height="18">
           <g stroke="#e0f2fe" stroke-width="0.8" stroke-linecap="round" fill="none" opacity="0.95">
             <line x1="7" y1="1" x2="7" y2="13"/>
             <line x1="1" y1="7" x2="13" y2="7"/>
@@ -1207,23 +1204,22 @@
           </g>
         </svg>`;
       let html = `<style>
-        #of-deco { height: 30px; top: -10px; overflow: visible; }
         #of-deco .of-flake {
-          position:absolute; top:-12px; transform:translateX(-50%);
-          filter: drop-shadow(0 0 2px rgba(255,255,255,0.6));
+          position:absolute; top:-8px; transform:translateX(-50%);
+          filter: drop-shadow(0 0 3px rgba(255,255,255,0.7));
         }
         #of-deco .of-flake.of-deco-animate { animation: ofFlakeFall 7s linear infinite; }
         @keyframes ofFlakeFall {
           0%   { transform: translateX(-50%) translateY(-12px) rotate(0); opacity:0; }
           15%  { opacity: 1; }
           85%  { opacity: 1; }
-          100% { transform: translateX(-30%) translateY(80px) rotate(360deg); opacity:0; }
+          100% { transform: translateX(-30%) translateY(85px) rotate(360deg); opacity:0; }
         }
       </style>`;
-      const count = 12;
+      const count = 14;
       for (let i = 0; i < count; i++) {
         const left = (i / (count - 1)) * 100;
-        const delay = ((i * 0.55) % 7).toFixed(2);
+        const delay = ((i * 0.5) % 7).toFixed(2);
         const scale = (0.7 + ((i * 7) % 6) / 10).toFixed(2);
         html += `<span class="of-flake${animClass}" style="left:${left}%;animation-delay:${delay}s;transform:translateX(-50%) scale(${scale});">${flakeSvg}</span>`;
       }

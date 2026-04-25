@@ -350,6 +350,7 @@ router.get('/now-playing-audio', (req, res) => {
     // Player decoration theme
     playerDecoration: cfg.player_decoration || 'none',
     playerDecorationAnimated: cfg.player_decoration_animated !== 0,
+    playerCustomColor: cfg.player_custom_color || '',
   });
 });
 

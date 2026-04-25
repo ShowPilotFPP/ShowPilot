@@ -247,4 +247,161 @@
       socket.on('sequencesSynced', () => refreshState());
     }
   } catch {}
+
+  // ============================================================
+  // LISTEN ON PHONE — optional in-browser audio player
+  //
+  // Toggleable floating button + bottom sheet. When enabled, polls
+  // /api/now-playing-audio for the active sequence + elapsed time, then
+  // streams the audio via /api/audio-stream/<seq>. Seeks forward to match
+  // FPP's playback position so users hear the song approximately in sync
+  // with the lights — within a second or two on good networks.
+  //
+  // NOT a perfect-sync solution (no continuous time correction). Sufficient
+  // for "I'm in the driveway and the radio sucks" — a useful fallback.
+  // ============================================================
+  (function initListenOnPhone() {
+    const btn = document.createElement('button');
+    btn.id = 'of-listen-btn';
+    btn.setAttribute('aria-label', 'Listen on phone');
+    btn.title = 'Listen on phone';
+    btn.innerHTML = '🎧';
+    btn.style.cssText = `
+      position: fixed; bottom: 16px; right: 16px; z-index: 9998;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: rgba(220,38,38,0.95); color: white;
+      border: 2px solid rgba(255,255,255,0.4);
+      font-size: 24px; cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      transition: transform 0.15s, background 0.15s;
+      padding: 0; line-height: 1;
+    `;
+    btn.onmouseenter = () => { btn.style.transform = 'scale(1.08)'; };
+    btn.onmouseleave = () => { btn.style.transform = 'scale(1)'; };
+
+    const panel = document.createElement('div');
+    panel.id = 'of-listen-panel';
+    panel.style.cssText = `
+      position: fixed; bottom: 78px; right: 16px; z-index: 9999;
+      width: min(340px, calc(100vw - 32px));
+      background: rgba(20,20,30,0.96); color: #fff;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px; padding: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px; line-height: 1.4;
+      display: none;
+    `;
+    panel.innerHTML = `
+      <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+        <img id="of-listen-cover" src="" alt="" style="width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: #333; flex-shrink: 0;" />
+        <div style="flex: 1; min-width: 0;">
+          <div id="of-listen-title" style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Not playing</div>
+          <div id="of-listen-artist" style="font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+        </div>
+        <button id="of-listen-close" aria-label="Close" style="background: transparent; border: 0; color: #aaa; font-size: 22px; cursor: pointer; padding: 0; line-height: 1;">×</button>
+      </div>
+      <audio id="of-listen-audio" controls style="width: 100%; height: 36px; margin-bottom: 8px;"></audio>
+      <div id="of-listen-status" style="font-size: 11px; color: #888; text-align: center; min-height: 14px;"></div>
+    `;
+
+    document.body.appendChild(btn);
+    document.body.appendChild(panel);
+
+    const audio = panel.querySelector('#of-listen-audio');
+    const titleEl = panel.querySelector('#of-listen-title');
+    const artistEl = panel.querySelector('#of-listen-artist');
+    const coverEl = panel.querySelector('#of-listen-cover');
+    const statusEl = panel.querySelector('#of-listen-status');
+    const closeBtn = panel.querySelector('#of-listen-close');
+
+    let panelOpen = false;
+    let pollTimer = null;
+    let currentSequence = null;
+    let userSeeking = false;
+
+    btn.onclick = () => {
+      panelOpen = !panelOpen;
+      panel.style.display = panelOpen ? 'block' : 'none';
+      if (panelOpen) startPolling();
+      else stopPolling();
+    };
+    closeBtn.onclick = () => { btn.click(); };
+
+    audio.addEventListener('seeking', () => { userSeeking = true; });
+    audio.addEventListener('seeked', () => { setTimeout(() => { userSeeking = false; }, 500); });
+
+    async function startPolling() {
+      await syncToNowPlaying();
+      pollTimer = setInterval(syncToNowPlaying, 5000);
+    }
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      currentSequence = null;
+    }
+
+    async function syncToNowPlaying() {
+      try {
+        const r = await fetch('/api/now-playing-audio', { credentials: 'include' });
+        if (!r.ok) {
+          statusEl.textContent = 'Server error fetching audio info';
+          return;
+        }
+        const data = await r.json();
+
+        if (!data.playing || !data.hasAudio) {
+          titleEl.textContent = data.playing ? (data.sequenceName || 'Playing — no audio') : 'Not playing';
+          artistEl.textContent = '';
+          coverEl.src = '';
+          statusEl.textContent = data.playing ? 'No audio file linked to this sequence' : 'Show is not playing';
+          if (currentSequence) {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+            currentSequence = null;
+          }
+          return;
+        }
+
+        // New song — switch streams and seek to elapsed position
+        if (data.sequenceName !== currentSequence) {
+          currentSequence = data.sequenceName;
+          titleEl.textContent = data.displayName || data.sequenceName;
+          artistEl.textContent = data.artist || '';
+          coverEl.src = data.imageUrl || '';
+          coverEl.style.visibility = data.imageUrl ? 'visible' : 'hidden';
+          statusEl.textContent = 'Loading audio…';
+
+          audio.src = data.streamUrl;
+          // Wait for metadata before seeking — required by browser audio API
+          audio.addEventListener('loadedmetadata', function onMeta() {
+            audio.removeEventListener('loadedmetadata', onMeta);
+            try {
+              if (data.elapsedSec > 0 && data.elapsedSec < (audio.duration || Infinity)) {
+                audio.currentTime = data.elapsedSec;
+              }
+            } catch (e) {}
+            audio.play().catch(err => {
+              statusEl.textContent = 'Tap play to start audio';
+            });
+          }, { once: true });
+          audio.addEventListener('canplay', () => {
+            statusEl.textContent = '';
+          }, { once: true });
+        } else if (!userSeeking && audio.paused === false) {
+          // Same song, drift correction: if our position is more than 3s off
+          // from server's elapsed, gently snap to it. Skipped if user is seeking.
+          const drift = Math.abs(audio.currentTime - data.elapsedSec);
+          if (drift > 3 && data.elapsedSec < (audio.duration || Infinity)) {
+            audio.currentTime = data.elapsedSec;
+          }
+        }
+      } catch (err) {
+        statusEl.textContent = 'Network error — retrying…';
+      }
+    }
+  })();
 })();

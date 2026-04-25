@@ -50,6 +50,7 @@ const pluginStatus = (() => {
     lastSyncAt: cfg.plugin_last_sync_at || null,
     lastSyncPlaylist: cfg.plugin_last_sync_playlist || null,
     lastSyncCount: cfg.plugin_last_sync_count || 0,
+    fppHost: cfg.plugin_fpp_host || null,
   };
 })();
 
@@ -244,11 +245,19 @@ router.post('/next', (req, res) => {
 router.post('/heartbeat', (req, res) => {
   pluginStatus.lastSeen = new Date().toISOString();
   pluginStatus.version = req.body?.pluginVersion || null;
+  // Capture the plugin's source IP — this is FPP's address, used as the
+  // upstream for audio proxy streams. We strip ::ffff: prefix from IPv4-mapped
+  // IPv6 addresses, and ignore localhost (means OpenFalcon is on FPP itself).
+  let fppHost = req.ip || req.connection?.remoteAddress || null;
+  if (fppHost && fppHost.startsWith('::ffff:')) fppHost = fppHost.slice(7);
+  if (fppHost === '::1' || fppHost === '127.0.0.1') fppHost = null;
   // Persist so server restarts don't lose state
   updateConfig({
     plugin_last_seen_at: pluginStatus.lastSeen,
     plugin_version: pluginStatus.version,
+    plugin_fpp_host: fppHost,
   });
+  pluginStatus.fppHost = fppHost;
   res.json({ ok: true });
 });
 
@@ -277,11 +286,13 @@ router.post('/sync-sequences', (req, res) => {
   // For inserts: display_order defaults to sort_order so new sequences sort naturally.
   // For updates: only touch sort_order (FPP index) + display_name. display_order is admin-owned.
   const upsert = db.prepare(`
-    INSERT INTO sequences (name, display_name, artist, image_url, duration_seconds, visible, votable, jukeboxable, sort_order, display_order)
-    VALUES (@name, @display_name, @artist, @image_url, @duration_seconds, 1, 1, 1, @sort_order, @sort_order)
+    INSERT INTO sequences (name, display_name, artist, image_url, media_name, duration_seconds, visible, votable, jukeboxable, sort_order, display_order)
+    VALUES (@name, @display_name, @artist, @image_url, @media_name, @duration_seconds, 1, 1, 1, @sort_order, @sort_order)
     ON CONFLICT(name) DO UPDATE SET
       duration_seconds = excluded.duration_seconds,
       sort_order = excluded.sort_order,
+      -- media_name comes straight from FPP — always trust the plugin's value
+      media_name = excluded.media_name,
       -- display_name is preserved if it was customized — only update if it's still
       -- the default (NULL, empty, or equal to the raw filename name).
       display_name = CASE
@@ -324,6 +335,7 @@ router.post('/sync-sequences', (req, res) => {
         display_name: String(seq.displayName || toDisplayName(name)).trim(),
         artist: String(seq.artist || '').trim() || null,
         image_url: String(seq.imageUrl || '').trim() || null,
+        media_name: String(seq.mediaName || '').trim() || null,
         duration_seconds: Number.isFinite(seq.durationSeconds) ? seq.durationSeconds : null,
         sort_order: Number.isFinite(seq.playlistIndex) ? seq.playlistIndex : (index + 1),
       });

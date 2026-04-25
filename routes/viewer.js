@@ -288,4 +288,105 @@ router.post('/jukebox/add', (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================
+// AUDIO STREAMING
+//
+// Provides on-demand audio playback for viewers. The OpenFalcon server proxies
+// audio bytes from FPP's `/api/media/<file>` endpoint — viewers don't need
+// direct network reach to FPP.
+//
+// Two endpoints:
+//   GET /api/now-playing-audio        → metadata: which file, where in playback
+//   GET /api/audio-stream/:sequence   → the actual audio bytes (proxied from FPP)
+// ============================================================
+
+// Lightweight metadata endpoint — viewer page polls this to know what to play
+router.get('/now-playing-audio', (req, res) => {
+  const np = getNowPlaying();
+  if (!np || !np.sequence_name) {
+    return res.json({ playing: false });
+  }
+  const seq = getSequenceByName(np.sequence_name);
+  if (!seq || !seq.media_name) {
+    // Sequence has no associated audio (sequence-only show or sync didn't include media)
+    return res.json({ playing: true, hasAudio: false, sequenceName: np.sequence_name });
+  }
+
+  // How long has this song been playing? Used to seek the listener forward.
+  const startedAtMs = np.started_at ? new Date(np.started_at.replace(' ', 'T') + 'Z').getTime() : null;
+  const elapsedSec = startedAtMs ? Math.max(0, (Date.now() - startedAtMs) / 1000) : 0;
+
+  res.json({
+    playing: true,
+    hasAudio: true,
+    sequenceName: np.sequence_name,
+    displayName: seq.display_name || np.sequence_name,
+    artist: seq.artist || '',
+    imageUrl: seq.image_url || null,
+    durationSec: seq.duration_seconds || null,
+    elapsedSec: Math.round(elapsedSec * 10) / 10,
+    startedAt: np.started_at,
+    streamUrl: `/api/audio-stream/${encodeURIComponent(seq.name)}`,
+  });
+});
+
+// Audio proxy — fetches the file from FPP, streams it through. Supports HTTP
+// Range requests so the browser audio element can seek/resume properly.
+router.get('/audio-stream/:sequence', async (req, res) => {
+  const seq = getSequenceByName(req.params.sequence);
+  if (!seq || !seq.media_name) {
+    return res.status(404).send('Audio not available for this sequence');
+  }
+
+  // Need FPP host from plugin status
+  const cfg = getConfig();
+  const fppHost = cfg.plugin_fpp_host;
+  if (!fppHost) {
+    return res.status(503).send('Audio streaming unavailable — plugin has not connected yet');
+  }
+
+  // Build upstream URL. FPP serves audio at /api/media/<file>
+  const upstreamUrl = `http://${fppHost}/api/media/${encodeURIComponent(seq.media_name)}`;
+
+  try {
+    // Forward Range header so the browser can seek
+    const headers = {};
+    if (req.headers.range) headers.Range = req.headers.range;
+
+    const upstream = await fetch(upstreamUrl, { headers });
+    if (!upstream.ok && upstream.status !== 206) {
+      return res.status(upstream.status).send('FPP returned ' + upstream.status);
+    }
+
+    // Mirror the relevant headers from FPP
+    res.status(upstream.status);
+    ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control'].forEach(h => {
+      const v = upstream.headers.get(h);
+      if (v) res.setHeader(h, v);
+    });
+    if (!upstream.headers.get('content-type')) res.setHeader('Content-Type', 'audio/mpeg');
+    if (!upstream.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', 'bytes');
+
+    // Stream the body through — Node 18+ supports response.body as ReadableStream
+    if (upstream.body) {
+      const reader = upstream.body.getReader();
+      res.on('close', () => reader.cancel().catch(() => {}));
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!res.write(Buffer.from(value))) {
+          await new Promise(resolve => res.once('drain', resolve));
+        }
+      }
+      res.end();
+    } else {
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.end(buf);
+    }
+  } catch (err) {
+    console.error('[audio-stream] proxy error:', err.message);
+    if (!res.headersSent) res.status(502).send('Could not reach FPP: ' + err.message);
+  }
+});
+
 module.exports = router;

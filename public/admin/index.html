@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.10.3</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.10.5</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1064,7 +1064,7 @@
             </div>
             <div class="row" style="margin-top: 0.75rem;">
               <input type="checkbox" id="cfg_prevent_multiple_requests" onchange="saveSetting('prevent_multiple_requests', this.checked ? 1 : 0)" />
-              <label for="cfg_prevent_multiple_requests" style="margin: 0;">Prevent multiple requests for same sequence (until played)</label>
+              <label for="cfg_prevent_multiple_requests" style="margin: 0;">Limit each viewer to one pending request at a time</label>
             </div>
             <div class="row">
               <input type="checkbox" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', this.checked ? 1 : 0)" />
@@ -2210,12 +2210,28 @@
     // ============================================================
     // QUEUE TAB
     // ============================================================
+    let queuePollTimer = null;
+
     async function loadQueueTab() {
       const r = await api('/queue');
       if (!r.ok) return;
       const { pending, recentlyPlayed } = r.data;
       renderQueueList('queuePending', pending, true);
       renderQueueList('queueRecent', recentlyPlayed, false);
+
+      // Start a poll loop that runs while the queue tab is the active tab.
+      // Sockets should refresh us on real changes, but polling every 4s is a
+      // belt-and-suspenders fallback if a server emits or restarts.
+      if (queuePollTimer) clearInterval(queuePollTimer);
+      queuePollTimer = setInterval(() => {
+        const queuePane = document.querySelector('.tab-pane[data-pane="queue"]');
+        if (queuePane && queuePane.classList.contains('active')) {
+          loadQueueTab();
+        } else {
+          clearInterval(queuePollTimer);
+          queuePollTimer = null;
+        }
+      }, 4000);
     }
 
     function renderQueueList(elId, entries, allowDelete) {

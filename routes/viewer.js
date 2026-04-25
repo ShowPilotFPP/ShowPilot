@@ -343,12 +343,15 @@ router.post('/jukebox/add', (req, res) => {
 // open the audio player. Cheap: just one config read.
 router.get('/visual-config', (req, res) => {
   const cfg = getConfig();
-  // Audio gate: same logic as now-playing-audio. Viewer's lat/lng (if shared)
-  // arrives via query params. If gate is enabled but viewer hasn't shared,
-  // block — same fail-closed behavior as the audio endpoint.
+  // Audio gate: blocked when (a) viewer control is OFF (show isn't running
+  // any interactive mode, so audio shouldn't play), OR (b) gate is enabled
+  // and viewer is outside the radius / hasn't shared location.
   let audioGateBlocked = false;
   let audioGateReason = '';
-  if (cfg.audio_gate_enabled === 1 && cfg.show_latitude && cfg.show_longitude) {
+  if (cfg.viewer_control_mode === 'OFF') {
+    audioGateBlocked = true;
+    audioGateReason = 'Show is offline.';
+  } else if (cfg.audio_gate_enabled === 1 && cfg.show_latitude && cfg.show_longitude) {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
     if (!isFinite(lat) || !isFinite(lng)) {
@@ -385,7 +388,10 @@ router.get('/now-playing-audio', (req, res) => {
   // we can't verify they're in range.
   let audioGateBlocked = false;
   let audioGateReason = '';
-  if (cfg.audio_gate_enabled === 1) {
+  if (cfg.viewer_control_mode === 'OFF') {
+    audioGateBlocked = true;
+    audioGateReason = 'Show is offline.';
+  } else if (cfg.audio_gate_enabled === 1) {
     if (!cfg.show_latitude || !cfg.show_longitude) {
       // Admin enabled gate but didn't set show coords — fail open (otherwise
       // they'd lock everyone out and not realize why).

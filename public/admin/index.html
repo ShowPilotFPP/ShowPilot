@@ -303,12 +303,28 @@
     .of-modal.hidden { display: none; }
     .of-modal-card {
       background: var(--bg-card, #1e1e2a);
+      color: var(--text);
       border: 1px solid var(--border, rgba(255,255,255,0.15));
       border-radius: 10px;
       padding: 1.5rem;
       width: 100%;
       max-width: 440px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .of-modal-card h3,
+    .of-modal-card p {
+      color: var(--text);
+    }
+    .of-modal-card button {
+      color: var(--text);
+    }
+    .of-modal-card button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .of-modal-card button.secondary:hover {
+      background: var(--bg-tertiary, rgba(255,255,255,0.06));
     }
     .of-modal-card h3 {
       margin: 0 0 0.5rem;
@@ -819,7 +835,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.12.1</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.12.2</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -953,7 +969,7 @@
             <h2 style="margin: 0;">Sequences <span id="sequenceCount" class="muted" style="font-weight: normal;"></span></h2>
             <div class="row" style="gap: 0.5rem; margin: 0;">
               <button class="secondary" onclick="fetchAllCovers()">Fetch Covers</button>
-              <button class="secondary" onclick="scrapeAllMetadata()">Scrape Titles</button>
+              <button class="secondary" onclick="scrapeAllMetadata()" title="Auto-fill display names and artist info by looking up filenames online">Auto-Fill Song Info</button>
               <button class="secondary" onclick="sortSequencesAlphabetically()">Sort A→Z</button>
               <button class="secondary" onclick="deleteInactiveSequences()">Delete Inactive</button>
             </div>
@@ -2431,9 +2447,11 @@
     async function restoreSnap(id, name, count) {
       const ok = confirm(
         `Restore "${name}"?\n\n` +
-        `This will REPLACE your current sequences with the ${count} sequence(s) saved in this snapshot. ` +
-        `Play history, vote counts, and queue will be cleared for the replaced rows.\n\n` +
-        `Tip: save a snapshot of your current sequences first if you want to come back.`
+        `This will:\n` +
+        `  • Update existing sequences with the values from this snapshot (${count} total)\n` +
+        `  • Add any sequences from the snapshot that no longer exist\n` +
+        `  • Hide any sequences NOT in the snapshot (preserves play history)\n\n` +
+        `Play history, vote counts, and queue are preserved.`
       );
       if (!ok) return;
       const r = await api('/snapshots/' + id + '/restore', { method: 'POST' });

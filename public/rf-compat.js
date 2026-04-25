@@ -384,22 +384,35 @@
     const bootstrap = window.__OPENFALCON__ || {};
     applySnowState(bootstrap.pageSnowEnabled);
 
-    // Poll for live admin toggle changes
+    // Expose so the unified visual-config poll (below) can drive snow updates
+    window._ofApplySnowState = applySnowState;
+  })();
+
+  // ============================================================
+  // VISUAL CONFIG POLL — runs unconditionally (not gated on reduced-motion).
+  // Drives both snow toggle AND audio gate. Polls every 5s and fires once
+  // shortly after the location prompt resolves so the gate can unblock fast.
+  // ============================================================
+  (function initVisualConfigPoll() {
     async function poll() {
       try {
         const r = await fetch('/api/visual-config' + locationQuery(), { credentials: 'include' });
         if (r.ok) {
           const data = await r.json();
-          applySnowState(!!data.pageSnowEnabled);
+          if (typeof window._ofApplySnowState === 'function') {
+            window._ofApplySnowState(!!data.pageSnowEnabled);
+          }
           applyAudioGateState(!!data.audioGateBlocked, data.audioGateReason || '');
         }
       } catch {}
     }
     setInterval(poll, 5000);
-    // Kick off location fetch immediately so the gate can resolve fast
+    // Trigger location prompt immediately so the gate has something to evaluate
     tryGetLocationSilently();
     // Re-poll once shortly after location resolves (silent) for fast unblock
-    setTimeout(poll, 2000);
+    setTimeout(poll, 2500);
+    // Also poll once a bit later in case location took longer to resolve
+    setTimeout(poll, 6000);
   })();
 
   // ============================================================
@@ -415,12 +428,18 @@
     const btn = document.getElementById('of-listen-btn');
     const pill = document.getElementById('of-listen-minimized-pill');
     const panel = document.getElementById('of-listen-panel');
-    if (btn) btn.style.display = blocked ? 'none' : '';
+    if (btn) {
+      // Toggle the gate-pending class. Uses !important in CSS so it wins
+      // over any inline display style set elsewhere (e.g. setMode transitions).
+      if (blocked) {
+        btn.classList.add('of-audio-gate-pending');
+      } else {
+        btn.classList.remove('of-audio-gate-pending');
+      }
+    }
     if (pill && blocked) pill.style.display = 'none';
     if (panel && blocked) {
-      // Force-close the open player if user is now blocked (e.g. they walked away)
       panel.style.display = 'none';
-      // Trigger stop via a custom event the player can listen to (or just clear audio)
       try { window.dispatchEvent(new CustomEvent('openfalcon:audio-gate-blocked')); } catch {}
     }
   }
@@ -445,9 +464,11 @@
       padding: 0; line-height: 1;
       display: flex; align-items: center; justify-content: center;
     `;
-    // If audio gate is enabled, hide the button initially. The /api/visual-config
-    // poll will reveal it once the server confirms the viewer is in range.
-    if (boot.audioGateEnabled) btn.style.display = 'none';
+    // If audio gate is enabled, hide the button initially via CSS class
+    // (with !important so other state changes like setMode('closed') can't
+    // accidentally reveal it). The button is only revealed once the visual-config
+    // poll confirms the viewer's location is within range AND the show is on.
+    if (boot.audioGateEnabled) btn.classList.add('of-audio-gate-pending');
     btn.onmouseenter = () => { btn.style.transform = 'scale(1.08)'; };
     btn.onmouseleave = () => { btn.style.transform = 'scale(1)'; };
 
@@ -456,6 +477,12 @@
     // CSS variables let decoration code read the active theme color.
     const themeStyle = document.createElement('style');
     themeStyle.textContent = `
+      /* Audio gate — hides launcher button until server confirms viewer is in range.
+         Uses !important so setMode('closed') and other state transitions can't
+         accidentally reveal it. */
+      .of-audio-gate-pending {
+        display: none !important;
+      }
       #of-listen-panel {
         --of-bg: rgba(20,20,30,0.97);
         --of-border: rgba(255,255,255,0.15);

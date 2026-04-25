@@ -537,4 +537,73 @@ router.delete('/sequences/:id/cover', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================
+// Title/artist metadata scraping
+// ============================================================
+
+// Scrape one sequence's metadata (used by per-row button)
+router.post('/sequences/:id/scrape-metadata', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const seq = db.prepare(`SELECT id, name FROM sequences WHERE id = ?`).get(id);
+  if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+  try {
+    const { scrapeMetadata } = require('../lib/metadata-scraper');
+    const meta = await scrapeMetadata(seq.name);
+    if (!meta || !meta.title) {
+      return res.json({ ok: false, message: 'No metadata found' });
+    }
+    db.prepare(`UPDATE sequences SET display_name = ?, artist = ? WHERE id = ?`)
+      .run(meta.title, meta.artist || null, id);
+    res.json({ ok: true, ...meta });
+  } catch (err) {
+    console.error('scrape-metadata error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Scrape ALL sequences (background job, returns immediately)
+router.post('/sequences/scrape-all-metadata', requireAdmin, async (req, res) => {
+  // Optional: include-completed flag — by default we re-scrape everything
+  // (per user preference: overwrite manual edits). Pass {skipExisting: true}
+  // to opt into preserve-mode.
+  const skipExisting = !!(req.body && req.body.skipExisting);
+  const where = skipExisting
+    ? `WHERE visible = 1 AND (artist IS NULL OR artist = '')`
+    : `WHERE visible = 1`;
+  const rows = db.prepare(`SELECT id, name FROM sequences ${where}`).all();
+
+  res.json({ ok: true, queued: rows.length });
+
+  const { scrapeMetadata } = require('../lib/metadata-scraper');
+  const update = db.prepare(`UPDATE sequences SET display_name = ?, artist = ? WHERE id = ?`);
+  let success = 0;
+  let failed = 0;
+  console.log(`[metadata] Scraping ${rows.length} sequences (skipExisting=${skipExisting})`);
+
+  for (const row of rows) {
+    try {
+      const meta = await scrapeMetadata(row.name);
+      if (meta && meta.title) {
+        update.run(meta.title, meta.artist || null, row.id);
+        success++;
+        console.log(`[metadata] ${row.name} → "${meta.title}" / "${meta.artist || ''}" (${meta.source})`);
+      } else {
+        failed++;
+      }
+    } catch (e) {
+      failed++;
+      console.warn(`[metadata] Failed for ${row.name}:`, e.message);
+    }
+    // Be nice to iTunes — they don't publish a strict rate limit but we'll
+    // pace ourselves at ~3/sec to stay under any reasonable threshold.
+    await new Promise(r => setTimeout(r, 350));
+  }
+
+  console.log(`[metadata] Bulk scrape complete: ${success} updated, ${failed} skipped/failed`);
+
+  // Tell admin clients to refresh their sequence list
+  const io = req.app.get('io');
+  if (io) io.emit('sequencesReordered'); // reuse existing event — admin reloads list
+});
+
 module.exports = router;

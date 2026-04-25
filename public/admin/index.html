@@ -1012,7 +1012,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.13.4</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.13.5</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2280,6 +2280,11 @@
     // anytime lat/lng/radius changes. Uses OSM's static embed (iframe) — no
     // JS map library needed, no extra deps. The embed reflects coordinate
     // changes via cache-busted iframe.src.
+    // Tracks the last iframe URL we built so the polled config-refresh doesn't
+    // tear down and rebuild the map on every interval (which causes a visible
+    // reload flicker every 5 seconds). We only swap the iframe src when the
+    // computed URL actually changes.
+    let _lastMapSrc = null;
     function updateLocationMap() {
       const mapEl = document.getElementById('locationMap');
       const hint = document.getElementById('locationMapHint');
@@ -2288,7 +2293,10 @@
       const lng = parseFloat(document.getElementById('cfg_show_longitude').value);
       const radiusMi = parseFloat(document.getElementById('cfg_check_radius_miles').value) || 1.0;
       if (!isFinite(lat) || !isFinite(lng)) {
-        mapEl.innerHTML = `<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:0.85rem;">Set coordinates above to preview your show location.</div>`;
+        if (_lastMapSrc !== '') {
+          mapEl.innerHTML = `<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:0.85rem;">Set coordinates above to preview your show location.</div>`;
+          _lastMapSrc = '';
+        }
         if (hint) hint.textContent = '';
         return;
       }
@@ -2304,11 +2312,16 @@
       const maxLat = (lat + dLat).toFixed(6);
       const bbox = `${minLng},${minLat},${maxLng},${maxLat}`;
       const marker = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-      // Note: OSM's embed shows a marker pin but doesn't natively render a
-      // radius circle. The hint text above the map clarifies the radius.
       const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${marker}`;
+      // Skip the rebuild if nothing changed since last call. This is what
+      // prevents the periodic config-refresh poll from causing a map reload.
+      if (src === _lastMapSrc) {
+        if (hint) hint.textContent = `(red pin = show; radius ${radiusMi} mi for interactions, separate radius for audio gate)`;
+        return;
+      }
       mapEl.innerHTML = `<iframe src="${src}" style="width:100%; height:100%; border:0;"
                                  sandbox="allow-scripts allow-same-origin allow-popups"></iframe>`;
+      _lastMapSrc = src;
       if (hint) hint.textContent = `(red pin = show; radius ${radiusMi} mi for interactions, separate radius for audio gate)`;
     }
 

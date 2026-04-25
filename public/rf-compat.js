@@ -520,6 +520,108 @@
   }
   window._ofVerifyLocationForAudio = verifyLocationForAudio;
 
+  // ============================================================
+  // GATE DENIAL MODAL
+  // Replaces the browser's native alert() with a themed modal that fits the
+  // viewer page. Used when the audio gate denies listening (out of range,
+  // location denied, show offline, etc.). One modal per page session reused
+  // for all denials.
+  // ============================================================
+  let _gateModalEl = null;
+  function ensureGateModal() {
+    if (_gateModalEl) return _gateModalEl;
+    const style = document.createElement('style');
+    style.textContent = `
+      #of-gate-modal {
+        position: fixed; inset: 0; z-index: 10000;
+        background: rgba(0,0,0,0.65);
+        display: none; align-items: center; justify-content: center;
+        padding: 1rem;
+        animation: ofGateFadeIn 0.18s ease-out;
+      }
+      #of-gate-modal.show { display: flex; }
+      @keyframes ofGateFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      #of-gate-modal-card {
+        background: linear-gradient(180deg, rgba(30,30,40,0.98), rgba(20,20,28,0.98));
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 14px;
+        padding: 1.5rem 1.25rem 1.25rem;
+        width: 100%; max-width: 380px;
+        box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+        text-align: center;
+        animation: ofGateSlideUp 0.22s ease-out;
+      }
+      @keyframes ofGateSlideUp {
+        from { transform: translateY(10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      #of-gate-modal-icon {
+        font-size: 2.5rem; margin-bottom: 0.5rem; line-height: 1;
+      }
+      #of-gate-modal-title {
+        font-size: 1.15rem; font-weight: 700;
+        margin: 0 0 0.5rem; color: #fff;
+      }
+      #of-gate-modal-msg {
+        font-size: 0.95rem; line-height: 1.4;
+        color: rgba(255,255,255,0.88);
+        margin: 0 0 1.25rem;
+      }
+      #of-gate-modal-btn {
+        display: block; width: 100%;
+        padding: 0.75rem 1rem;
+        background: rgba(220,38,38,0.95); color: #fff;
+        border: 0; border-radius: 8px;
+        font-size: 0.95rem; font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, transform 0.1s;
+      }
+      #of-gate-modal-btn:hover { background: rgba(220,38,38,1); }
+      #of-gate-modal-btn:active { transform: scale(0.98); }
+    `;
+    document.head.appendChild(style);
+
+    const modal = document.createElement('div');
+    modal.id = 'of-gate-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div id="of-gate-modal-card">
+        <div id="of-gate-modal-icon">🎧</div>
+        <h3 id="of-gate-modal-title">Audio unavailable</h3>
+        <p id="of-gate-modal-msg"></p>
+        <button id="of-gate-modal-btn">OK</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const closeFn = () => modal.classList.remove('show');
+    modal.querySelector('#of-gate-modal-btn').onclick = closeFn;
+    // Tap-outside dismiss
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeFn();
+    });
+    // Escape dismiss
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('show')) closeFn();
+    });
+
+    _gateModalEl = modal;
+    return modal;
+  }
+
+  function showGateModal(reason) {
+    const modal = ensureGateModal();
+    const msgEl = modal.querySelector('#of-gate-modal-msg');
+    msgEl.textContent = reason || 'Audio is not available right now.';
+    modal.classList.add('show');
+  }
+  window._ofShowGateModal = showGateModal;
+
   (function initListenOnPhone() {
     // ---- Floating launcher button ----
     const btn = document.createElement('button');
@@ -866,7 +968,7 @@
       try {
         const result = await window._ofVerifyLocationForAudio();
         if (!result.allowed) {
-          alert(result.reason || 'Audio not available right now.');
+          window._ofShowGateModal(result.reason);
           return;
         }
         setMode('open');

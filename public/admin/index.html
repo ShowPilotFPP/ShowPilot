@@ -1012,7 +1012,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.14.3</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.14.4</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1699,18 +1699,21 @@
 
             <h3 style="margin-top: 1.25rem;">View-source deterrent <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(template protection)</span></h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
-              Replaces the visible page source with a friendly "nothing to see here" message.
-              The real page still renders normally for visitors — only Ctrl+U / View Source / right-click see the joke version.
-              Also disables the Ctrl+U keyboard shortcut and right-click menu on the viewer page.
+              When enabled, the viewer page goes through several layers of casual deterrence:
+              <br /><br />
+              <strong>Ctrl+U / View Source</strong> shows a friendly "nothing to see here" message instead of your real template.
+              <strong>Right-click</strong> on the page is disabled, blocking the context menu's "View Page Source" option.
+              <strong>F12</strong> and <strong>Ctrl+Shift+I/J</strong> shortcuts that open DevTools are blocked.
+              The real page still renders normally for visitors — they see the show as usual, just without easy access to the source.
               Useful if you've purchased a viewer template from a creator and don't want casual visitors copying it.
               <br /><br />
-              <strong>Important:</strong> this is a deterrent, not real protection. Anyone with developer tools can still
-              read the live DOM and recover the page from network requests. Don't rely on this to enforce a license —
-              use it to discourage casual snooping.
+              <strong>Important:</strong> this is a deterrent, not real protection. Determined users can still open DevTools
+              through the browser menu (the keyboard shortcut block doesn't reach there), inspect the live DOM, or recover
+              the page from network requests. Don't rely on this to enforce a license — use it to discourage casual snooping.
             </p>
             <div class="row">
               <input type="checkbox" id="cfg_viewer_source_obfuscate" onchange="saveSetting('viewer_source_obfuscate', this.checked ? 1 : 0)" />
-              <label for="cfg_viewer_source_obfuscate" style="margin: 0;">Hide viewer template HTML from view-source</label>
+              <label for="cfg_viewer_source_obfuscate" style="margin: 0;">Enable view-source deterrent on viewer page</label>
             </div>
           </div>
         </div>

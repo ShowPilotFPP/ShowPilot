@@ -353,6 +353,21 @@
     /* ============================================================
        Visual Designer (Viewer Page tab)
        ============================================================ */
+    .of-tpl-status {
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .of-tpl-status-saved {
+      background: var(--status-success, #16a34a);
+      color: #fff;
+    }
+    .of-tpl-status-unsaved {
+      background: var(--accent);
+      color: #fff;
+    }
     .designer-tab {
       background: transparent;
       color: var(--text-muted);
@@ -997,7 +1012,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.13.1</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.13.2</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1302,7 +1317,7 @@
               <div class="row" style="margin-bottom: 0.5rem; align-items: center;">
                 <input type="text" id="tplName" placeholder="Template name" style="flex: 1; margin: 0;" />
                 <span id="tplMeta" class="muted"></span>
-                <span id="tplDraftBadge" style="display:none; padding: 0.2rem 0.6rem; background: var(--accent); color: #fff; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">UNSAVED</span>
+                <span id="tplDraftBadge" class="of-tpl-status of-tpl-status-saved">SAVED</span>
               </div>
 
               <!-- Designer sub-tabs -->
@@ -3457,7 +3472,18 @@
     function updateDraftButtons() {
       document.getElementById('tplCommitBtn').style.display = hasDraft ? '' : 'none';
       document.getElementById('tplDiscardBtn').style.display = hasDraft ? '' : 'none';
-      document.getElementById('tplDraftBadge').style.display = hasDraft ? '' : 'none';
+      const badge = document.getElementById('tplDraftBadge');
+      if (badge) {
+        if (hasDraft) {
+          badge.textContent = 'UNSAVED';
+          badge.classList.remove('of-tpl-status-saved');
+          badge.classList.add('of-tpl-status-unsaved');
+        } else {
+          badge.textContent = 'SAVED';
+          badge.classList.remove('of-tpl-status-unsaved');
+          badge.classList.add('of-tpl-status-saved');
+        }
+      }
     }
 
     async function commitDraft() {

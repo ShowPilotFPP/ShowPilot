@@ -282,6 +282,7 @@
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       transition: transform 0.15s, background 0.15s;
       padding: 0; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
     `;
     btn.onmouseenter = () => { btn.style.transform = 'scale(1.08)'; };
     btn.onmouseleave = () => { btn.style.transform = 'scale(1)'; };

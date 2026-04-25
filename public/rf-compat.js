@@ -427,6 +427,31 @@
         --of-border: rgba(186,230,253,0.85);
         --of-glow: rgba(186,230,253,0.5);
       }
+
+      /* Player button polish — hover feedback that works regardless of theme */
+      #of-listen-panel button {
+        outline: none;
+      }
+      #of-listen-panel button:focus-visible {
+        outline: 2px solid rgba(255,255,255,0.6);
+        outline-offset: 2px;
+      }
+      #of-listen-panel #of-listen-playpause:hover {
+        background: rgba(255,255,255,0.25) !important;
+        transform: scale(1.05);
+      }
+      #of-listen-panel #of-listen-playpause:active {
+        transform: scale(0.95);
+      }
+      #of-listen-panel #of-listen-mute:hover,
+      #of-listen-panel #of-listen-min:hover,
+      #of-listen-panel #of-listen-close:hover {
+        background: rgba(255,255,255,0.12);
+        color: #fff !important;
+      }
+      #of-listen-panel #of-listen-close:hover {
+        color: #ef4444 !important;
+      }
     `;
     document.head.appendChild(themeStyle);
 
@@ -459,20 +484,44 @@
           </div>
         </div>
         <button id="of-listen-playpause" aria-label="Play/pause"
-                style="background: rgba(255,255,255,0.12); border: 0; color: #fff;
-                       width: 40px; height: 40px; border-radius: 50%; font-size: 18px;
-                       cursor: pointer; flex-shrink: 0;">▶</button>
+                style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.1); color: #fff;
+                       width: 40px; height: 40px; border-radius: 50%;
+                       cursor: pointer; flex-shrink: 0; padding: 0;
+                       display: flex; align-items: center; justify-content: center;
+                       transition: background 0.15s, transform 0.1s;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+        </button>
         <button id="of-listen-mute" aria-label="Mute"
-                style="background: transparent; border: 0; color: #aaa; font-size: 18px;
-                       cursor: pointer; flex-shrink: 0; padding: 6px;">🔊</button>
+                style="background: transparent; border: 0; color: rgba(255,255,255,0.75);
+                       cursor: pointer; flex-shrink: 0; padding: 8px; line-height: 0;
+                       border-radius: 6px; transition: background 0.15s, color 0.15s;
+                       display: flex; align-items: center; justify-content: center;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M3 10v4a1 1 0 0 0 1 1h3l4 4a1 1 0 0 0 1.7-.7V5.7A1 1 0 0 0 11 5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/>
+          </svg>
+        </button>
         <button id="of-listen-min" aria-label="Hide player (audio keeps playing)"
                 title="Hide (audio keeps playing)"
-                style="background: transparent; border: 0; color: #aaa; font-size: 16px;
-                       cursor: pointer; flex-shrink: 0; padding: 6px;">▼</button>
+                style="background: transparent; border: 0; color: rgba(255,255,255,0.75);
+                       cursor: pointer; flex-shrink: 0; padding: 8px; line-height: 0;
+                       border-radius: 6px; transition: background 0.15s, color 0.15s;
+                       display: flex; align-items: center; justify-content: center;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M19 13H5v-2h14v2z"/>
+          </svg>
+        </button>
         <button id="of-listen-close" aria-label="Stop and close"
                 title="Stop &amp; close"
-                style="background: transparent; border: 0; color: #aaa; font-size: 20px;
-                       cursor: pointer; flex-shrink: 0; padding: 6px;">×</button>
+                style="background: transparent; border: 0; color: rgba(255,255,255,0.75);
+                       cursor: pointer; flex-shrink: 0; padding: 8px; line-height: 0;
+                       border-radius: 6px; transition: background 0.15s, color 0.15s;
+                       display: flex; align-items: center; justify-content: center;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/>
+          </svg>
+        </button>
       </div>
     `;
 
@@ -522,6 +571,14 @@
     const closeBtn = panel.querySelector('#of-listen-close');
     const pillText = minimizedPill.querySelector('#of-listen-pill-text');
 
+    // ---- SVG icons (swapped by setPlayIcon, setMuteIcon) ----
+    const SVG_PLAY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+    const SVG_PAUSE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+    const SVG_VOLUME = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 4a1 1 0 0 0 1.7-.7V5.7A1 1 0 0 0 11 5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>';
+    const SVG_MUTED  = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 4a1 1 0 0 0 1.7-.7V5.7A1 1 0 0 0 11 5L7 9H4a1 1 0 0 0-1 1zm17.7 5.3l-1.4-1.4L21 12.2l-1.7-1.7 1.4-1.4 1.7 1.7 1.7-1.7 1.4 1.4-1.7 1.7 1.7 1.7-1.4 1.4-1.7-1.7-1.7 1.7z" transform="translate(-3.5 0)"/></svg>';
+    function setPlayIcon(playing) { playBtn.innerHTML = playing ? SVG_PAUSE : SVG_PLAY; }
+    function setMuteIcon(muted)   { muteBtn.innerHTML = muted ? SVG_MUTED : SVG_VOLUME; }
+
     // ---- State ----
     let panelMode = 'closed';     // 'closed' | 'open' | 'minimized'
     let audioCtx = null;
@@ -551,7 +608,7 @@
         // Stop and re-sync from current position
         stopAudio();
         statusEl.textContent = 'Resuming…';
-        playBtn.textContent = '▶';
+        setPlayIcon(false);
         // Re-sync will start it back up
         syncOnce();
       } else if (currentBuffer) {
@@ -562,7 +619,8 @@
     muteBtn.onclick = () => {
       isMuted = !isMuted;
       if (gainNode) gainNode.gain.value = isMuted ? 0 : 1;
-      muteBtn.textContent = isMuted ? '🔇' : '🔊';
+      muteBtn.style.color = isMuted ? '#ef4444' : 'rgba(255,255,255,0.75)';
+      setMuteIcon(isMuted);
     };
 
     function setMode(mode) {
@@ -684,7 +742,7 @@
       coverEl.src = data.imageUrl || '';
       coverEl.style.visibility = data.imageUrl ? 'visible' : 'hidden';
       statusEl.textContent = 'Loading audio…';
-      playBtn.textContent = '▶';
+      setPlayIcon(false);
 
       stopAudio();
 
@@ -748,10 +806,10 @@
       src.connect(gainNode);
       src.start(startWhen, startOffset);
       src.onended = () => {
-        if (currentSource === src) { currentSource = null; playBtn.textContent = '▶'; }
+        if (currentSource === src) { currentSource = null; setPlayIcon(false); }
       };
       currentSource = src;
-      playBtn.textContent = '⏸';
+      setPlayIcon(true);
       statusEl.textContent = '';
     }
 

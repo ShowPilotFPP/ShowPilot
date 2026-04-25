@@ -345,8 +345,9 @@ router.get('/audio-stream/:sequence', async (req, res) => {
     return res.status(503).send('Audio streaming unavailable — plugin has not connected yet');
   }
 
-  // Build upstream URL. FPP serves audio at /api/media/<file>
-  const upstreamUrl = `http://${fppHost}/api/media/${encodeURIComponent(seq.media_name)}`;
+  // Build upstream URL. FPP serves audio file BYTES at /api/file/Music/<file>.
+  // (/api/media/<file>/meta is the tag-reading endpoint — not the bytes.)
+  const upstreamUrl = `http://${fppHost}/api/file/Music/${encodeURIComponent(seq.media_name)}`;
 
   try {
     // Forward Range header so the browser can seek

@@ -249,11 +249,17 @@ router.get('/stats', requireAdmin, (req, res) => {
   `).get().n;
   const totalVotes = db.prepare(`SELECT COUNT(*) AS n FROM votes WHERE round_id = ?`).get(cfg.current_voting_round).n;
   const queueLength = db.prepare(`SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`).get().n;
-  const totalPlays = db.prepare(`SELECT COUNT(*) AS n FROM play_history`).get().n;
+
+  // Only count viewer-driven plays — not schedule fillers / resumes
+  const totalPlays = db.prepare(`
+    SELECT COUNT(*) AS n FROM play_history
+    WHERE source IN ('vote', 'request', 'psa')
+  `).get().n;
 
   const topSequences = db.prepare(`
     SELECT sequence_name, COUNT(*) AS plays
     FROM play_history
+    WHERE source IN ('vote', 'request', 'psa')
     GROUP BY sequence_name
     ORDER BY plays DESC
     LIMIT 10

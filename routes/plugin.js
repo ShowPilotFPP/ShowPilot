@@ -84,6 +84,9 @@ router.get('/state', (req, res) => {
       if (cfg.viewer_control_mode === 'VOTING') response.winningVote = psaEntry;
       else if (cfg.viewer_control_mode === 'JUKEBOX') response.nextRequest = psaEntry;
 
+      // Remember we handed this out as a viewer-driven play (PSA still counts as one)
+      rememberHandoff(psa.name, 'psa');
+
       return res.json(response);
     }
   }
@@ -96,6 +99,7 @@ router.get('/state', (req, res) => {
         playlistIndex: top.sort_order,
         votes: top.vote_count,
       };
+      rememberHandoff(top.sequence_name, 'vote');
       if (cfg.reset_votes_after_round) {
         db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfg.current_voting_round);
         advanceVotingRound();
@@ -111,6 +115,7 @@ router.get('/state', (req, res) => {
         playlistIndex: next.sort_order,
         queuedAt: next.requested_at,
       };
+      rememberHandoff(next.sequence_name, 'request');
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
     }
@@ -118,6 +123,41 @@ router.get('/state', (req, res) => {
 
   res.json(response);
 });
+
+// ============================================================
+// Handoff tracking — short-lived in-memory map of "we just handed
+// this sequence to FPP, so when it starts playing it counts as a
+// viewer-driven play, not a schedule fill."
+// ============================================================
+const pendingHandoffs = new Map(); // sequence_name -> { source, expiresAt }
+const HANDOFF_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+function rememberHandoff(sequenceName, source) {
+  if (!sequenceName) return;
+  pendingHandoffs.set(sequenceName, {
+    source,
+    expiresAt: Date.now() + HANDOFF_WINDOW_MS,
+  });
+}
+
+function consumeHandoff(sequenceName) {
+  const entry = pendingHandoffs.get(sequenceName);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    pendingHandoffs.delete(sequenceName);
+    return null;
+  }
+  pendingHandoffs.delete(sequenceName);
+  return entry.source;
+}
+
+// Periodic cleanup of expired handoffs
+setInterval(() => {
+  const now = Date.now();
+  for (const [name, entry] of pendingHandoffs.entries()) {
+    if (now > entry.expiresAt) pendingHandoffs.delete(name);
+  }
+}, 60 * 1000);
 
 // ============================================================
 // POST /api/plugin/playing
@@ -129,12 +169,19 @@ router.post('/playing', (req, res) => {
   setNowPlaying(name || null);
 
   if (name) {
+    // Determine source: was this sequence just handed out to the plugin (viewer-driven),
+    // or is FPP playing it from the schedule on its own?
+    const handoffSource = consumeHandoff(name);
+    const source = handoffSource || 'schedule';
+
     db.prepare(`
       INSERT INTO play_history (sequence_name, played_at, source)
-      VALUES (?, CURRENT_TIMESTAMP, 'unknown')
-    `).run(name);
+      VALUES (?, CURRENT_TIMESTAMP, ?)
+    `).run(name, source);
 
     // Mark this sequence as played; reset its hidden counter
+    // (only update sequences we actually know about — schedule fillers
+    // may not be in our pool)
     db.prepare(`
       UPDATE sequences
       SET last_played_at = CURRENT_TIMESTAMP, plays_since_hidden = 0

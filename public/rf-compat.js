@@ -504,14 +504,37 @@
   // ============================================================
   let _audioGateBlocked = false;
   let _audioGateReason = '';
-  let _gateLatchedBlocked = false;
+  // Latch state — null when not latched, otherwise the CATEGORY of block:
+  //   'server'    — admin disabled the show, control mode flipped, etc.
+  //                 Sticky: only a page refresh clears this. We don't
+  //                 want auto-resume when an admin toggles control.
+  //   'proximity' — client-side watcher saw user move out of the radius.
+  //                 NOT sticky: auto-clears when the watcher reports
+  //                 back in-range, so the button reappears for one-tap
+  //                 resume. This is the common "user walked across the
+  //                 street and came back" case.
+  let _gateLatchedBlocked = null;
 
-  function applyAudioGateState(blocked, reason) {
+  // Apply gate state. `category` distinguishes the two latch behaviors:
+  //   'server'    — server-side block, refresh required to recover
+  //   'proximity' — client-side proximity block, auto-clears on return
+  // Defaults to 'server' since that's the conservative/legacy behavior
+  // and most callers (the show-state poll, /api/now-playing-audio path,
+  // periodic fallback) all want the sticky latch. Only the watcher's
+  // direct out-of-range path passes 'proximity'.
+  function applyAudioGateState(blocked, reason, category) {
     _audioGateBlocked = blocked;
     _audioGateReason = reason;
-    if (blocked) _gateLatchedBlocked = true;
-    // Once latched, never auto-reveal. Refresh-to-recover.
-    const effectiveBlocked = blocked || _gateLatchedBlocked;
+    if (blocked) {
+      // 'server' wins over 'proximity' — if the server has already said
+      // "you're blocked because show is offline", a subsequent proximity
+      // block shouldn't downgrade the latch. Once a server latch is set,
+      // it stays until refresh.
+      if (_gateLatchedBlocked !== 'server') {
+        _gateLatchedBlocked = category || 'server';
+      }
+    }
+    const effectiveBlocked = blocked || _gateLatchedBlocked !== null;
     const btn = document.getElementById('of-listen-btn');
     const pill = document.getElementById('of-listen-minimized-pill');
     const panel = document.getElementById('of-listen-panel');
@@ -527,6 +550,35 @@
       panel.style.display = 'none';
       try { window.dispatchEvent(new CustomEvent('showpilot:audio-gate-blocked')); } catch {}
     }
+  }
+
+  // Lift a proximity latch — called by the watcher when the user re-enters
+  // the radius after walking out. Does NOT affect server latches: if the
+  // show is genuinely offline or admin has disabled the gate, we leave
+  // that block in place. Only the proximity-specific latch is cleared.
+  // After this call, the button/pill is revealed again — user taps to
+  // resume audio. We don't auto-restart playback for two reasons:
+  //   (1) Mobile audio contexts (especially iOS) require a user gesture
+  //       to start playing, so silent auto-restart would fail anyway.
+  //   (2) User agency — surprise music playing when someone walks past
+  //       a parked car would be jarring. They tap when they're ready.
+  function liftProximityLatch() {
+    if (_gateLatchedBlocked !== 'proximity') return; // not our latch to lift
+    _gateLatchedBlocked = null;
+    _audioGateBlocked = false;
+    _audioGateReason = '';
+    const btn = document.getElementById('of-listen-btn');
+    if (btn) {
+      btn.classList.remove('of-audio-gate-pending');
+      // Also restore the inline display — it was likely 'none' from when
+      // the panel was open at the moment the watcher kicked out. Without
+      // this, removing the CSS class lifts the !important but the inline
+      // display:none still wins, leaving the button invisible.
+      btn.style.display = 'flex';
+    }
+    // Note: we don't reveal pill/panel here — those were closed by the
+    // out-of-range event, and re-opening them automatically would feel
+    // weird. The launcher button reappears; user taps to start fresh.
   }
   window._ofAudioGate = () => ({ blocked: _audioGateBlocked, latched: _gateLatchedBlocked, reason: _audioGateReason });
 
@@ -987,6 +1039,11 @@
     // proximity checking while audio plays. Only set when audio gate is
     // enabled. Cleared in teardown() to release the GPS subscription.
     let watchPositionId = null;
+    // Timestamp (ms) of the most recent watcher callback that confirmed
+    // the user is IN range. Used to skip the periodic server re-check
+    // when the watcher has done its job recently — see the periodic
+    // check in startup() for the rationale.
+    let lastWatcherInRangeMs = 0;
     // Timestamp (ms) when audio playback started. We use this to grace-
     // period the FIRST ~30 seconds of watchPosition updates, because the
     // browser often fires the first update with a stale cached position
@@ -1138,7 +1195,13 @@
                   // were in range, so honor that. After 30 seconds the
                   // watcher's positions should be fresh.
                   if (audioStartedAtMs === 0) return;  // not playing yet
-                  if (Date.now() - audioStartedAtMs < 30 * 1000) return;
+                  if (Date.now() - audioStartedAtMs < 30 * 1000) {
+                    // During grace period, still record liveness so the
+                    // periodic server re-check can skip — the click-time
+                    // check already verified, no need to re-verify so soon.
+                    lastWatcherInRangeMs = Date.now();
+                    return;
+                  }
 
                   const dist = haversineMiles(
                     pos.coords.latitude,
@@ -1147,14 +1210,30 @@
                     boot.audioGateLongitude
                   );
                   if (dist > boot.audioGateRadiusMiles) {
-                    // Out of range — tear down audio immediately.
+                    // Out of range — tear down audio immediately. Pass
+                    // 'proximity' as the latch category so the user can
+                    // come back later and have the button auto-reveal
+                    // (one-tap resume) without needing a refresh.
                     stopAudio();
                     applyAudioGateState(
                       true,
-                      'Audio is only available to listeners present at the show.'
+                      'Audio is only available to listeners present at the show.',
+                      'proximity'
                     );
                     statusEl.textContent =
                       'Audio stopped — you have moved away from the show.';
+                  } else {
+                    // In range — record this so the periodic server check
+                    // can skip itself. As long as the watcher is alive and
+                    // reporting in-range, the server doesn't need to be
+                    // re-asked the same question.
+                    lastWatcherInRangeMs = Date.now();
+                    // If we were proximity-latched (user walked away and
+                    // is now back), lift the latch so the launcher button
+                    // reappears. liftProximityLatch is a no-op for any
+                    // other latch state, so this is safe to call on
+                    // every in-range update.
+                    liftProximityLatch();
                   }
                 },
                 (err) => {
@@ -1187,15 +1266,55 @@
             }
           }
 
-          // (2) Periodic server re-check — fallback layer. 5 minutes is
-          // a balance between catching tampered clients quickly and not
-          // hammering the server / GPS. Was 15 minutes before v0.18.15
-          // when continuous watching wasn't a thing.
+          // (2) Periodic server re-check — fallback layer for cases the
+          // continuous watcher can't handle. Now smart: skips itself when
+          // the watcher has confirmed the user is in range within the
+          // last 6 minutes. The watcher is already doing the work — re-
+          // asking the server would just burn battery (waking GPS for
+          // getCurrentPosition with maximumAge: 0) and bandwidth for no
+          // security benefit.
+          //
+          // The 6-minute threshold is intentionally larger than this
+          // interval (5 min) to handle small timing drift. If the
+          // watcher reported "in range" at minute 4:55 and we run at
+          // minute 5:00, that's only 5 seconds of staleness — still
+          // fresh enough to trust.
+          //
+          // What does this actually catch?
+          //   - Tampered client (DevTools-killed watcher). lastWatcherInRangeMs
+          //     stays stale, so the periodic check fires and uses
+          //     getFreshLocation to verify directly with the server.
+          //   - Watcher silently dead due to GPS chip outage or browser
+          //     bug. Same path: stale liveness → periodic check fires.
+          //
+          // What does this NOT need to catch?
+          //   - Admin disabled the gate / show turned off. The 5-second
+          //     /api/visual-config poll above already handles those —
+          //     server returns audioGateBlocked=true, applyAudioGateState
+          //     fires the showpilot:audio-gate-blocked event, audio
+          //     stops within seconds. Independent mechanism.
           locationVerifyTimer = setInterval(async () => {
+            const watcherFreshMs = Date.now() - lastWatcherInRangeMs;
+            if (lastWatcherInRangeMs > 0 && watcherFreshMs < 6 * 60 * 1000) {
+              // Watcher is alive and confirmed in-range recently. Skip
+              // the server round trip.
+              return;
+            }
             const result = await window._ofVerifyLocationForAudio();
             if (!result.allowed) {
               stopAudio();
-              applyAudioGateState(true, result.reason || 'Audio is no longer available.');
+              // Categorize as 'proximity' — this fallback path exists
+              // SPECIFICALLY to catch dead-watcher scenarios where the
+              // user is likely out of range. A server-side block reason
+              // (admin disabled show) gets surfaced through the 5-second
+              // /api/visual-config poll independently. Keeping this as
+              // 'proximity' preserves the auto-recover-on-return behavior
+              // even when the fallback fires before the watcher does.
+              applyAudioGateState(
+                true,
+                result.reason || 'Audio is no longer available.',
+                'proximity'
+              );
               statusEl.textContent = result.reason || 'Audio gate triggered.';
             }
           }, 5 * 60 * 1000);
@@ -1217,6 +1336,34 @@
         watchPositionId = null;
       }
       audioStartedAtMs = 0;
+      lastWatcherInRangeMs = 0;
+
+      // Clear a proximity latch on teardown — but only proximity, not
+      // server. Reasoning:
+      //
+      // teardown() runs when the user closes the panel via the X button.
+      // That's an explicit "I'm done with audio" signal. If they later
+      // tap the launcher, the click-time fresh-location check is the
+      // authoritative gate — they get blocked then if still out of range.
+      //
+      // BUT — if they were proximity-latched at the moment they closed
+      // the panel, AND we keep the watcher dead (above), they have no
+      // way to ever re-engage: the launcher button is hidden by the
+      // latch's CSS class, so they can't even tap it. Clearing the
+      // proximity latch here unblocks the launcher; if they're still
+      // out of range, the click-time check still rejects them, so this
+      // is safe.
+      //
+      // The 'server' latch (admin disabled show, etc.) is preserved
+      // through teardown. Its purpose — preventing auto-resume after
+      // an admin toggle — applies regardless of whether the panel was
+      // closed in between.
+      if (_gateLatchedBlocked === 'proximity') {
+        _gateLatchedBlocked = null;
+        const btn = document.getElementById('of-listen-btn');
+        if (btn) btn.classList.remove('of-audio-gate-pending');
+      }
+
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       currentBuffer = null;
@@ -1229,6 +1376,15 @@
     // ---- Sync poll ----
     async function syncOnce() {
       try {
+        // If the gate is latched (panel hidden, user kicked out for any
+        // reason), don't keep polling for audio. The cached location may
+        // be stale, audio might try to restart invisibly into a hidden
+        // panel, and any way you slice it the user shouldn't hear music
+        // they can't see the UI for. When the latch clears (proximity
+        // latch lifts on return, server latch only clears on refresh),
+        // polling resumes naturally on the next interval.
+        if (_gateLatchedBlocked !== null) return;
+
         const reqStart = Date.now();
         const r = await fetch('/api/now-playing-audio' + locationQuery(), { credentials: 'include' });
         if (!r.ok) return;

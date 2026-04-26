@@ -510,7 +510,12 @@ router.get('/plugin-status', requireAdmin, (req, res) => {
 // the most recent fall), and all-time. Buckets are picked based on range so
 // the chart doesn't get unreadable: hourly for today, daily for 7d/30d/season,
 // monthly for "all".
-router.get('/stats/visitors', requireAdmin, (req, res) => {
+// Visitor analytics endpoint. The route is named /stats/audience instead of
+// /stats/visitors because most ad/tracking blockers (uBlock Origin, AdGuard,
+// Brave shields) flag any URL containing "visitors" as analytics tracking
+// and silently block the request — even on first-party admin pages. The
+// data is what matters; the URL just needs to not match common blocklists.
+router.get('/stats/audience', requireAdmin, (req, res) => {
   const range = String(req.query.range || '7d');
 
   // Map range → SQL window + bucket strftime format.

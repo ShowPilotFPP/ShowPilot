@@ -2174,6 +2174,30 @@
           </div>
           <div id="copyTokenStatus" class="muted" style="margin-top: 0.5rem;"></div>
         </div>
+
+        <div class="card">
+          <h2>Audio Cache</h2>
+          <p class="muted">
+            When the FPP plugin syncs, it uploads audio files here. Viewers
+            then stream audio directly from ShowPilot instead of through FPP,
+            which is much faster and scales to many concurrent listeners.
+            If a file isn't cached, viewers fall back to streaming through FPP.
+          </p>
+          <div class="row" style="align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div>
+              <div class="muted" style="font-size: 0.8rem;">Cached files</div>
+              <div id="audioCacheCount" style="font-size: 1.4rem; font-weight: 600;">—</div>
+            </div>
+            <div>
+              <div class="muted" style="font-size: 0.8rem;">Total size</div>
+              <div id="audioCacheSize" style="font-size: 1.4rem; font-weight: 600;">—</div>
+            </div>
+            <div style="margin-left: auto;">
+              <button class="secondary" onclick="refreshAudioCacheStats()">Refresh</button>
+            </div>
+          </div>
+          <div id="audioCacheStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+        </div>
       </div>
 
       <!-- ============================================================
@@ -2374,6 +2398,7 @@
       if (name === 'stats') { loadStatsTab(); loadVisitorStats(); }
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
+      if (name === 'settings') refreshAudioCacheStats();
     }
 
     function copyShowToken() {
@@ -2385,6 +2410,45 @@
         s.style.color = 'var(--status-success)';
         setTimeout(() => { s.textContent = ''; }, 2000);
       });
+    }
+
+    // ============================================================
+    // Audio cache stats
+    // ============================================================
+    // Hits the admin endpoint and renders file count + total size in
+    // the Settings tab. Refreshed when the user opens that tab and on
+    // explicit Refresh button click. The plugin populates the cache
+    // via /api/plugin/audio-cache/upload during sync; this just
+    // displays what's there.
+    function formatBytes(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+      return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+    async function refreshAudioCacheStats() {
+      const countEl = document.getElementById('audioCacheCount');
+      const sizeEl = document.getElementById('audioCacheSize');
+      const statusEl = document.getElementById('audioCacheStatus');
+      if (!countEl || !sizeEl) return;
+      try {
+        const res = await fetch('/api/admin/audio-cache/stats', { credentials: 'include' });
+        if (!res.ok) {
+          statusEl.textContent = 'Failed to load stats (' + res.status + ')';
+          statusEl.style.color = 'var(--status-danger)';
+          return;
+        }
+        const data = await res.json();
+        countEl.textContent = data.fileCount;
+        sizeEl.textContent = formatBytes(data.totalBytes);
+        statusEl.textContent = data.fileCount === 0
+          ? 'No files cached yet — run Sync from the FPP plugin to populate.'
+          : '';
+        statusEl.style.color = 'var(--text-dim)';
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.style.color = 'var(--status-danger)';
+      }
     }
   </script>
 

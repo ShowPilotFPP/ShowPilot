@@ -496,6 +496,10 @@ router.get('/audio-stream/:sequence', async (req, res) => {
       // immutable — same hash, same content. Cloudflare or other edge
       // caches can serve this aggressively.
       res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+      // Diagnostic header so admins can verify cache vs FPP-proxy paths
+      // in browser dev tools without server log access. Visible under
+      // the Network tab → click request → Response Headers.
+      res.setHeader('X-Audio-Source', 'cache');
       // sendFile handles Range/304/Accept-Ranges automatically. Browser
       // gets sample-precise seeking exactly as it would from FPP.
       return res.sendFile(cachedPath, (err) => {
@@ -521,6 +525,17 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   // did before v0.19.0; it stays as the fallback for fresh installs
   // before the plugin has uploaded files, plugin downgrades, or any
   // case where cache is empty.
+  //
+  // Log cache miss so admins can spot unexpected fallbacks (e.g. the
+  // plugin failed to upload some sequences, or a sequence got renamed
+  // since the last sync). Once steady-state, this should rarely fire.
+  console.warn(
+    '[audio-stream] cache miss for "' + seq.media_name + '" — falling back to FPP proxy'
+  );
+  // Diagnostic header for the same reason as the cache-hit one above —
+  // browser dev tools can show cache vs proxy at a glance.
+  res.setHeader('X-Audio-Source', 'fpp');
+
   // Need FPP host from plugin status
   const cfg = getConfig();
   const fppHost = cfg.plugin_fpp_host;

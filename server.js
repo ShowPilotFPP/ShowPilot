@@ -56,6 +56,12 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    // Custom response headers we want visible to cross-origin JS (the
+    // browser hides non-default response headers from JS unless they
+    // are in this list). X-Audio-Source surfaces "cache" vs "fpp" for
+    // the viewer audio stream so admins can verify which path is being
+    // used at runtime.
+    res.header('Access-Control-Expose-Headers', 'X-Audio-Source');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();

@@ -786,6 +786,119 @@
     .stat.s-purple { border-left-color: var(--rgb-purple); }
 
     /* ============================================================
+     * VISITOR ANALYTICS
+     * Three-up charts + summary cards on the Dashboard
+     * ============================================================ */
+    /* Segmented range selector */
+    .of-vrange {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease;
+      margin: 0;
+    }
+    .of-vrange:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .of-vrange.active {
+      background: var(--bg-elevated);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    [data-theme="stage-light"] .of-vrange:hover, body.theme-stage-light .of-vrange:hover, body.theme-easter .of-vrange:hover { background: rgba(0, 0, 0, 0.04); }
+    [data-theme="stage-light"] .of-vrange.active, body.theme-stage-light .of-vrange.active, body.theme-easter .of-vrange.active { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+
+    /* Summary cards (Today / Range / All time) */
+    .visitor-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.85rem;
+      margin: 0.75rem 0 1.25rem;
+    }
+    .vsum {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      box-shadow: var(--shadow-card);
+    }
+    .vsum-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    .vsum-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 3px 0;
+    }
+    .vsum-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .vsum-key {
+      flex: 1;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .vsum-val {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* The three chart wraps */
+    .visitor-charts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+    @media (max-width: 1100px) {
+      .visitor-charts-grid { grid-template-columns: 1fr; }
+    }
+    .vchart-wrap {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem 1rem;
+      box-shadow: var(--shadow-card);
+    }
+    .vchart-title {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.6rem;
+    }
+    .vchart-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .vchart-canvas-wrap {
+      position: relative;
+      height: 200px;
+    }
+
+    /* ============================================================
      * TABLES
      * ============================================================ */
     table {
@@ -992,6 +1105,7 @@
       border: 1px solid var(--border);
     }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
   <script>
     /* Monaco's loader.js installs an AMD `define`. jsPDF (UMD) sees it and tries
@@ -1043,7 +1157,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.15.0</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.16.0</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1156,6 +1270,59 @@
             <button class="secondary" onclick="resetVotes()">Reset Votes</button>
             <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
           </div>
+        </div>
+
+        <div class="card">
+          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h2 style="margin: 0;">Visitor Stats</h2>
+            <div class="row" id="visitorRangeTabs" style="gap: 0; margin: 0; background: var(--bg-tertiary); border-radius: 6px; padding: 2px;">
+              <button class="of-vrange" data-range="today" onclick="setVisitorRange('today')">Today</button>
+              <button class="of-vrange" data-range="7d" onclick="setVisitorRange('7d')">7 days</button>
+              <button class="of-vrange active" data-range="30d" onclick="setVisitorRange('30d')">30 days</button>
+              <button class="of-vrange" data-range="season" onclick="setVisitorRange('season')">This season</button>
+              <button class="of-vrange" data-range="all" onclick="setVisitorRange('all')">All time</button>
+            </div>
+          </div>
+
+          <div class="visitor-summary-grid">
+            <div class="vsum">
+              <div class="vsum-label">Today</div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumTodayU">—</span></div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumTodayV">—</span></div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumTodayR">—</span></div>
+            </div>
+            <div class="vsum">
+              <div class="vsum-label">Range</div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumRangeU">—</span></div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumRangeV">—</span></div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumRangeR">—</span></div>
+            </div>
+            <div class="vsum">
+              <div class="vsum-label">All time</div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumAllU">—</span></div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumAllV">—</span></div>
+              <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumAllR">—</span></div>
+            </div>
+          </div>
+
+          <div class="visitor-charts-grid">
+            <div class="vchart-wrap">
+              <div class="vchart-title"><span class="vchart-dot" style="background:#22c55e;"></span>Unique Visitors</div>
+              <div class="vchart-canvas-wrap"><canvas id="chartUnique"></canvas></div>
+            </div>
+            <div class="vchart-wrap">
+              <div class="vchart-title"><span class="vchart-dot" style="background:#3b82f6;"></span>Total Visits</div>
+              <div class="vchart-canvas-wrap"><canvas id="chartVisits"></canvas></div>
+            </div>
+            <div class="vchart-wrap">
+              <div class="vchart-title"><span class="vchart-dot" style="background:#f59e0b;"></span>Total Requests</div>
+              <div class="vchart-canvas-wrap"><canvas id="chartRequests"></canvas></div>
+            </div>
+          </div>
+
+          <p class="muted" style="font-size: 0.75rem; margin: 0.75rem 0 0;">
+            Visitor stats use a session cookie (<code>of_vid</code>) and IP for analytics. Data stays on your server. Bots are filtered before logging.
+          </p>
         </div>
 
         <div class="card">
@@ -1943,6 +2110,17 @@
       if (typeof monaco !== 'undefined' && monaco.editor) {
         monaco.editor.setTheme(LIGHT_THEMES.has(theme) ? 'vs' : 'vs-dark');
       }
+      // Redraw visitor charts so their tick/grid/tooltip colors match the new
+      // theme. Deferred via setTimeout so we don't hit a temporal-dead-zone
+      // error on first run (applyTheme runs from initTheme() before the
+      // visitor-stats `const`s have been declared).
+      setTimeout(() => {
+        try {
+          if (_visitorCharts && (_visitorCharts.unique || _visitorCharts.visits || _visitorCharts.requests)) {
+            loadVisitorStats();
+          }
+        } catch { /* charts not ready yet */ }
+      }, 0);
     }
     (function initTheme() {
       const saved = localStorage.getItem('openfalcon_theme') || 'stage-dark';
@@ -1973,6 +2151,7 @@
       if (name === 'stats') loadStatsTab();
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
+      if (name === 'dashboard') loadVisitorStats();
     }
 
     function copyShowToken() {
@@ -2518,6 +2697,165 @@
           });
         }
       }
+    }
+
+    // ============================================================
+    // VISITOR ANALYTICS
+    // ============================================================
+    let _visitorRange = '30d';
+    const _visitorCharts = { unique: null, visits: null, requests: null };
+
+    function setVisitorRange(range) {
+      _visitorRange = range;
+      // Update active tab styling
+      document.querySelectorAll('.of-vrange').forEach(b => {
+        b.classList.toggle('active', b.dataset.range === range);
+      });
+      loadVisitorStats();
+    }
+
+    // Format a SQLite bucket key into a friendly axis label.
+    // bucketStep is 'hour' | 'day' | 'month'.
+    function formatBucketLabel(key, step) {
+      // Hour bucket: "2026-04-25 14:00:00" → "2pm"
+      if (step === 'hour') {
+        const m = key.match(/^\d{4}-\d{2}-\d{2} (\d{2}):/);
+        if (!m) return key;
+        const h = parseInt(m[1], 10);
+        const ampm = h >= 12 ? 'pm' : 'am';
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        return h12 + ampm;
+      }
+      // Month bucket: "2026-04" → "Apr 26"
+      if (step === 'month') {
+        const m = key.match(/^(\d{4})-(\d{2})$/);
+        if (!m) return key;
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return months[parseInt(m[2], 10) - 1] + ' ' + m[1].slice(2);
+      }
+      // Day bucket: "2026-04-25" → "Apr 25"
+      const d = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!d) return key;
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return months[parseInt(d[2], 10) - 1] + ' ' + parseInt(d[3], 10);
+    }
+
+    // Build a Chart.js line config — gradient fill under the line, smooth curve,
+    // themed grid + tick colors that respect light/dark mode.
+    function buildVisitorChartConfig(labels, data, color) {
+      // LIGHT_THEMES is the set declared at the top of this script — currently
+      // 'stage-light' and 'easter'. Match against body classes since that's how
+      // applyTheme() actually applies themes.
+      const bodyClass = document.body.className || '';
+      const isLight = LIGHT_THEMES && Array.from(LIGHT_THEMES).some(t => bodyClass.includes('theme-' + t));
+      const tickColor = isLight ? '#64748b' : '#94a3b8';
+      const gridColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+      return {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data,
+            borderColor: color,
+            borderWidth: 2,
+            tension: 0.35,
+            fill: true,
+            backgroundColor: (ctx) => {
+              const chart = ctx.chart;
+              const { ctx: c, chartArea } = chart;
+              if (!chartArea) return color + '20';
+              const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              g.addColorStop(0, color + '55');
+              g.addColorStop(1, color + '00');
+              return g;
+            },
+            pointRadius: data.length > 30 ? 0 : 2.5,
+            pointHoverRadius: 5,
+            pointBackgroundColor: color,
+            pointBorderColor: color,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: isLight ? 'rgba(255,255,255,0.95)' : 'rgba(15,23,42,0.95)',
+              titleColor: isLight ? '#0f172a' : '#f1f5f9',
+              bodyColor: isLight ? '#0f172a' : '#f1f5f9',
+              borderColor: color,
+              borderWidth: 1,
+              padding: 10,
+              displayColors: false,
+              callbacks: {
+                label: (ctx) => ctx.parsed.y.toLocaleString(),
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: tickColor, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 12 },
+              grid: { display: false },
+              border: { color: gridColor },
+            },
+            y: {
+              beginAtZero: true,
+              ticks: {
+                color: tickColor,
+                font: { size: 11 },
+                precision: 0,
+                callback: (v) => Number.isInteger(v) ? v : '',
+              },
+              grid: { color: gridColor },
+              border: { display: false },
+            },
+          },
+        },
+      };
+    }
+
+    async function loadVisitorStats() {
+      const r = await api('/stats/visitors?range=' + encodeURIComponent(_visitorRange));
+      if (!r.ok) return;
+      const d = r.data;
+
+      // Summary cards
+      const setKpi = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v ?? 0).toLocaleString(); };
+      setKpi('vsumTodayU', d.summary.today.uniques);
+      setKpi('vsumTodayV', d.summary.today.visits);
+      setKpi('vsumTodayR', d.summary.today.requests);
+      setKpi('vsumRangeU', d.summary.range.uniques);
+      setKpi('vsumRangeV', d.summary.range.visits);
+      setKpi('vsumRangeR', d.summary.range.requests);
+      setKpi('vsumAllU', d.summary.allTime.uniques);
+      setKpi('vsumAllV', d.summary.allTime.visits);
+      setKpi('vsumAllR', d.summary.allTime.requests);
+
+      // Charts
+      const labels = d.series.map(p => formatBucketLabel(p.bucket, d.bucketStep));
+      const uniqueData = d.series.map(p => p.uniques);
+      const visitsData = d.series.map(p => p.visits);
+      const requestsData = d.series.map(p => p.requests);
+
+      // Empty-state: if no buckets, render a flat zero line so the canvas isn't empty
+      if (labels.length === 0) {
+        labels.push('—');
+        uniqueData.push(0);
+        visitsData.push(0);
+        requestsData.push(0);
+      }
+
+      // Destroy + recreate (simpler than dataset-mutation when range changes structure)
+      const renderChart = (key, canvasId, data, color) => {
+        if (_visitorCharts[key]) _visitorCharts[key].destroy();
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        _visitorCharts[key] = new Chart(canvas, buildVisitorChartConfig(labels, data, color));
+      };
+      renderChart('unique', 'chartUnique', uniqueData, '#22c55e');
+      renderChart('visits', 'chartVisits', visitsData, '#3b82f6');
+      renderChart('requests', 'chartRequests', requestsData, '#f59e0b');
     }
 
     let sequencesCache = [];
@@ -3215,6 +3553,18 @@
 
     checkAuth();
     setInterval(() => { if (!document.getElementById('appView').classList.contains('hidden')) loadStats(); }, 5000);
+
+    // Visitor analytics — initial load + slower refresh (aggregates don't need
+    // 5-second updates and the queries are heavier than /stats).
+    function _maybeLoadVisitorStats() {
+      if (document.getElementById('appView').classList.contains('hidden')) return;
+      const dashPane = document.querySelector('.tab-pane[data-pane="dashboard"]');
+      if (!dashPane || !dashPane.classList.contains('active')) return;
+      loadVisitorStats();
+    }
+    // Fire on first dashboard view (post-auth) and every 30s while it's open
+    setTimeout(_maybeLoadVisitorStats, 600);
+    setInterval(_maybeLoadVisitorStats, 30000);
 
     // Also poll config every 5s so the mode dropdown + badge stay in sync with
     // external changes (FPP scheduler commands, other admin tabs) even if the

@@ -63,6 +63,11 @@ app.get('/', (req, res) => {
   try {
     const { renderTemplate, getActiveTemplate } = require('./lib/viewer-renderer');
     const { db, getConfig, getNowPlaying } = require('./lib/db');
+    const { logVisit } = require('./lib/visit-tracking');
+
+    // Log this visit for analytics (skips bots and preview-mode requests).
+    // Sets of_vid cookie on first visit.
+    logVisit(req, res, db, '/');
 
     // Preview mode: render against a specific template's draft_html (or html
     // if no draft). Used by the visual designer's live preview iframe.

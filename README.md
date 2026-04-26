@@ -166,31 +166,28 @@ rm showpilot.tar.gz
 npm install --omit=dev
 ```
 
-### 3. Create your config
+### 3. (Optional) Customize the config
+
+ShowPilot works out of the box with no configuration — secrets are auto-generated on first run and persisted to `data/secrets.json`. If you want to tweak ports, paths, or other settings:
 
 ```bash
 cp config.example.js config.js
 nano config.js
 ```
 
-At minimum, change these two values:
+The most useful setting to think about is `trustProxy`:
+- **Direct exposure (port forward, no proxy):** keep `trustProxy: false` (the default)
+- **Behind a reverse proxy (Nginx Proxy Manager, Caddy, Cloudflare Tunnel, etc.):** set `trustProxy: 1`
 
-```js
-jwtSecret: 'PUT_A_LONG_RANDOM_STRING_HERE',
-showToken: 'PUT_ANOTHER_RANDOM_STRING_HERE',
-```
-
-Generate random strings with:
-
-```bash
-openssl rand -hex 32
-```
+For environments where you'd rather inject secrets at runtime (Kubernetes, Docker secrets, etc.), set the `SHOWPILOT_JWT_SECRET` and `SHOWPILOT_SHOW_TOKEN` environment variables — they take precedence over both `config.js` and auto-generation.
 
 ### 4. Start it up
 
 ```bash
 npm start
 ```
+
+On the very first run, you'll see a one-time announcement with your auto-generated **show token** — that's the value you'll paste into the FPP plugin config. You can also retrieve it anytime in the admin UI under **Settings → Plugin → Show Token**.
 
 You should see `ShowPilot listening on http://0.0.0.0:3100`. Open `http://<your-server-ip>:3100/admin` in a browser.
 
@@ -272,13 +269,13 @@ rm showpilot.tar.gz
 npm install --omit=dev
 ```
 
-### 3. Configure & run
+### 3. Run it
 
 ```bash
-cp config.example.js config.js
-# Edit config.js and set jwtSecret + showToken (use `openssl rand -hex 32` for random values)
 npm start
 ```
+
+Secrets auto-generate on first run. Optional: copy `config.example.js` to `config.js` if you want to customize ports, paths, or `trustProxy`.
 
 Open `http://localhost:3100/admin`. Default login `admin` / `admin`.
 
@@ -319,24 +316,13 @@ Remove-Item showpilot.tar.gz
 npm install --omit=dev
 ```
 
-### 3. Configure
-
-```powershell
-Copy-Item config.example.js config.js
-notepad config.js
-```
-
-Set `jwtSecret` and `showToken` to random strings. Generate them in PowerShell with:
-
-```powershell
--join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object {[char]$_})
-```
-
-### 4. Start
+### 3. Start it
 
 ```powershell
 npm start
 ```
+
+Secrets auto-generate on first run. Optional: `Copy-Item config.example.js config.js` if you want to customize ports, paths, or `trustProxy`.
 
 Open `http://localhost:3100/admin`. Default login `admin` / `admin`.
 
@@ -359,29 +345,36 @@ mkdir showpilot && cd showpilot
 # but pulling explicitly first lets you confirm connectivity to GHCR)
 docker pull ghcr.io/showpilotfpp/showpilot:latest
 
-# Set up data + config directories
-mkdir showpilot-data showpilot-config
+# Set up data directory (config.js is OPTIONAL — see below)
+mkdir showpilot-data
 
-# Download the example config file and edit it
-curl -O https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/config.example.js
-mv config.example.js showpilot-config/config.js
-nano showpilot-config/config.js   # change jwtSecret and showToken to random strings
-                                   # (`openssl rand -hex 32` generates a good random value)
-
-# Download the compose file (which references the image above)
+# Download the compose file
 curl -O https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/docker-compose.yml.example
 mv docker-compose.yml.example docker-compose.yml
-# Edit if you need to change the port mapping or paths
+# Edit if you need to change the port mapping
 nano docker-compose.yml
 
 # Start it
 docker compose up -d
 
-# Watch the logs as it boots
+# Watch the logs as it boots — your auto-generated show token will be
+# printed here on first run (you'll need it to configure the FPP plugin).
 docker compose logs -f
 ```
 
 Then open `http://<your-host>:3100/admin` and continue with [First-run setup](#first-run-setup).
+
+**Optional: customize config.** ShowPilot works out of the box with default settings + auto-generated secrets. If you want to change ports, paths, or `trustProxy`:
+
+```bash
+mkdir showpilot-config
+curl -O https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/config.example.js
+mv config.example.js showpilot-config/config.js
+nano showpilot-config/config.js
+# Then uncomment the config volume in docker-compose.yml
+```
+
+For Docker secrets / Kubernetes environments, you can inject `SHOWPILOT_JWT_SECRET` and `SHOWPILOT_SHOW_TOKEN` as environment variables and skip both `config.js` and the auto-generated secrets file entirely.
 
 **Notes for Docker users:**
 

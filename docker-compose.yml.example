@@ -5,18 +5,28 @@
 #
 #     docker compose up -d
 #
-# Things you'll likely change:
-#   - The host port (left side of "3100:3100") if 3100 is taken on your host
-#   - Mount paths for ./showpilot-data and ./showpilot-config (use absolute
-#     paths if you prefer)
-#   - The image tag (use a specific version like :0.18.5 to pin, or :latest
-#     for auto-updates with `docker compose pull`)
+# ShowPilot works out of the box with no config file. Secrets
+# (jwtSecret, showToken) are auto-generated on first run and
+# persisted to the data volume at /app/data/secrets.json.
 #
-# Things you MUST do before first run:
-#   1. Copy config.example.js to ./showpilot-config/config.js
-#      (or download from https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/config.example.js)
-#   2. Edit ./showpilot-config/config.js — change jwtSecret and showToken
-#      to long random strings (`openssl rand -hex 32` works great)
+# Watch the logs on first run — the auto-generated show token
+# is printed once. You'll paste it into the FPP plugin config:
+#
+#     docker compose logs -f
+#
+# Things you'll likely change:
+#   - The host port (left side of "3100:3100") if 3100 is taken
+#   - The data volume path (./showpilot-data) — use absolute paths
+#     if you prefer
+#   - The image tag (use :0.18.14 to pin, or :latest for the
+#     newest version with `docker compose pull`)
+#
+# Optional: provide a config.js to override defaults. See the
+# commented config volume mount below.
+#
+# Optional: inject secrets via environment variables — useful for
+# Docker Secrets, Kubernetes, or anywhere you want secrets out of
+# disk. See the commented `environment:` block below.
 # ============================================================
 
 services:
@@ -41,11 +51,19 @@ services:
       - "3100:3100"
 
     volumes:
-      # Database, cover art, and any persistent data
+      # Database, cover art, and auto-generated secrets.json
       - ./showpilot-data:/app/data
 
-      # Config file — mount as read-only since the app doesn't write it
-      - ./showpilot-config/config.js:/app/config.js:ro
+      # OPTIONAL: mount a config.js to override defaults (port, trustProxy,
+      # session lengths, etc). Uncomment if you've created showpilot-config/config.js.
+      # - ./showpilot-config/config.js:/app/config.js:ro
+
+    # OPTIONAL: inject secrets via environment variables. These take
+    # precedence over both config.js and any auto-generated secrets.
+    # Useful for Docker Secrets, Kubernetes Secrets, or .env files.
+    # environment:
+    #   SHOWPILOT_JWT_SECRET: "${SHOWPILOT_JWT_SECRET}"
+    #   SHOWPILOT_SHOW_TOKEN: "${SHOWPILOT_SHOW_TOKEN}"
 
     # Optional: if you're behind a reverse proxy (Nginx Proxy Manager, Traefik,
     # Caddy) on the same Docker host, add a network here so the proxy can reach

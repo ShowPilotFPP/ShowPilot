@@ -363,10 +363,7 @@ server.listen(config.port, config.host, () => {
   console.log(`Plugin endpoint: http://${config.host}:${config.port}/api/plugin`);
   console.log(`Viewer page:     http://${config.host}:${config.port}/`);
   console.log(`Admin:           http://${config.host}:${config.port}/admin/`);
-  if (config.showToken === 'CHANGE_ME_TO_A_RANDOM_STRING') {
-    console.warn('⚠️  Set a real showToken in config.js before pointing FPP at this server.');
-  }
-  if (config.jwtSecret === 'CHANGE_ME_BEFORE_RUNNING_IN_PROD') {
-    console.warn('⚠️  Set a real jwtSecret in config.js before exposing to the internet.');
-  }
+  // Secret resolution + any "first run, generated for you" announcements
+  // happen in lib/config-loader.js — by the time we get here, secrets are
+  // already real values from one of: env > config.js > secrets.json > generated.
 });

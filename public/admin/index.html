@@ -1155,7 +1155,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.18.7</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.18.8</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1799,13 +1799,27 @@
         <div class="card">
           <h2>Settings</h2>
           <div class="sub-tabs">
-            <div class="sub-tab active" data-subtab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
+            <div class="sub-tab active" data-subtab="general" onclick="switchTab('general')">General</div>
+            <div class="sub-tab" data-subtab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
             <div class="sub-tab" data-subtab="voting" onclick="switchTab('voting')">Voting</div>
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
           </div>
 
+          <!-- GENERAL SETTINGS — applies to all templates -->
+          <div class="sub-tab-pane active" data-subtab="general">
+            <div>
+              <label for="cfg_show_name">Show name</label>
+              <input type="text" id="cfg_show_name" maxlength="200"
+                     placeholder="My Light Show"
+                     onchange="saveSetting('show_name', this.value)" />
+              <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
+                Used as the browser tab title on the viewer page (unless your template defines its own &lt;title&gt; tag) and as a friendly name in a few other places.
+              </p>
+            </div>
+          </div>
+
           <!-- JUKEBOX SETTINGS -->
-          <div class="sub-tab-pane active" data-subtab="jukebox">
+          <div class="sub-tab-pane" data-subtab="jukebox">
             <div class="grid-2">
               <div>
                 <label for="cfg_jukebox_queue_depth">Jukebox queue depth (max requests in queue)</label>
@@ -2289,6 +2303,9 @@
       const c = r.data;
       document.getElementById('modeSelect').value = c.viewer_control_mode;
       updateViewerControlBadge(c.viewer_control_mode);
+
+      // General settings
+      setVal('cfg_show_name', c.show_name || '');
 
       // Populate safeguard settings
       setVal('cfg_jukebox_queue_depth', c.jukebox_queue_depth);

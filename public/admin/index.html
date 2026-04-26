@@ -1292,7 +1292,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.19.3-beta</span><span class="app-beta-pill">Beta</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.19.4-beta</span><span class="app-beta-pill">Beta</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2193,11 +2193,34 @@
               <div id="audioCacheSize" style="font-size: 1.4rem; font-weight: 600;">—</div>
             </div>
             <div style="margin-left: auto; display: flex; gap: 0.5rem;">
-              <button class="secondary" onclick="clearAudioCache()">Clear</button>
+              <button class="secondary" onclick="pruneAudioCache()" title="Remove cache entries for sequences that no longer exist">Prune Orphans</button>
+              <button class="secondary" onclick="clearAudioCache()" title="Wipe everything in the cache — next sync re-uploads all">Clear All</button>
               <button class="secondary" onclick="refreshAudioCacheStats()">Refresh</button>
             </div>
           </div>
           <div id="audioCacheStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+
+          <!-- File list. Hidden until Refresh runs at least once or until
+               the user expands. Folded by default to keep this card
+               compact when there are dozens of cached files. -->
+          <details style="margin-top: 1rem;">
+            <summary style="cursor: pointer; font-weight: 600; padding: 0.4rem 0;">Show file list</summary>
+            <div style="overflow-x: auto; margin-top: 0.5rem;">
+              <table style="width: 100%; font-size: 0.85rem;">
+                <thead>
+                  <tr>
+                    <th style="text-align: left;">Sequence</th>
+                    <th style="text-align: left;">Media file</th>
+                    <th style="text-align: right; white-space: nowrap;">Size</th>
+                    <th style="text-align: left;">Type</th>
+                    <th style="text-align: left;">Cached</th>
+                    <th style="width: 80px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="audioCacheFiles"></tbody>
+              </table>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -2449,6 +2472,127 @@
       } catch (e) {
         statusEl.textContent = 'Error: ' + e.message;
         statusEl.style.color = 'var(--status-danger)';
+      }
+      // Also refresh the per-file list. It may be hidden inside a
+      // <details> block, but populating it here means clicking "Show
+      // file list" reveals up-to-date content with no extra fetch.
+      refreshAudioCacheFiles();
+    }
+
+    // Refresh the per-file table. Separate from stats refresh so the
+    // smaller summary can update faster, and so callers can rebuild
+    // just the list (e.g. after deleting a row).
+    async function refreshAudioCacheFiles() {
+      const tbody = document.getElementById('audioCacheFiles');
+      if (!tbody) return;
+      try {
+        const res = await fetch('/api/admin/audio-cache/files', { credentials: 'include' });
+        if (!res.ok) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted" style="padding: 0.6rem;">Failed to load file list</td></tr>';
+          return;
+        }
+        const data = await res.json();
+        const files = data.files || [];
+        if (files.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="muted" style="padding: 0.6rem;">No cached files.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = files.map(function(f) {
+          // Sequence column: link to the sequence row if there's a match,
+          // or "(orphaned)" in muted color if the cache row no longer
+          // points at any active sequence.
+          const seqCell = f.sequence_display_name
+            ? '<span>' + escapeHtml(f.sequence_display_name) + '</span>'
+            : '<span class="muted" style="font-style: italic;">(orphaned)</span>';
+          const mediaCell = f.media_name
+            ? '<code style="font-size: 0.8rem;">' + escapeHtml(f.media_name) + '</code>'
+            : '<span class="muted">—</span>';
+          const ts = f.cached_at
+            ? new Date(f.cached_at + 'Z').toLocaleString()
+            : '—';
+          // Hash truncated for display; full hash kept in data attr for
+          // the delete handler.
+          const shortHash = f.hash ? f.hash.slice(0, 8) + '…' : '';
+          return '<tr data-hash="' + escapeAttr(f.hash) + '">' +
+            '<td>' + seqCell + '</td>' +
+            '<td>' + mediaCell + '</td>' +
+            '<td style="text-align: right; white-space: nowrap;">' + formatBytes(f.size_bytes || 0) + '</td>' +
+            '<td><span class="muted" style="font-size: 0.8rem;">' + escapeHtml(f.mime_type || 'audio/mpeg') + '</span></td>' +
+            '<td><span class="muted" style="font-size: 0.8rem;" title="' + escapeAttr(shortHash) + '">' + escapeHtml(ts) + '</span></td>' +
+            '<td><button class="danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" onclick="deleteCachedFile(\'' + escapeAttr(f.hash) + '\')">Delete</button></td>' +
+          '</tr>';
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted" style="padding: 0.6rem;">Error: ' + escapeHtml(e.message) + '</td></tr>';
+      }
+    }
+
+    async function deleteCachedFile(hash) {
+      if (!hash) return;
+      const ok = await showConfirm(
+        'Delete this cached audio file?',
+        'The next plugin sync will re-upload it if the sequence still exists.'
+      );
+      if (!ok) return;
+      try {
+        const res = await fetch('/api/admin/audio-cache/files/' + encodeURIComponent(hash), {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          await showAlert('Delete failed (' + res.status + ')');
+          return;
+        }
+        // Refresh both stats and list so the counts update too.
+        refreshAudioCacheStats();
+      } catch (e) {
+        await showAlert('Delete error: ' + e.message);
+      }
+    }
+
+    async function pruneAudioCache() {
+      const ok = await showConfirm(
+        'Prune orphaned cache entries?',
+        'This removes cache entries for sequences that no longer exist or have been replaced. Files for active sequences are kept.'
+      );
+      if (!ok) return;
+      try {
+        const res = await fetch('/api/admin/audio-cache/prune', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          await showAlert('Prune failed (' + res.status + ')');
+          return;
+        }
+        const data = await res.json();
+        await showAlert('Pruned ' + (data.removed || 0) + ' orphaned entries.');
+        refreshAudioCacheStats();
+      } catch (e) {
+        await showAlert('Prune error: ' + e.message);
+      }
+    }
+
+    async function clearAudioCache() {
+      const ok = await showConfirm(
+        'Clear the ENTIRE audio cache?',
+        'This wipes every cached audio file. Next plugin sync will re-upload everything from scratch — first run will take longer than usual.'
+      );
+      if (!ok) return;
+      try {
+        const res = await fetch('/api/admin/audio-cache/clear', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          await showAlert('Clear failed (' + res.status + ')');
+          return;
+        }
+        const data = await res.json();
+        await showAlert('Cleared ' + (data.removed || 0) + ' cached files.');
+        refreshAudioCacheStats();
+      } catch (e) {
+        await showAlert('Clear error: ' + e.message);
       }
     }
   </script>

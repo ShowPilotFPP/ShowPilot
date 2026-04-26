@@ -382,9 +382,36 @@ function updateSequence(req, res) {
 }
 
 router.delete('/sequences/:id', requireAdmin, (req, res) => {
-  db.prepare(`DELETE FROM sequences WHERE id = ?`).run(Number(req.params.id));
+  const id = Number(req.params.id);
+  // Capture the media_name BEFORE delete so we can detach any cached
+  // audio bytes pointing at it. Without this, deleting a sequence
+  // leaves orphan rows in audio_cache_files and orphan files on disk.
+  const seq = db.prepare(`SELECT media_name FROM sequences WHERE id = ?`).get(id);
+  db.prepare(`DELETE FROM sequences WHERE id = ?`).run(id);
+  if (seq && seq.media_name) {
+    detachCacheForMediaName(seq.media_name);
+  }
   res.json({ ok: true });
 });
+
+// Helper: detach (set media_name = NULL) any audio_cache_files rows for
+// the given media_name. Called when a sequence is deleted so orphaned
+// cache rows can be cleaned by pruneOrphanedHashes(). We don't delete
+// the bytes immediately — prune handles that — keeping cleanup batched
+// and giving an admin a chance to re-create the sequence with the same
+// media_name without re-uploading.
+function detachCacheForMediaName(mediaName) {
+  try {
+    db.prepare(`
+      UPDATE audio_cache_files SET media_name = NULL WHERE media_name = ?
+    `).run(mediaName);
+  } catch (err) {
+    // Cache table may not exist on very old installs that haven't
+    // migrated yet. Failing silently here is correct — the sequence
+    // delete itself succeeded, this is just bookkeeping.
+    console.warn('[admin] cache detach failed (table missing?):', err.message);
+  }
+}
 
 // Reorder sequences in the admin table: expects { ids: [...] } in desired order.
 // Writes display_order only — FPP playlist index (sort_order) is untouched.
@@ -420,10 +447,20 @@ router.post('/sequences/sort-alphabetically', requireAdmin, (req, res) => {
 
 // Delete inactive sequences (not visible, not votable, not jukeboxable, not PSA).
 router.post('/sequences/delete-inactive', requireAdmin, (req, res) => {
+  // Capture media_names of about-to-delete rows so cache cleanup can
+  // follow. Same pattern as the single-delete endpoint.
+  const doomed = db.prepare(`
+    SELECT media_name FROM sequences
+    WHERE visible = 0 AND votable = 0 AND jukeboxable = 0 AND is_psa = 0
+      AND media_name IS NOT NULL
+  `).all();
   const result = db.prepare(`
     DELETE FROM sequences
     WHERE visible = 0 AND votable = 0 AND jukeboxable = 0 AND is_psa = 0
   `).run();
+  for (const row of doomed) {
+    detachCacheForMediaName(row.media_name);
+  }
   res.json({ ok: true, deleted: result.changes });
 });
 
@@ -439,6 +476,15 @@ router.post('/sequences/delete-all', requireAdmin, (req, res) => {
   });
   try {
     const deleted = tx();
+    // All sequences gone — every cache row is now orphaned. Detach them
+    // all so the next prune sweeps them up. We don't drop the cache
+    // wholesale here in case admin is reorganizing and plans to re-sync
+    // the same files (saves re-upload).
+    try {
+      db.prepare(`UPDATE audio_cache_files SET media_name = NULL`).run();
+    } catch (err) {
+      console.warn('[admin] cache detach-all failed (table missing?):', err.message);
+    }
     res.json({ ok: true, deleted });
   } catch (err) {
     console.error('[delete-all] failed:', err);
@@ -733,6 +779,77 @@ router.post('/audio-cache/clear', requireAdmin, (req, res) => {
     res.json({ ok: true, removed });
   } catch (err) {
     console.error('[admin/audio-cache/clear] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List all cached audio files with metadata. Drives the per-file table
+// in admin Settings → Audio Cache, which lets admins see exactly what's
+// cached and delete individual entries. Joins against sequences so the
+// admin can see which display name (if any) each cache row maps to —
+// orphan rows show as "(no sequence)".
+router.get('/audio-cache/files', requireAdmin, (req, res) => {
+  const { db } = require('../lib/db');
+  try {
+    const rows = db.prepare(`
+      SELECT
+        c.hash,
+        c.media_name,
+        c.size_bytes,
+        c.mime_type,
+        c.cached_at,
+        s.display_name AS sequence_display_name,
+        s.id AS sequence_id
+      FROM audio_cache_files c
+      LEFT JOIN sequences s ON s.media_name = c.media_name
+      ORDER BY c.cached_at DESC
+    `).all();
+    res.json({ files: rows });
+  } catch (err) {
+    console.error('[admin/audio-cache/files] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete one specific cache entry (file + DB row). Useful for evicting
+// known-bad uploads without nuking the whole cache. Hash is validated
+// to match the SHA-256 hex format before touching the filesystem.
+router.delete('/audio-cache/files/:hash', requireAdmin, (req, res) => {
+  const fs = require('fs');
+  const audioCache = require('../lib/audio-cache');
+  const { db } = require('../lib/db');
+  const hash = String(req.params.hash || '').toLowerCase();
+  if (!audioCache.isValidHash(hash)) {
+    return res.status(400).json({ error: 'Invalid hash format' });
+  }
+  try {
+    const filePath = audioCache.pathForHash(hash);
+    let fileRemoved = false;
+    try {
+      fs.unlinkSync(filePath);
+      fileRemoved = true;
+    } catch (_) {
+      // File may already be gone; not an error from the user's POV.
+    }
+    const r = db.prepare(`DELETE FROM audio_cache_files WHERE hash = ?`).run(hash);
+    res.json({ ok: true, fileRemoved, rowsRemoved: r.changes });
+  } catch (err) {
+    console.error('[admin/audio-cache/files/:hash] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Prune orphaned cache entries (rows whose media_name is NULL or no
+// longer matches any sequence). Returns the count removed. Same as the
+// plugin endpoint but admin-authenticated, callable from the Audio
+// Cache UI.
+router.post('/audio-cache/prune', requireAdmin, (req, res) => {
+  const audioCache = require('../lib/audio-cache');
+  try {
+    const removed = audioCache.pruneOrphanedHashes();
+    res.json({ ok: true, removed });
+  } catch (err) {
+    console.error('[admin/audio-cache/prune] failed:', err);
     res.status(500).json({ error: err.message });
   }
 });

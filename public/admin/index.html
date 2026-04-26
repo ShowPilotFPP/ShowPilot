@@ -1105,6 +1105,112 @@
       font-size: 0.85em;
       border: 1px solid var(--border);
     }
+    /* ============================================================
+       Custom modal dialogs (replaces native alert/confirm/prompt)
+       ============================================================ */
+    .sp-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      animation: sp-modal-fade-in 0.12s ease-out;
+    }
+    @keyframes sp-modal-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes sp-modal-slide-in {
+      from { transform: translateY(-12px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .sp-modal {
+      background: var(--bg-secondary, #1f1f1f);
+      color: var(--text-primary, #eee);
+      border: 1px solid var(--border, #333);
+      border-radius: 8px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      max-width: 480px;
+      width: calc(100% - 2rem);
+      animation: sp-modal-slide-in 0.16s ease-out;
+      overflow: hidden;
+    }
+    .sp-modal-header {
+      padding: 1rem 1.25rem 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .sp-modal-icon {
+      font-size: 1.25rem;
+      flex-shrink: 0;
+    }
+    .sp-modal-icon.confirm { color: #f0ad4e; }
+    .sp-modal-icon.danger  { color: #e25858; }
+    .sp-modal-icon.info    { color: #5bc0de; }
+    .sp-modal-body {
+      padding: 0 1.25rem 0.75rem;
+      font-size: 0.92rem;
+      line-height: 1.5;
+      color: var(--text-secondary, #ccc);
+      white-space: pre-wrap;   /* preserve \n in messages */
+      word-wrap: break-word;
+    }
+    .sp-modal-input {
+      width: 100%;
+      padding: 0.5rem 0.65rem;
+      margin: 0.5rem 0 0.25rem;
+      background: var(--bg-input, #111);
+      color: var(--text-primary, #eee);
+      border: 1px solid var(--border, #444);
+      border-radius: 4px;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    .sp-modal-input:focus {
+      outline: none;
+      border-color: var(--accent, #6aa9f0);
+    }
+    .sp-modal-actions {
+      padding: 0.5rem 1.25rem 1rem;
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+    }
+    .sp-modal-actions button {
+      padding: 0.5rem 1.1rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border, #444);
+      background: var(--bg-input, #2a2a2a);
+      color: var(--text-primary, #eee);
+      min-width: 80px;
+    }
+    .sp-modal-actions button:hover {
+      background: var(--bg-tertiary, #333);
+    }
+    .sp-modal-actions button.primary {
+      background: var(--accent, #4a90e2);
+      border-color: var(--accent, #4a90e2);
+      color: #fff;
+    }
+    .sp-modal-actions button.primary:hover {
+      filter: brightness(1.1);
+    }
+    .sp-modal-actions button.danger {
+      background: #c44;
+      border-color: #c44;
+      color: #fff;
+    }
+    .sp-modal-actions button.danger:hover {
+      background: #d55;
+    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
@@ -1155,7 +1261,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.18.8</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.18.9</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1293,12 +1399,30 @@
               <button class="secondary" onclick="scrapeAllMetadata()" title="Auto-fill display names and artist info by looking up filenames online">Auto-Fill Song Info</button>
               <button class="secondary" onclick="sortSequencesAlphabetically()">Sort A→Z</button>
               <button class="secondary" onclick="deleteInactiveSequences()">Delete Inactive</button>
+              <button class="danger" onclick="deleteAllSequences()" title="Delete every sequence in the database">Delete All</button>
             </div>
           </div>
+
+          <!-- Bulk action toolbar — only visible when one or more rows are selected.
+               Mirrors common patterns from Gmail / GitHub / Notion: select rows,
+               then act on the selection from a sticky toolbar. -->
+          <div id="seqBulkToolbar" class="row" style="display: none; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0.5rem 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; align-items: center;">
+            <span id="seqBulkCount" style="font-size: 0.9rem;">0 selected</span>
+            <span style="flex: 1;"></span>
+            <button class="secondary" onclick="bulkSetField('visible', 1)">Show</button>
+            <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
+            <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
+            <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
+            <button class="secondary" onclick="clearSeqSelection()">Clear</button>
+          </div>
+
           <div style="overflow-x: auto;">
             <table>
               <thead>
                 <tr>
+                  <th style="width: 30px;">
+                    <input type="checkbox" id="seqSelectAll" onchange="toggleSelectAllSeqs(this.checked)" title="Select all" />
+                  </th>
                   <th style="width: 30px;"></th>
                   <th style="width: 60px;">Art</th>
                   <th>Display Name</th>
@@ -1308,7 +1432,7 @@
                   <th style="width: 70px;">Vote</th>
                   <th style="width: 70px;">Jukebox</th>
                   <th style="width: 60px;">PSA</th>
-                  <th style="width: 60px;"></th>
+                  <th style="width: 130px;"></th>
                 </tr>
               </thead>
               <tbody id="sequencesBody"></tbody>
@@ -2204,6 +2328,139 @@
   </script>
 
   <script>
+    // ============================================================
+    // Modal dialogs — replaces window.alert / confirm / prompt
+    // ============================================================
+    // All three functions return Promises so they can be `await`ed in async
+    // call sites the same way native dialogs are used. Uses a single backdrop
+    // element pooled across calls. Keyboard support: Enter activates the
+    // primary button, Escape cancels.
+    //
+    // Usage:
+    //   await showAlert('Saved.');                     // OK only
+    //   const ok = await showConfirm('Delete this?');  // true/false
+    //   const name = await showPrompt('New name:', 'Untitled');  // string or null
+    function _spModalShow(opts) {
+      return new Promise((resolve) => {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'sp-modal-backdrop';
+
+        const modal = document.createElement('div');
+        modal.className = 'sp-modal';
+
+        const iconClass = opts.icon || 'info';
+        const iconChar = opts.iconChar || (
+          iconClass === 'danger' ? '⚠' :
+          iconClass === 'confirm' ? '?' :
+          'ⓘ'
+        );
+
+        const titleHtml = opts.title
+          ? `<div class="sp-modal-header"><span class="sp-modal-icon ${iconClass}">${iconChar}</span> ${escapeHtml(opts.title)}</div>`
+          : '';
+        const bodyHtml = opts.message
+          ? `<div class="sp-modal-body">${escapeHtml(opts.message)}</div>`
+          : '';
+        const inputHtml = opts.prompt
+          ? `<div class="sp-modal-body" style="padding-top:0;"><input type="text" class="sp-modal-input" id="_spModalInput" /></div>`
+          : '';
+
+        let actionsHtml = '<div class="sp-modal-actions">';
+        if (opts.cancelLabel) {
+          actionsHtml += `<button type="button" data-action="cancel">${escapeHtml(opts.cancelLabel)}</button>`;
+        }
+        actionsHtml += `<button type="button" data-action="ok" class="${opts.danger ? 'danger' : 'primary'}">${escapeHtml(opts.okLabel || 'OK')}</button>`;
+        actionsHtml += '</div>';
+
+        modal.innerHTML = titleHtml + bodyHtml + inputHtml + actionsHtml;
+        backdrop.appendChild(modal);
+        document.body.appendChild(backdrop);
+
+        const inputEl = modal.querySelector('#_spModalInput');
+        if (inputEl) {
+          inputEl.value = opts.defaultValue || '';
+          // Focus + select on next tick so the cursor lands cleanly
+          setTimeout(() => { inputEl.focus(); inputEl.select(); }, 10);
+        } else {
+          // No input → focus the primary button
+          setTimeout(() => modal.querySelector('button[data-action="ok"]').focus(), 10);
+        }
+
+        function cleanup() {
+          document.removeEventListener('keydown', onKey);
+          backdrop.remove();
+        }
+        function done(result) {
+          cleanup();
+          resolve(result);
+        }
+
+        modal.addEventListener('click', (e) => {
+          if (e.target.tagName === 'BUTTON') {
+            const action = e.target.getAttribute('data-action');
+            if (action === 'ok') {
+              done(opts.prompt ? (inputEl ? inputEl.value : '') : true);
+            } else {
+              done(opts.prompt ? null : false);
+            }
+          }
+        });
+
+        // Click outside the modal cancels (matches user intuition for "X")
+        backdrop.addEventListener('click', (e) => {
+          if (e.target === backdrop) {
+            done(opts.prompt ? null : false);
+          }
+        });
+
+        function onKey(e) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            done(opts.prompt ? null : false);
+          } else if (e.key === 'Enter' && (e.target === inputEl || e.target.tagName === 'BUTTON' || !inputEl)) {
+            // Don't hijack Enter if user is typing in some other field on
+            // the page underneath — but the modal backdrop intercepts most
+            // interactions anyway.
+            e.preventDefault();
+            done(opts.prompt ? (inputEl ? inputEl.value : '') : true);
+          }
+        }
+        document.addEventListener('keydown', onKey);
+      });
+    }
+
+    function showAlert(message, opts = {}) {
+      return _spModalShow({
+        title: opts.title || 'Notice',
+        message: String(message),
+        icon: opts.icon || 'info',
+        okLabel: opts.okLabel || 'OK',
+      });
+    }
+
+    function showConfirm(message, opts = {}) {
+      return _spModalShow({
+        title: opts.title || 'Confirm',
+        message: String(message),
+        icon: opts.danger ? 'danger' : 'confirm',
+        okLabel: opts.okLabel || 'OK',
+        cancelLabel: opts.cancelLabel || 'Cancel',
+        danger: !!opts.danger,
+      });
+    }
+
+    function showPrompt(message, defaultValue = '', opts = {}) {
+      return _spModalShow({
+        title: opts.title || 'Input',
+        message: String(message),
+        icon: 'info',
+        prompt: true,
+        defaultValue: String(defaultValue || ''),
+        okLabel: opts.okLabel || 'OK',
+        cancelLabel: opts.cancelLabel || 'Cancel',
+      });
+    }
+
     async function api(path, opts = {}) {
       const res = await fetch('/api/admin' + path, { credentials: 'include', ...opts });
       const data = res.ok ? await res.json() : null;
@@ -2489,13 +2746,13 @@
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        alert('Failed to save ' + key);
+        showAlert('Failed to save ' + key);
       }
     }
 
     async function detectMyLocation() {
       if (!navigator.geolocation) {
-        alert('Your browser does not support geolocation');
+        showAlert('Your browser does not support geolocation');
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -2507,10 +2764,10 @@
           await saveSetting('show_latitude', lat);
           await saveSetting('show_longitude', lng);
           updateLocationMap();
-          alert('Location saved: ' + lat.toFixed(6) + ', ' + lng.toFixed(6));
+          showAlert('Location saved: ' + lat.toFixed(6) + ', ' + lng.toFixed(6));
         },
         (err) => {
-          alert('Could not get location: ' + err.message);
+          showAlert('Could not get location: ' + err.message);
         },
         { enableHighAccuracy: true, timeout: 10000 }
       );
@@ -2900,6 +3157,13 @@
 
     let sequencesCache = [];
 
+    // Selection state for the bulk-select feature on the Sequences table.
+    // Declared up here (next to sequencesCache) rather than inline with the
+    // bulk helpers below so loadSequences() — which references it during the
+    // initial DOMContentLoaded render path — doesn't hit a temporal dead zone.
+    // The functions that mutate this set are still defined further down.
+    const _seqSelection = new Set();
+
     async function loadSequences() {
       const r = await api('/sequences');
       if (!r.ok) return;
@@ -2910,6 +3174,18 @@
       r.data.forEach(seq => {
         tbody.appendChild(buildSequenceRow(seq));
       });
+      // Drop selection entries for sequences that no longer exist (deleted
+      // out from under us) so the toolbar count reflects reality.
+      const liveIds = new Set(r.data.map(s => s.id));
+      for (const id of _seqSelection) {
+        if (!liveIds.has(id)) _seqSelection.delete(id);
+      }
+      // Refresh the bulk toolbar + select-all header to match the current
+      // selection state. This handles both first-load (no selection, hidden
+      // toolbar) and re-render after a bulk action (selection cleared,
+      // toolbar should hide).
+      updateBulkToolbar();
+      syncSelectAllState();
     }
 
     function buildSequenceRow(seq) {
@@ -2922,6 +3198,7 @@
         : `<div class="art-placeholder" onclick="promptImageUrl(${seq.id}, '')" title="Click to add artwork">+</div>`;
 
       tr.innerHTML = `
+        <td><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
         <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
         <td>${art}</td>
         <td><span class="editable" contenteditable="true"
@@ -2934,7 +3211,7 @@
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td>
-          <button class="secondary" style="padding: 0.3rem 0.5rem; font-size: 0.78rem;" onclick="scrapeOneMetadata(${seq.id}, this)" title="Lookup clean title/artist from iTunes">🪄</button>
+          <button class="secondary" style="padding: 0.3rem 0.5rem; font-size: 0.78rem; white-space: nowrap;" onclick="scrapeOneMetadata(${seq.id}, this)" title="Look up clean title + artist + cover from iTunes">🪄 Re-scrape</button>
           <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
         </td>
       `;
@@ -3081,32 +3358,32 @@
     }
 
     async function clearCover(seqId) {
-      if (!confirm('Remove cover for this sequence?')) return;
+      if (!await showConfirm('Remove cover for this sequence?', { danger: true })) return;
       const r = await api(`/sequences/${seqId}/cover`, { method: 'DELETE' });
       if (r.ok) { closeCoverModal(); loadSequences(); }
     }
 
     async function fetchAllCovers() {
-      if (!confirm('Auto-fetch covers for all sequences missing one?\nThis can take ~1 second per sequence.')) return;
+      if (!await showConfirm('Auto-fetch covers for all sequences missing one?\nThis can take ~1 second per sequence.')) return;
       const r = await api('/sequences/fetch-all-covers', { method: 'POST' });
       if (r.ok) {
-        alert(`Fetching ${r.data.queued} covers in the background. They\\'ll appear in the table over the next few minutes — refresh sequences to see updates.`);
+        showAlert(`Fetching ${r.data.queued} covers in the background. They'll appear in the table over the next few minutes — refresh sequences to see updates.`);
       } else {
-        alert('Failed to start cover fetch');
+        showAlert('Failed to start cover fetch');
       }
     }
 
     async function scrapeAllMetadata() {
-      if (!confirm('Scrape clean titles and artists for all sequences?\nThis hits iTunes for each sequence (~0.4 sec each) and will overwrite manual edits.')) return;
+      if (!await showConfirm('Scrape clean titles and artists for all sequences?\nThis hits iTunes for each sequence (~0.4 sec each) and will overwrite manual edits.')) return;
       const r = await api('/sequences/scrape-all-metadata', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skipExisting: false }),
       });
       if (r.ok) {
-        alert(`Scraping ${r.data.queued} sequences in the background. The list will refresh as each one updates.`);
+        showAlert(`Scraping ${r.data.queued} sequences in the background. The list will refresh as each one updates.`);
       } else {
-        alert('Failed to start metadata scrape');
+        showAlert('Failed to start metadata scrape');
       }
     }
 
@@ -3178,28 +3455,28 @@
         body: JSON.stringify({ ids }),
       });
       if (!r.ok) {
-        alert('Failed to save new order');
+        showAlert('Failed to save new order');
         loadSequences();
       }
     }
 
     // ======= Bulk actions =======
     async function sortSequencesAlphabetically() {
-      if (!confirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to FPP playlist position).')) return;
+      if (!await showConfirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to FPP playlist position).')) return;
       const r = await api('/sequences/sort-alphabetically', { method: 'POST' });
       if (r.ok) loadSequences();
-      else alert('Sort failed');
+      else showAlert('Sort failed');
     }
 
     async function deleteInactiveSequences() {
       // "Inactive" = not visible AND not votable AND not jukeboxable
-      if (!confirm('Delete all sequences that are NOT visible, NOT votable, and NOT jukeboxable?')) return;
+      if (!await showConfirm('Delete all sequences that are NOT visible, NOT votable, and NOT jukeboxable?', { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/sequences/delete-inactive', { method: 'POST' });
       if (r.ok) {
-        alert('Deleted ' + (r.data.deleted || 0) + ' sequence(s)');
+        showAlert('Deleted ' + (r.data.deleted || 0) + ' sequence(s)');
         loadSequences();
       } else {
-        alert('Delete failed');
+        showAlert('Delete failed');
       }
     }
 
@@ -3222,13 +3499,13 @@
     }
 
     async function resetVotes() {
-      if (!confirm('Reset all votes for current round?')) return;
+      if (!await showConfirm('Reset all votes for current round?', { okLabel: 'Reset' })) return;
       await api('/reset-votes', { method: 'POST' });
       loadStats();
     }
 
     async function purgeQueue() {
-      if (!confirm('Delete all pending jukebox requests?')) return;
+      if (!await showConfirm('Delete all pending jukebox requests?', { danger: true, okLabel: 'Purge' })) return;
       await api('/purge-queue', { method: 'POST' });
       loadStats();
     }
@@ -3237,7 +3514,7 @@
       const name = document.getElementById('newSeqName').value.trim();
       const display_name = document.getElementById('newSeqDisplay').value.trim();
       const artist = document.getElementById('newSeqArtist').value.trim();
-      if (!name || !display_name) return alert('FPP name and display name required');
+      if (!name || !display_name) { showAlert('FPP name and display name required'); return; }
       const r = await api('/sequences', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, display_name, artist }),
@@ -3248,14 +3525,158 @@
         document.getElementById('newSeqArtist').value = '';
         loadSequences();
       } else {
-        alert(r.data?.error || 'Failed to add');
+        showAlert(r.data?.error || 'Failed to add');
       }
     }
 
     async function delSeq(id) {
-      if (!confirm('Delete this sequence?')) return;
+      if (!await showConfirm('Delete this sequence?', { danger: true, okLabel: 'Delete' })) return;
       await api('/sequences/' + id, { method: 'DELETE' });
       loadSequences();
+    }
+
+    // ============================================================
+    // Bulk select + bulk actions for the Sequences table
+    // ============================================================
+    // The Set itself is declared higher up next to sequencesCache so the
+    // initial loadSequences() render can reference it without TDZ issues.
+    // Helpers below operate on that set.
+
+    function getSeqSelection() { return _seqSelection; }
+
+    function onSeqRowCheckChange(checkbox) {
+      const id = Number(checkbox.dataset.seqId);
+      if (checkbox.checked) _seqSelection.add(id);
+      else _seqSelection.delete(id);
+      updateBulkToolbar();
+      // Sync the header "select all" state — it's checked only when every
+      // visible row is selected, indeterminate when partial, unchecked when
+      // none.
+      syncSelectAllState();
+    }
+
+    function toggleSelectAllSeqs(checked) {
+      const checkboxes = document.querySelectorAll('.seq-row-check');
+      checkboxes.forEach(cb => {
+        cb.checked = checked;
+        const id = Number(cb.dataset.seqId);
+        if (checked) _seqSelection.add(id);
+        else _seqSelection.delete(id);
+      });
+      updateBulkToolbar();
+    }
+
+    function syncSelectAllState() {
+      const all = document.getElementById('seqSelectAll');
+      if (!all) return;
+      const checkboxes = document.querySelectorAll('.seq-row-check');
+      const total = checkboxes.length;
+      const selected = Array.from(checkboxes).filter(cb => cb.checked).length;
+      if (selected === 0) {
+        all.checked = false;
+        all.indeterminate = false;
+      } else if (selected === total) {
+        all.checked = true;
+        all.indeterminate = false;
+      } else {
+        all.checked = false;
+        all.indeterminate = true;
+      }
+    }
+
+    function updateBulkToolbar() {
+      const bar = document.getElementById('seqBulkToolbar');
+      const count = _seqSelection.size;
+      if (count === 0) {
+        bar.style.display = 'none';
+      } else {
+        bar.style.display = 'flex';
+        document.getElementById('seqBulkCount').textContent =
+          `${count} selected`;
+      }
+    }
+
+    function clearSeqSelection() {
+      _seqSelection.clear();
+      document.querySelectorAll('.seq-row-check').forEach(cb => cb.checked = false);
+      const all = document.getElementById('seqSelectAll');
+      if (all) { all.checked = false; all.indeterminate = false; }
+      updateBulkToolbar();
+    }
+
+    async function bulkSetField(field, value) {
+      if (_seqSelection.size === 0) return;
+      const ids = Array.from(_seqSelection);
+      // No batch endpoint exists yet, so we issue requests in parallel. For
+      // typical selection sizes (a few dozen) this is fine; if someone selects
+      // hundreds, the network tab gets noisy but everything still works.
+      await Promise.all(ids.map(id =>
+        api(`/sequences/${id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [field]: value }),
+        })
+      ));
+      clearSeqSelection();
+      loadSequences();
+    }
+
+    async function bulkDeleteSelected() {
+      const count = _seqSelection.size;
+      if (count === 0) return;
+      const ok = await showConfirm(
+        `Delete ${count} selected sequence${count === 1 ? '' : 's'}?\n\nThis cannot be undone, but the FPP sequence files on disk are not affected.`,
+        { danger: true, okLabel: `Delete ${count}` }
+      );
+      if (!ok) return;
+      const ids = Array.from(_seqSelection);
+      await Promise.all(ids.map(id => api('/sequences/' + id, { method: 'DELETE' })));
+      clearSeqSelection();
+      loadSequences();
+    }
+
+    async function bulkScrapeSelected() {
+      const count = _seqSelection.size;
+      if (count === 0) return;
+      const ok = await showConfirm(
+        `Re-scrape clean titles + artists for ${count} selected sequence${count === 1 ? '' : 's'}?\n\nThis hits iTunes (~0.4s each) and overwrites any manual edits to the display name and artist on those rows.`,
+        { okLabel: 'Scrape' }
+      );
+      if (!ok) return;
+      const ids = Array.from(_seqSelection);
+      // Run sequentially to be polite to iTunes' rate limits — parallel
+      // requests sometimes get throttled with 403 responses.
+      for (const id of ids) {
+        try { await api(`/sequences/${id}/scrape-metadata`, { method: 'POST' }); }
+        catch (e) { /* keep going on individual failures */ }
+      }
+      clearSeqSelection();
+      loadSequences();
+      showAlert(`Done re-scraping ${ids.length} sequence${ids.length === 1 ? '' : 's'}.`);
+    }
+
+    async function deleteAllSequences() {
+      // Two-stage confirm — first to acknowledge the destructive scope, then
+      // a typed confirmation to prove it wasn't an accidental click. Same
+      // pattern GitHub / DigitalOcean use for irreversible destructive ops.
+      const first = await showConfirm(
+        'Delete ALL sequences from ShowPilot?\n\nThis removes every sequence from the database (play history, votes, queue, all of it). Your FPP sequence files on disk are not affected — you can re-sync from the plugin afterward to start fresh.',
+        { danger: true, okLabel: 'Continue' }
+      );
+      if (!first) return;
+      const typed = await showPrompt('Type DELETE ALL to confirm:', '');
+      if (typed === null) return;
+      if (typed.trim().toUpperCase() !== 'DELETE ALL') {
+        showAlert('Confirmation text did not match. Nothing was deleted.');
+        return;
+      }
+      const r = await api('/sequences/delete-all', { method: 'POST' });
+      if (r.ok) {
+        clearSeqSelection();
+        loadSequences();
+        showAlert(`Deleted ${r.data?.deleted ?? 'all'} sequence(s).`);
+      } else {
+        showAlert(r.data?.error || 'Delete all failed');
+      }
     }
 
     // ============================================================
@@ -3329,38 +3750,39 @@
     }
 
     async function restoreSnap(id, name, count) {
-      const ok = confirm(
+      const ok = await showConfirm(
         `Restore "${name}"?\n\n` +
         `This will:\n` +
         `  • Update existing sequences with the values from this snapshot (${count} total)\n` +
         `  • Add any sequences from the snapshot that no longer exist\n` +
         `  • Hide any sequences NOT in the snapshot (preserves play history)\n\n` +
-        `Play history, vote counts, and queue are preserved.`
+        `Play history, vote counts, and queue are preserved.`,
+        { okLabel: 'Restore' }
       );
       if (!ok) return;
       const r = await api('/snapshots/' + id + '/restore', { method: 'POST' });
       if (r.ok) {
-        alert(`Restored ${r.data.restored} sequence(s) from "${name}".`);
+        showAlert(`Restored ${r.data.restored} sequence(s) from "${name}".`);
         loadSequences();
       } else {
-        alert(r.data?.error || 'Restore failed');
+        showAlert(r.data?.error || 'Restore failed');
       }
     }
 
     async function deleteSnap(id, name) {
-      if (!confirm(`Delete snapshot "${name}"?\n\nThis cannot be undone, but does NOT affect your current sequences.`)) return;
+      if (!await showConfirm(`Delete snapshot "${name}"?\n\nThis cannot be undone, but does NOT affect your current sequences.`, { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/snapshots/' + id, { method: 'DELETE' });
       if (r.ok) {
         loadSnapshots();
       } else {
-        alert('Delete failed');
+        showAlert('Delete failed');
       }
     }
 
     async function renameSnap(id, currentName, currentDesc) {
-      const newName = prompt('New name for snapshot:', currentName);
+      const newName = await showPrompt('New name for snapshot:', currentName);
       if (newName === null || !newName.trim()) return;
-      const newDesc = prompt('New description (optional):', currentDesc);
+      const newDesc = await showPrompt('New description (optional):', currentDesc);
       if (newDesc === null) return;
       const r = await api('/snapshots/' + id, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -3369,7 +3791,7 @@
       if (r.ok) {
         loadSnapshots();
       } else {
-        alert('Rename failed');
+        showAlert('Rename failed');
       }
     }
 
@@ -3529,14 +3951,14 @@
         body: JSON.stringify({ enabled }),
       });
       if (r.ok) loadUsers();
-      else alert(r.data?.error || 'Update failed');
+      else showAlert(r.data?.error || 'Update failed');
     }
 
     async function deleteUser(id, username) {
-      if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+      if (!await showConfirm(`Delete user "${username}"? This cannot be undone.`, { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/users/' + id, { method: 'DELETE' });
       if (r.ok) loadUsers();
-      else alert(r.data?.error || 'Delete failed');
+      else showAlert(r.data?.error || 'Delete failed');
     }
 
     // ============================================================
@@ -3722,7 +4144,7 @@
       // If switching templates while there's an unsaved draft on the current
       // one, warn before losing it
       if (selectedTplId !== null && selectedTplId !== id && hasDraft) {
-        if (!confirm('You have unsaved changes on the current template. Switch and lose them?')) return;
+        if (!await showConfirm('You have unsaved changes on the current template. Switch and lose them?', { okLabel: 'Switch' })) return;
       }
       // Reset transient state up front so nothing leaks from the previously
       // selected template (lock state, dirty flag, etc). The new template's
@@ -3844,7 +4266,7 @@
       // under the server's 200KB encoded limit. Anything over this is almost
       // certainly oversized for a favicon anyway.
       if (file.size > 150 * 1024) {
-        alert('Favicon file is too large. Pick something under 150KB — favicons should be tiny (32x32 or so).');
+        showAlert('Favicon file is too large. Pick something under 150KB — favicons should be tiny (32x32 or so).');
         event.target.value = '';
         return;
       }
@@ -3858,7 +4280,7 @@
         hasDraft = true;
         updateDraftButtons();
       };
-      reader.onerror = () => alert('Could not read the favicon file. Try a different one.');
+      reader.onerror = () => showAlert('Could not read the favicon file. Try a different one.');
       reader.readAsDataURL(file);
     }
 
@@ -3888,7 +4310,7 @@
       if (selectedTplId === null) return;
       const r = await api('/templates/' + selectedTplId + '/toggle-lock', { method: 'POST' });
       if (!r.ok) {
-        alert(r.data?.error || 'Toggle lock failed');
+        showAlert(r.data?.error || 'Toggle lock failed');
         return;
       }
       const newLocked = !!r.data.locked;
@@ -3906,7 +4328,7 @@
       if (selectedTplId === null) return;
       const r = await api('/templates/' + selectedTplId + '/activate', { method: 'POST' });
       if (r.ok) await loadTemplates();
-      else alert('Activate failed');
+      else showAlert('Activate failed');
     }
 
     async function duplicateTemplate() {
@@ -3922,13 +4344,13 @@
       if (selectedTplId === null) return;
       const current = templates.find(t => t.id === selectedTplId);
       if (!current) return;
-      if (!confirm(`Delete template "${current.name}"?`)) return;
+      if (!await showConfirm(`Delete template "${current.name}"?`, { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/templates/' + selectedTplId, { method: 'DELETE' });
       if (r.ok) {
         selectedTplId = null;
         await loadTemplates();
       } else {
-        alert('Delete failed: ' + (r.data?.error || 'unknown'));
+        showAlert('Delete failed: ' + (r.data?.error || 'unknown'));
       }
     }
 
@@ -4265,13 +4687,13 @@
         meta.textContent = '✓ Saved';
         setTimeout(() => { meta.textContent = orig; }, 1500);
       } else {
-        alert(r.data?.error || 'Save failed');
+        showAlert(r.data?.error || 'Save failed');
       }
     }
 
     async function discardDraft() {
       if (selectedTplId === null) return;
-      if (!confirm('Discard all unsaved changes? The template will revert to its last saved state.')) return;
+      if (!await showConfirm('Discard all unsaved changes? The template will revert to its last saved state.', { danger: true, okLabel: 'Discard' })) return;
       const r = await api('/templates/' + selectedTplId + '/discard-draft', { method: 'POST' });
       if (r.ok) {
         hasDraft = false;
@@ -4281,7 +4703,7 @@
     }
 
     async function newTemplate() {
-      const name = prompt('Name for new template?', 'New Template');
+      const name = await showPrompt('Name for new template?', 'New Template');
       if (!name) return;
       const starter = `<!DOCTYPE html>
 <html>
@@ -4574,13 +4996,13 @@
     }
 
     async function removeQueueEntry(id) {
-      if (!confirm('Remove this request from the queue?')) return;
+      if (!await showConfirm('Remove this request from the queue?', { okLabel: 'Remove' })) return;
       const r = await api(`/queue/${id}`, { method: 'DELETE' });
       if (r.ok) loadQueueTab();
     }
 
     async function clearAllQueue() {
-      if (!confirm('Clear the entire queue?\nAll pending requests will be removed.\nThis cannot be undone.')) return;
+      if (!await showConfirm('Clear the entire queue?\nAll pending requests will be removed.\nThis cannot be undone.', { danger: true, okLabel: 'Clear' })) return;
       const r = await api('/stats/reset/queue', { method: 'POST' });
       if (r.ok) loadQueueTab();
     }
@@ -4646,11 +5068,11 @@
 
     function exportStatsPDF() {
       if (!statsCache || !statsCache.rows) {
-        alert('Load stats first, then export');
+        showAlert('Load stats first, then export');
         return;
       }
       if (typeof window.jspdf === 'undefined') {
-        alert('PDF library not loaded yet — try again in a moment');
+        showAlert('PDF library not loaded yet — try again in a moment');
         return;
       }
       const { jsPDF } = window.jspdf;
@@ -4786,7 +5208,7 @@
         'queue': 'Clear the queue?\nAll pending viewer requests will be removed.',
         'all': 'RESET EVERYTHING?\nThis clears: play history, all votes, queue, and resets last-played dates.\nThis cannot be undone.',
       };
-      if (!confirm(messages[scope] || 'Confirm reset?')) return;
+      if (!await showConfirm(messages[scope] || 'Confirm reset?', { danger: true, okLabel: 'Reset' })) return;
       const r = await api(`/stats/reset/${scope}`, { method: 'POST' });
       if (r.ok) {
         loadStatsTab();

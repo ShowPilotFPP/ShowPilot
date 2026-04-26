@@ -392,6 +392,25 @@ router.post('/sequences/delete-inactive', requireAdmin, (req, res) => {
   res.json({ ok: true, deleted: result.changes });
 });
 
+// Delete ALL sequences. Wrapped in a transaction so dependent rows (votes,
+// jukebox queue, play history) come along too — these have ON DELETE CASCADE
+// constraints, but the transaction still gives us atomicity if any of those
+// cascade deletes were to fail. The frontend gates this behind a typed
+// "DELETE ALL" confirmation so it's hard to fire accidentally.
+router.post('/sequences/delete-all', requireAdmin, (req, res) => {
+  const tx = db.transaction(() => {
+    const r = db.prepare(`DELETE FROM sequences`).run();
+    return r.changes;
+  });
+  try {
+    const deleted = tx();
+    res.json({ ok: true, deleted });
+  } catch (err) {
+    console.error('[delete-all] failed:', err);
+    res.status(500).json({ error: 'Delete failed: ' + err.message });
+  }
+});
+
 // ============================================================
 // Stats & history
 // ============================================================

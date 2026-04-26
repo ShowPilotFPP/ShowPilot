@@ -1,6 +1,6 @@
 // ============================================================
-// OpenFalcon — Plugin API
-// Endpoints that the OpenFalcon FPP plugin calls.
+// ShowPilot — Plugin API
+// Endpoints that the ShowPilot FPP plugin calls.
 // Auth: Authorization: Bearer <showToken>
 //
 // Endpoints:
@@ -255,7 +255,7 @@ router.post('/heartbeat', (req, res) => {
   pluginStatus.version = req.body?.pluginVersion || null;
   // Capture the plugin's source IP — this is FPP's address, used as the
   // upstream for audio proxy streams. We strip ::ffff: prefix from IPv4-mapped
-  // IPv6 addresses, and ignore localhost (means OpenFalcon is on FPP itself).
+  // IPv6 addresses, and ignore localhost (means ShowPilot is on FPP itself).
   let fppHost = req.ip || req.connection?.remoteAddress || null;
   if (fppHost && fppHost.startsWith('::ffff:')) fppHost = fppHost.slice(7);
   if (fppHost === '::1' || fppHost === '127.0.0.1') fppHost = null;

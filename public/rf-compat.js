@@ -1,8 +1,8 @@
 // ============================================================
-// OpenFalcon — Remote Falcon Compatibility Layer
+// ShowPilot — Remote Falcon Compatibility Layer
 //
 // Provides the global functions that RF-style templates expect
-// to call from inline onclick handlers, mapped to OpenFalcon's
+// to call from inline onclick handlers, mapped to ShowPilot's
 // real API. Also handles showing the standard error message divs
 // RF templates include (requestSuccessful, alreadyVoted, etc.)
 // ============================================================
@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  const boot = window.__OPENFALCON__ || {};
+  const boot = window.__SHOWPILOT__ || {};
   let cachedLocation = null;
   let hasVoted = false;
 
@@ -28,7 +28,7 @@
   function showMessage(id, durationMs) {
     const el = document.getElementById(id);
     if (!el) {
-      console.warn('OpenFalcon compat: no element with id', id);
+      console.warn('ShowPilot compat: no element with id', id);
       return;
     }
     el.style.display = 'block';
@@ -143,7 +143,7 @@
   }
 
   // Globals exposed to template onclick handlers
-  window.OpenFalconVote = async function (sequenceName) {
+  window.ShowPilotVote = async function (sequenceName) {
     if (hasVoted) {
       showMessage(MSG_IDS.alreadyVoted);
       return;
@@ -161,7 +161,7 @@
     }
   };
 
-  window.OpenFalconRequest = async function (sequenceName) {
+  window.ShowPilotRequest = async function (sequenceName) {
     let body;
     try { body = await buildBody({ sequenceName }); }
     catch { return; }
@@ -175,9 +175,21 @@
     }
   };
 
-  // RF aliases in case templates call these names
-  window.vote = window.OpenFalconVote;
-  window.request = window.OpenFalconRequest;
+  // ======= Public template API aliases =======
+  // ShowPilot's canonical names are ShowPilotRequest / ShowPilotVote, but
+  // we expose every alias a viewer template might call so that:
+  //   1. Existing templates written for the old "OpenFalcon" name keep working
+  //   2. Imported Remote Falcon templates work unmodified — RF's own JS
+  //      exposed `RemoteFalconRequest` / `RemoteFalconVote` plus generic
+  //      `request` / `vote`. We honor all of those.
+  // Removing any alias would break user-facing templates with no warning,
+  // so this list is append-only.
+  window.OpenFalconRequest = window.ShowPilotRequest;
+  window.OpenFalconVote = window.ShowPilotVote;
+  window.RemoteFalconRequest = window.ShowPilotRequest;
+  window.RemoteFalconVote = window.ShowPilotVote;
+  window.vote = window.ShowPilotVote;
+  window.request = window.ShowPilotRequest;
 
   // ======= Live state refresh =======
   async function refreshState() {
@@ -219,8 +231,10 @@
     // --- NEXT_PLAYLIST text (RF templates use .body_text inside the jukebox container) ---
     // We can't reliably pick "the right" .body_text element without a data attribute,
     // so we tag it during render-time. Fall back: leave it alone.
-    // In templates we render server-side, we add data-openfalcon-next to the NEXT_PLAYLIST spot.
-    const nextEl = document.querySelector('[data-openfalcon-next]');
+    // In templates we render server-side, we add data-showpilot-next to the NEXT_PLAYLIST spot.
+    // The data-openfalcon-* selectors are kept for backward compat with templates
+    // written against the old name.
+    const nextEl = document.querySelector('[data-showpilot-next], [data-openfalcon-next]');
     if (nextEl) {
       const nextDisplay = data.nextScheduled
         ? (data.sequences || []).find(s => s.name === data.nextScheduled)?.display_name || data.nextScheduled
@@ -229,10 +243,10 @@
     }
 
     // --- Queue size & queue list ---
-    const queueSizeEl = document.querySelector('[data-openfalcon-queue-size]');
+    const queueSizeEl = document.querySelector('[data-showpilot-queue-size], [data-openfalcon-queue-size]');
     if (queueSizeEl) queueSizeEl.textContent = String((data.queue || []).length);
 
-    const queueListEl = document.querySelector('[data-openfalcon-queue-list]');
+    const queueListEl = document.querySelector('[data-showpilot-queue-list], [data-openfalcon-queue-list]');
     if (queueListEl) {
       const byName = Object.fromEntries((data.sequences || []).map(s => [s.name, s]));
       if ((data.queue || []).length === 0) {
@@ -261,10 +275,12 @@
     });
 
     // --- Mode container visibility ---
-    document.querySelectorAll('[data-openfalcon-container="jukebox"]').forEach(el => {
+    // Both data-showpilot-container and data-openfalcon-container are honored
+    // so templates from earlier versions keep working.
+    document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
       el.style.display = data.viewerControlMode === 'JUKEBOX' ? '' : 'none';
     });
-    document.querySelectorAll('[data-openfalcon-container="voting"]').forEach(el => {
+    document.querySelectorAll('[data-showpilot-container="voting"], [data-openfalcon-container="voting"]').forEach(el => {
       el.style.display = data.viewerControlMode === 'VOTING' ? '' : 'none';
     });
   }
@@ -413,7 +429,7 @@
     }
 
     // Apply initial state from bootstrap (no flicker on first load if enabled)
-    const bootstrap = window.__OPENFALCON__ || {};
+    const bootstrap = window.__SHOWPILOT__ || {};
     applySnowState(bootstrap.pageSnowEnabled);
 
     // Expose so the unified visual-config poll (below) can drive snow updates
@@ -487,7 +503,7 @@
     if (pill && effectiveBlocked) pill.style.display = 'none';
     if (panel && effectiveBlocked) {
       panel.style.display = 'none';
-      try { window.dispatchEvent(new CustomEvent('openfalcon:audio-gate-blocked')); } catch {}
+      try { window.dispatchEvent(new CustomEvent('showpilot:audio-gate-blocked')); } catch {}
     }
   }
   window._ofAudioGate = () => ({ blocked: _audioGateBlocked, latched: _gateLatchedBlocked, reason: _audioGateReason });
@@ -1153,7 +1169,7 @@
       stopAudio();
 
       // ---- Pick stream URL ----
-      // Audio is served exclusively by the OpenFalcon proxy, which fetches
+      // Audio is served exclusively by the ShowPilot proxy, which fetches
       // bytes from FPP's built-in /api/file/Music/<n> endpoint. There's no
       // separate "direct" path anymore — we previously had a Node.js audio
       // daemon running on FPP that this client raced against the proxy, but
@@ -1198,7 +1214,7 @@
           return await r.arrayBuffer();
         } catch (err) {
           lastErr = err;
-          console.warn('[OpenFalcon audio] fetch failed:', url, err.message);
+          console.warn('[ShowPilot audio] fetch failed:', url, err.message);
         }
       }
       throw lastErr || new Error('No URLs to try');
@@ -1247,7 +1263,7 @@
     // If the audio gate fires during playback (e.g. user walked outside the
     // radius and the next /api/visual-config poll reports blocked), stop audio
     // immediately. The launcher button is also hidden by applyAudioGateState.
-    window.addEventListener('openfalcon:audio-gate-blocked', () => {
+    window.addEventListener('showpilot:audio-gate-blocked', () => {
       stopAudio();
       if (statusEl) statusEl.textContent = 'Audio paused — outside show range';
     });

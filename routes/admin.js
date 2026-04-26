@@ -1,5 +1,5 @@
 // ============================================================
-// OpenFalcon — Admin API
+// ShowPilot — Admin API
 // Authenticated endpoints for managing the show.
 // Auth: JWT in httpOnly cookie.
 // ============================================================
@@ -1145,7 +1145,7 @@ router.get('/stats/sequences.csv', requireAdmin, (req, res) => {
   }
 
   res.set('Content-Type', 'text/csv');
-  res.set('Content-Disposition', `attachment; filename="openfalcon-stats-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.set('Content-Disposition', `attachment; filename="showpilot-stats-${new Date().toISOString().slice(0,10)}.csv"`);
   res.send(lines.join('\n'));
 });
 
@@ -1310,7 +1310,7 @@ router.get('/geocode', requireAdmin, async (req, res) => {
       headers: {
         // Nominatim usage policy requires an identifiable User-Agent.
         // Don't claim to be a browser.
-        'User-Agent': 'OpenFalcon-Admin/1.0 (https://github.com/OFPlugin/openfalcon)',
+        'User-Agent': 'ShowPilot-Admin/1.0 (https://github.com/ShowPilotFPP/ShowPilot)',
         'Accept': 'application/json',
       },
     });

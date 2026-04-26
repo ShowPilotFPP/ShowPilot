@@ -1,5 +1,5 @@
 // ============================================================
-// OpenFalcon — Viewer API
+// ShowPilot — Viewer API
 // Public endpoints consumed by the viewer page (browser).
 // Enforces all viewer-side safeguards configured in admin.
 // ============================================================
@@ -321,7 +321,7 @@ router.post('/jukebox/add', (req, res) => {
 // ============================================================
 // AUDIO STREAMING
 //
-// Provides on-demand audio playback for viewers. The OpenFalcon server proxies
+// Provides on-demand audio playback for viewers. The ShowPilot server proxies
 // audio bytes from FPP's `/api/media/<file>` endpoint — viewers don't need
 // direct network reach to FPP.
 //
@@ -445,7 +445,7 @@ router.get('/now-playing-audio', (req, res) => {
     // Timestamp-anchored sync — Web Audio API uses these for sample-precise scheduling
     trackStartedAtMs: startedAtMs,
     serverNowMs: Date.now(),
-    // Audio is served via the OpenFalcon proxy, which fetches bytes from
+    // Audio is served via the ShowPilot proxy, which fetches bytes from
     // FPP's built-in /api/file/Music/<name> endpoint. Same-origin path always
     // works; the public URL is for cellular/external listeners hitting through
     // the public domain.

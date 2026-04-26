@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# OpenFalcon — Deploy Script
-# Run on the server (e.g. /opt/openfalcon) to update to latest.
+# ShowPilot — Deploy Script
+# Run on the server (e.g. /opt/showpilot) to update to latest.
 # ============================================================
 set -e
 
@@ -19,13 +19,13 @@ echo -e "${YELLOW}→ Installing/updating dependencies...${NC}"
 npm install --omit=dev
 
 # Reload via PM2 if it's managing the process; otherwise tell the user
-if command -v pm2 >/dev/null 2>&1 && pm2 list 2>/dev/null | grep -q openfalcon; then
-  echo -e "${YELLOW}→ Reloading openfalcon (PM2)...${NC}"
-  pm2 reload openfalcon
+if command -v pm2 >/dev/null 2>&1 && pm2 list 2>/dev/null | grep -q showpilot; then
+  echo -e "${YELLOW}→ Reloading showpilot (PM2)...${NC}"
+  pm2 reload showpilot
   echo
-  pm2 list | grep openfalcon || true
+  pm2 list | grep showpilot || true
 else
-  echo -e "${YELLOW}⚠ PM2 not managing openfalcon. Restart the server manually.${NC}"
+  echo -e "${YELLOW}⚠ PM2 not managing showpilot. Restart the server manually.${NC}"
 fi
 
 echo

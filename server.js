@@ -1,5 +1,5 @@
 // ============================================================
-// OpenFalcon — Main server entry point
+// ShowPilot — Main server entry point
 // ============================================================
 
 const express = require('express');
@@ -49,7 +49,7 @@ app.use((req, res, next) => {
 // Routes
 // ============================================================
 
-// FPP plugin endpoints — mounted at /api/plugin for the OpenFalcon plugin
+// FPP plugin endpoints — mounted at /api/plugin for the ShowPilot plugin
 app.use('/api/plugin', require('./routes/plugin'));
 
 // Admin API (mount BEFORE /api/viewer to avoid prefix collisions)
@@ -308,7 +308,7 @@ setInterval(() => {
 // ============================================================
 
 server.listen(config.port, config.host, () => {
-  console.log(`OpenFalcon listening on http://${config.host}:${config.port}`);
+  console.log(`ShowPilot listening on http://${config.host}:${config.port}`);
   console.log(`Plugin endpoint: http://${config.host}:${config.port}/api/plugin`);
   console.log(`Viewer page:     http://${config.host}:${config.port}/`);
   console.log(`Admin:           http://${config.host}:${config.port}/admin/`);

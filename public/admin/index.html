@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenFalcon Admin</title>
+  <title>ShowPilot Admin</title>
   <link rel="icon" href="data:,">
   <style>
     /* ============================================================
@@ -1135,7 +1135,7 @@
        LOGIN VIEW
        ============================================================ -->
   <div id="loginView" class="hidden">
-    <h1>OpenFalcon Admin</h1>
+    <h1>ShowPilot Admin</h1>
     <p class="subtitle">Enter your username and password to continue.</p>
     <input type="text" id="loginUsername" placeholder="Username" autocomplete="username" autocapitalize="none" autocorrect="off" onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus();" />
     <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login();" />
@@ -1157,7 +1157,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.17.2</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.18.0</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1943,7 +1943,7 @@
                    onchange="saveSetting('public_base_url', this.value.trim())"
                    style="width: 100%; max-width: 400px;" />
             <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
-              The full URL where this OpenFalcon instance is publicly reachable.
+              The full URL where this ShowPilot instance is publicly reachable.
               Leave blank to disable external access.
             </p>
           </div>
@@ -1977,7 +1977,7 @@
         </div>
 
         <div class="card">
-          <h2>Show Token (for OpenFalcon Plugin)</h2>
+          <h2>Show Token (for ShowPilot Plugin)</h2>
           <p class="muted">Paste this into the FPP plugin's "Show Token" field. Treat it like a password — anyone with it can control your show.</p>
           <div class="row">
             <code id="showToken" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; word-break: break-all;">—</code>
@@ -2107,7 +2107,7 @@
       const body = document.body;
       ALL_THEMES.forEach(t => body.classList.remove('theme-' + t));
       body.classList.add('theme-' + theme);
-      localStorage.setItem('openfalcon_theme', theme);
+      localStorage.setItem('showpilot_theme', theme);
       const sel = document.getElementById('themeSelect');
       if (sel) sel.value = theme;
       // Update Monaco editor theme to match light/dark mode
@@ -2127,7 +2127,7 @@
       }, 0);
     }
     (function initTheme() {
-      const saved = localStorage.getItem('openfalcon_theme') || 'stage-dark';
+      const saved = localStorage.getItem('showpilot_theme') || 'stage-dark';
       applyTheme(saved);
     })();
 
@@ -3612,7 +3612,7 @@
           // Plugin status
           socket.on('pluginStatus', () => loadPluginStatus());
 
-          window.__openfalconSocket = socket;
+          window.__showpilotSocket = socket;
         } catch (e) { /* non-fatal */ }
       };
       document.head.appendChild(adminSocketScript);
@@ -3636,7 +3636,7 @@
           monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
             value: '',
             language: 'html',
-            theme: (localStorage.getItem('openfalcon_theme') === 'stage-light') ? 'vs' : 'vs-dark',
+            theme: (localStorage.getItem('showpilot_theme') === 'stage-light') ? 'vs' : 'vs-dark',
             automaticLayout: true,
             wordWrap: 'on',
             minimap: { enabled: false },
@@ -4543,7 +4543,7 @@
         : 'All time';
 
       doc.setFontSize(16);
-      doc.text('OpenFalcon — Sequence Stats', 14, 15);
+      doc.text('ShowPilot — Sequence Stats', 14, 15);
       doc.setFontSize(10);
       doc.setTextColor(100);
       doc.text(`Range: ${range}  ·  Generated: ${dateStr}`, 14, 22);
@@ -4582,7 +4582,7 @@
         // Header
         doc.setFontSize(16);
         doc.setTextColor(0);
-        doc.text('OpenFalcon — Visitor Analytics', margin, 15);
+        doc.text('ShowPilot — Visitor Analytics', margin, 15);
 
         // Range label — pull from active range tab
         const rangeLabels = { today: 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days', season: 'This season', all: 'All time' };
@@ -4657,7 +4657,7 @@
         );
       }
 
-      doc.save(`openfalcon-stats-${new Date().toISOString().slice(0,10)}.pdf`);
+      doc.save(`showpilot-stats-${new Date().toISOString().slice(0,10)}.pdf`);
     }
 
     async function resetStats(scope) {

@@ -1,5 +1,5 @@
 // ============================================================
-// OpenFalcon — Configuration
+// ShowPilot — Configuration
 // All config values live at the top for easy editing.
 // ============================================================
 
@@ -9,11 +9,11 @@ module.exports = {
   host: '0.0.0.0',
 
   // Database
-  dbPath: './data/openfalcon.db',
+  dbPath: './data/showpilot.db',
 
   // Auth
   jwtSecret: 'CHANGE_ME_BEFORE_RUNNING_IN_PROD',
-  sessionCookieName: 'openfalcon_session',
+  sessionCookieName: 'showpilot_session',
   sessionDurationHours: 24 * 30, // 30 days
 
   // Show token — what the FPP plugin uses in its `remotetoken` header.

@@ -1,6 +1,6 @@
 {
-  "name": "openfalcon",
-  "version": "0.17.2",
+  "name": "showpilot",
+  "version": "0.18.0",
   "description": "Self-hosted light show viewer control server. Falcon Player (FPP) plugin compatible. Replaces Remote Falcon for self-hosters.",
   "main": "server.js",
   "scripts": {
@@ -10,12 +10,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/OFPlugin/openfalcon.git"
+    "url": "https://github.com/ShowPilotFPP/ShowPilot.git"
   },
   "bugs": {
-    "url": "https://github.com/OFPlugin/openfalcon/issues"
+    "url": "https://github.com/ShowPilotFPP/ShowPilot/issues"
   },
-  "homepage": "https://github.com/OFPlugin/openfalcon#readme",
+  "homepage": "https://github.com/ShowPilotFPP/ShowPilot#readme",
   "engines": {
     "node": ">=18.0.0"
   },

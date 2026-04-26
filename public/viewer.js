@@ -1,4 +1,4 @@
-// OpenFalcon viewer page client logic.
+// ShowPilot viewer page client logic.
 
 (function () {
   'use strict';

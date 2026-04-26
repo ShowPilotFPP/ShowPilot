@@ -1,15 +1,15 @@
-# OpenFalcon
+# ShowPilot
 
 **Self-hosted light show viewer control server.** A drop-in alternative to Remote Falcon for hobbyists who want to run their own infrastructure without relying on a cloud service.
 
-OpenFalcon pairs with a Falcon Player (FPP) plugin to let your visitors:
+ShowPilot pairs with a Falcon Player (FPP) plugin to let your visitors:
 - 🎵 Vote for sequences (Voting mode) or queue them up (Jukebox mode)
 - 📱 Listen to your show audio on their phone via a built-in web player — no app required
 - 🎄 See what's playing now and what's coming up next on a customizable viewer page
 
 You get an admin dashboard with stats, queue management, sequence configuration, viewer-page editor, theming, and multi-user authentication.
 
-> **Migrating from Remote Falcon?** OpenFalcon's viewer page renderer is **fully compatible with Remote Falcon templates**. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into OpenFalcon's editor and it just works — no template rewrite needed.
+> **Migrating from Remote Falcon?** ShowPilot's viewer page renderer is **fully compatible with Remote Falcon templates**. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into ShowPilot's editor and it just works — no template rewrite needed.
 
 ---
 
@@ -48,7 +48,7 @@ You get an admin dashboard with stats, queue management, sequence configuration,
 
 ### FPP integration
 
-- **Companion FPP plugin** — install the OpenFalcon plugin from FPP's Plugin Manager, point it at your OpenFalcon server URL, and it stays connected. Plugin handles sequence sync, playing-status reporting, and viewer request handoff to FPP's playlist
+- **Companion FPP plugin** — install the ShowPilot plugin from FPP's Plugin Manager, point it at your ShowPilot server URL, and it stays connected. Plugin handles sequence sync, playing-status reporting, and viewer request handoff to FPP's playlist
 - **Sequence sync** — sequences imported from FPP into the admin, where you can reorder, rename for display, set artists, hide individual sequences, and toggle votable/jukeboxable per sequence
 - **Mid-track resume** — when a viewer-requested song interrupts the original, resuming the original picks up at the correct elapsed position (not the start)
 - **PSA injection** — auto-inject PSAs (sponsor messages, holiday greetings) every N interactions
@@ -78,11 +78,11 @@ You get an admin dashboard with stats, queue management, sequence configuration,
 
 ## ⚠️ Important: HTTPS is required for geolocation features
 
-The viewer page uses browser geolocation APIs for the **GPS audio gate** and **GPS proximity check**. **Browsers refuse to expose location data on insecure (`http://`) origins** — this is a hardcoded security restriction, not something OpenFalcon controls.
+The viewer page uses browser geolocation APIs for the **GPS audio gate** and **GPS proximity check**. **Browsers refuse to expose location data on insecure (`http://`) origins** — this is a hardcoded security restriction, not something ShowPilot controls.
 
-If you plan to use any location-based feature, you **must** serve OpenFalcon over HTTPS. Options:
+If you plan to use any location-based feature, you **must** serve ShowPilot over HTTPS. Options:
 
-- **Nginx Proxy Manager** (easiest) with a Let's Encrypt cert — point it at OpenFalcon on port 3100
+- **Nginx Proxy Manager** (easiest) with a Let's Encrypt cert — point it at ShowPilot on port 3100
 - **Caddy** with automatic HTTPS — single-line reverse proxy config
 - **Cloudflare Tunnel** — free TLS without opening ports
 - **Standalone reverse proxy** (Nginx/Apache) with your own cert
@@ -121,13 +121,13 @@ If you don't use any location features, plain HTTP is fine.
 | OS        | any modern Linux, macOS 11+, Windows 10+ | Linux for production |
 | FPP       | 7.0+ on a separate device (Pi, BeagleBone, etc.) | latest stable |
 
-**Network:** OpenFalcon listens on TCP port 3100 by default. The FPP plugin needs to reach this port. Visitors hit the same port (or whatever you front it with).
+**Network:** ShowPilot listens on TCP port 3100 by default. The FPP plugin needs to reach this port. Visitors hit the same port (or whatever you front it with).
 
 ---
 
 ## Install — Linux (Debian / Ubuntu / Raspberry Pi OS)
 
-These instructions cover Debian 11+, Ubuntu 22.04+, Raspberry Pi OS Bookworm+. The exact same commands work on a Raspberry Pi 4/5 if you want to colocate OpenFalcon with FPP on a single Pi (4GB+ RAM recommended).
+These instructions cover Debian 11+, Ubuntu 22.04+, Raspberry Pi OS Bookworm+. The exact same commands work on a Raspberry Pi 4/5 if you want to colocate ShowPilot with FPP on a single Pi (4GB+ RAM recommended).
 
 ### 1. Install Node.js 20 LTS
 
@@ -145,21 +145,21 @@ node --version    # should print v20.x.x or higher
 npm --version
 ```
 
-### 2. Install OpenFalcon
+### 2. Install ShowPilot
 
 ```bash
 # Pick a location. /opt is conventional for self-hosted apps.
-sudo mkdir -p /opt/openfalcon
-sudo chown $USER:$USER /opt/openfalcon
-cd /opt/openfalcon
+sudo mkdir -p /opt/showpilot
+sudo chown $USER:$USER /opt/showpilot
+cd /opt/showpilot
 
 # Download the latest release tarball
-wget https://github.com/OFPlugin/openfalcon/releases/latest/download/openfalcon.tar.gz
-tar -xzf openfalcon.tar.gz --strip-components=1
-rm openfalcon.tar.gz
+wget https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz
+tar -xzf showpilot.tar.gz --strip-components=1
+rm showpilot.tar.gz
 
 # Or clone via git if you prefer:
-# git clone https://github.com/OFPlugin/openfalcon.git .
+# git clone https://github.com/ShowPilotFPP/ShowPilot.git .
 
 # Install Node dependencies
 npm install --omit=dev
@@ -191,11 +191,11 @@ openssl rand -hex 32
 npm start
 ```
 
-You should see `OpenFalcon listening on http://0.0.0.0:3100`. Open `http://<your-server-ip>:3100/admin` in a browser.
+You should see `ShowPilot listening on http://0.0.0.0:3100`. Open `http://<your-server-ip>:3100/admin` in a browser.
 
 Default login: **`admin` / `admin`** — you'll be forced to change the password on first login.
 
-For production, see [Running as a service](#running-as-a-service) below to keep OpenFalcon running on boot.
+For production, see [Running as a service](#running-as-a-service) below to keep ShowPilot running on boot.
 
 ---
 
@@ -215,17 +215,17 @@ node --version
 npm --version
 ```
 
-### 2. Install OpenFalcon
+### 2. Install ShowPilot
 
 ```bash
-sudo mkdir -p /opt/openfalcon
-sudo chown $USER:$USER /opt/openfalcon
-cd /opt/openfalcon
+sudo mkdir -p /opt/showpilot
+sudo chown $USER:$USER /opt/showpilot
+cd /opt/showpilot
 
-curl -L https://github.com/OFPlugin/openfalcon/releases/latest/download/openfalcon.tar.gz \
-     -o openfalcon.tar.gz
-tar -xzf openfalcon.tar.gz --strip-components=1
-rm openfalcon.tar.gz
+curl -L https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz \
+     -o showpilot.tar.gz
+tar -xzf showpilot.tar.gz --strip-components=1
+rm showpilot.tar.gz
 
 npm install --omit=dev
 ```
@@ -257,16 +257,16 @@ brew install node@20
 
 Or download the official installer from [nodejs.org](https://nodejs.org/en/download).
 
-### 2. Install OpenFalcon
+### 2. Install ShowPilot
 
 ```bash
-mkdir -p ~/openfalcon
-cd ~/openfalcon
+mkdir -p ~/showpilot
+cd ~/showpilot
 
-curl -L https://github.com/OFPlugin/openfalcon/releases/latest/download/openfalcon.tar.gz \
-     -o openfalcon.tar.gz
-tar -xzf openfalcon.tar.gz --strip-components=1
-rm openfalcon.tar.gz
+curl -L https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz \
+     -o showpilot.tar.gz
+tar -xzf showpilot.tar.gz --strip-components=1
+rm showpilot.tar.gz
 
 npm install --omit=dev
 ```
@@ -300,20 +300,20 @@ node --version
 npm --version
 ```
 
-### 2. Install OpenFalcon
+### 2. Install ShowPilot
 
-Pick a folder (e.g. `C:\OpenFalcon`):
+Pick a folder (e.g. `C:\ShowPilot`):
 
 ```powershell
-New-Item -ItemType Directory -Force -Path C:\OpenFalcon
-Set-Location C:\OpenFalcon
+New-Item -ItemType Directory -Force -Path C:\ShowPilot
+Set-Location C:\ShowPilot
 
 # Download the latest release
-Invoke-WebRequest -Uri https://github.com/OFPlugin/openfalcon/releases/latest/download/openfalcon.tar.gz -OutFile openfalcon.tar.gz
+Invoke-WebRequest -Uri https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz -OutFile showpilot.tar.gz
 
 # Extract (Windows 10 1803+ has tar built in)
-tar -xzf openfalcon.tar.gz --strip-components=1
-Remove-Item openfalcon.tar.gz
+tar -xzf showpilot.tar.gz --strip-components=1
+Remove-Item showpilot.tar.gz
 
 npm install --omit=dev
 ```
@@ -351,28 +351,28 @@ If Windows Firewall prompts you, allow the Node.js process to communicate. To ru
 4. Go to **Plugin** tab → copy the **Show Token** (you'll paste this into FPP)
 5. Optionally go to **Users** tab and add accounts for anyone else who needs admin access
 6. Go to **Settings** tab → review jukebox/voting safeguards and configure **External Audio Access** if you want listeners outside your network to be able to hear the show
-7. Configure your viewer page on the **Viewer Page** tab (use the default OpenFalcon template or import the example template provided)
+7. Configure your viewer page on the **Viewer Page** tab (use the default ShowPilot template or import the example template provided)
 
 ---
 
 ## Install the FPP plugin
 
-The FPP plugin is what reports playback to OpenFalcon, hands off requested sequences, and serves audio to viewers.
+The FPP plugin is what reports playback to ShowPilot, hands off requested sequences, and serves audio to viewers.
 
 1. SSH into your FPP device (or open the FPP web UI's shell)
 2. In FPP web UI, go to **Content Setup → Plugin Manager**
 3. Click **Manual Install** (or follow the github URL flow)
-4. Use the OpenFalcon plugin URL: `https://github.com/OFPlugin/openfalcon-plugin`
+4. Use the ShowPilot plugin URL: `https://github.com/ShowPilotFPP/ShowPilot-plugin`
 5. After install, click **Configure** on the plugin in the plugin list
 6. Fill in:
-   - **OpenFalcon URL**: `http://<your-openfalcon-server-ip>:3100`
-   - **Show token**: paste the token you copied from OpenFalcon's Plugin tab
+   - **ShowPilot URL**: `http://<your-showpilot-server-ip>:3100`
+   - **Show token**: paste the token you copied from ShowPilot's Plugin tab
    - **Remote playlist**: the FPP playlist that contains your show sequences
    - **Interrupt schedule**: enable if you want viewer requests to interrupt the schedule
 7. Click **Save**, then **Restart Listener**
-8. Back in OpenFalcon → **Plugin** tab, you should see the plugin go online (green dot in header) within ~30 seconds
+8. Back in ShowPilot → **Plugin** tab, you should see the plugin go online (green dot in header) within ~30 seconds
 
-If it doesn't connect, check the plugin log via FPP UI → Status → Logs → `openfalcon_listener`.
+If it doesn't connect, check the plugin log via FPP UI → Status → Logs → `showpilot_listener`.
 
 ---
 
@@ -384,11 +384,11 @@ If it doesn't connect, check the plugin log via FPP UI → Status → Logs → `
 |-----|---------|-------|
 | `port` | `3100` | TCP port to listen on |
 | `host` | `0.0.0.0` | Bind address. Use `127.0.0.1` to restrict to localhost only |
-| `dbPath` | `./data/openfalcon.db` | SQLite DB path. Created automatically. |
+| `dbPath` | `./data/showpilot.db` | SQLite DB path. Created automatically. |
 | `jwtSecret` | _CHANGE_ME_ | Used to sign session cookies. **Must be set to a random value.** |
-| `sessionCookieName` | `openfalcon_session` | Browser cookie name |
+| `sessionCookieName` | `showpilot_session` | Browser cookie name |
 | `sessionDurationHours` | `720` (30 days) | Default session length when "remember me" is off; remember-me always extends to 30d |
-| `showToken` | _CHANGE_ME_ | Shared secret between OpenFalcon and FPP plugin |
+| `showToken` | _CHANGE_ME_ | Shared secret between ShowPilot and FPP plugin |
 | `viewer.activeWindowSeconds` | `30` | How recently a viewer must have heartbeat'd to count as "active" |
 | `viewer.pollIntervalMs` | `5000` | Viewer page state poll fallback (when socket disconnects) |
 | `logLevel` | `info` | `debug` / `info` / `warn` / `error` |
@@ -401,17 +401,17 @@ Most operational settings (jukebox depth, vote rules, viewer-page HTML, theme, s
 
 ### Linux — systemd (recommended)
 
-Create `/etc/systemd/system/openfalcon.service`:
+Create `/etc/systemd/system/showpilot.service`:
 
 ```ini
 [Unit]
-Description=OpenFalcon
+Description=ShowPilot
 After=network.target
 
 [Service]
 Type=simple
-User=openfalcon
-WorkingDirectory=/opt/openfalcon
+User=showpilot
+WorkingDirectory=/opt/showpilot
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5
@@ -427,30 +427,30 @@ Then:
 
 ```bash
 # Create the service user
-sudo useradd -r -s /bin/false -d /opt/openfalcon openfalcon
-sudo chown -R openfalcon:openfalcon /opt/openfalcon
+sudo useradd -r -s /bin/false -d /opt/showpilot showpilot
+sudo chown -R showpilot:showpilot /opt/showpilot
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now openfalcon
-sudo systemctl status openfalcon
+sudo systemctl enable --now showpilot
+sudo systemctl status showpilot
 
 # View logs
-sudo journalctl -u openfalcon -f
+sudo journalctl -u showpilot -f
 ```
 
 ### Linux — pm2 (alternative)
 
 ```bash
 sudo npm install -g pm2
-cd /opt/openfalcon
-pm2 start server.js --name openfalcon
+cd /opt/showpilot
+pm2 start server.js --name showpilot
 pm2 startup    # follow the printed instructions
 pm2 save
 ```
 
 ### macOS — launchd
 
-Create `~/Library/LaunchAgents/com.openfalcon.plist`:
+Create `~/Library/LaunchAgents/com.showpilot.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -458,22 +458,22 @@ Create `~/Library/LaunchAgents/com.openfalcon.plist`:
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.openfalcon</string>
+  <string>com.showpilot</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/node</string>
-    <string>/Users/YOURNAME/openfalcon/server.js</string>
+    <string>/Users/YOURNAME/showpilot/server.js</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/YOURNAME/openfalcon</string>
+  <string>/Users/YOURNAME/showpilot</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/YOURNAME/openfalcon/openfalcon.log</string>
+  <string>/Users/YOURNAME/showpilot/showpilot.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/YOURNAME/openfalcon/openfalcon.log</string>
+  <string>/Users/YOURNAME/showpilot/showpilot.log</string>
 </dict>
 </plist>
 ```
@@ -481,7 +481,7 @@ Create `~/Library/LaunchAgents/com.openfalcon.plist`:
 Replace `YOURNAME` and the `node` path (find with `which node`). Then:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.openfalcon.plist
+launchctl load ~/Library/LaunchAgents/com.showpilot.plist
 ```
 
 ### Windows — NSSM
@@ -490,19 +490,19 @@ launchctl load ~/Library/LaunchAgents/com.openfalcon.plist
 
 ```powershell
 # Download and extract NSSM, then:
-.\nssm.exe install OpenFalcon
+.\nssm.exe install ShowPilot
 ```
 
 In the GUI that opens:
 - **Path:** `C:\Program Files\nodejs\node.exe`
-- **Startup directory:** `C:\OpenFalcon`
+- **Startup directory:** `C:\ShowPilot`
 - **Arguments:** `server.js`
 
 Click **Install service**, then start it:
 
 ```powershell
-nssm start OpenFalcon
-# Or in services.msc, find "OpenFalcon" and start it
+nssm start ShowPilot
+# Or in services.msc, find "ShowPilot" and start it
 ```
 
 ---
@@ -512,19 +512,19 @@ nssm start OpenFalcon
 ### From a release tarball
 
 ```bash
-cd /opt/openfalcon
-sudo systemctl stop openfalcon    # or pm2 stop openfalcon
+cd /opt/showpilot
+sudo systemctl stop showpilot    # or pm2 stop showpilot
 
 # Backup first
 cp -r data data.backup-$(date +%F)
 
 # Get the new version
-wget -O openfalcon.tar.gz https://github.com/OFPlugin/openfalcon/releases/latest/download/openfalcon.tar.gz
-tar -xzf openfalcon.tar.gz --strip-components=1
-rm openfalcon.tar.gz
+wget -O showpilot.tar.gz https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz
+tar -xzf showpilot.tar.gz --strip-components=1
+rm showpilot.tar.gz
 npm install --omit=dev
 
-sudo systemctl start openfalcon
+sudo systemctl start showpilot
 ```
 
 Database migrations run automatically on startup. Your config and data are preserved.
@@ -532,10 +532,10 @@ Database migrations run automatically on startup. Your config and data are prese
 ### From git
 
 ```bash
-cd /opt/openfalcon
+cd /opt/showpilot
 git pull
 npm install --omit=dev
-sudo systemctl restart openfalcon
+sudo systemctl restart showpilot
 ```
 
 ---
@@ -550,7 +550,7 @@ Back both up:
 
 ```bash
 # Full backup
-tar -czf openfalcon-backup-$(date +%F).tar.gz config.js data/
+tar -czf showpilot-backup-$(date +%F).tar.gz config.js data/
 ```
 
 Restore is just extracting the backup back into the install directory.
@@ -558,7 +558,7 @@ Restore is just extracting the backup back into the install directory.
 To dump just the SQLite DB for inspection or migration:
 
 ```bash
-sqlite3 data/openfalcon.db .dump > openfalcon.sql
+sqlite3 data/showpilot.db .dump > showpilot.sql
 ```
 
 ---
@@ -568,13 +568,13 @@ sqlite3 data/openfalcon.db .dump > openfalcon.sql
 ### "Cannot connect to FPP plugin" / plugin shows offline
 
 - Verify the `showToken` in `config.js` exactly matches what you entered in the FPP plugin config
-- Check FPP can reach OpenFalcon: `curl http://<openfalcon-ip>:3100/api/plugin/state -H "remotetoken: YOUR_TOKEN"`
-- Check the plugin log on FPP: web UI → **Status → Logs → openfalcon_listener**
+- Check FPP can reach ShowPilot: `curl http://<showpilot-ip>:3100/api/plugin/state -H "remotetoken: YOUR_TOKEN"`
+- Check the plugin log on FPP: web UI → **Status → Logs → showpilot_listener**
 - Restart the plugin listener via the FPP web UI
 
 ### "Audio doesn't play for cellular listeners"
 
-OpenFalcon needs to be reachable from the public internet for off-network audio. Either:
+ShowPilot needs to be reachable from the public internet for off-network audio. Either:
 - Set up a reverse proxy with a public domain, then enter that domain in **Settings → External Audio Access**
 - Use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for a domain without exposing your home IP
 
@@ -583,9 +583,9 @@ OpenFalcon needs to be reachable from the public internet for off-network audio.
 Reset directly in the database:
 
 ```bash
-cd /opt/openfalcon
-sqlite3 data/openfalcon.db "DELETE FROM users WHERE username='admin';"
-# Then restart OpenFalcon — it'll re-seed the default admin/admin user.
+cd /opt/showpilot
+sqlite3 data/showpilot.db "DELETE FROM users WHERE username='admin';"
+# Then restart ShowPilot — it'll re-seed the default admin/admin user.
 ```
 
 If you have a working admin account, just use the **Users** tab → **Reset PW** for any other user.
@@ -594,12 +594,12 @@ If you have a working admin account, just use the **Users** tab → **Reset PW**
 
 Edit `config.js`, change `port` to something free (e.g. `3101`), restart.
 
-### "permission denied" on `/opt/openfalcon`
+### "permission denied" on `/opt/showpilot`
 
-The service user (`openfalcon` if following systemd setup) needs write access to `data/` for SQLite:
+The service user (`showpilot` if following systemd setup) needs write access to `data/` for SQLite:
 
 ```bash
-sudo chown -R openfalcon:openfalcon /opt/openfalcon/data
+sudo chown -R showpilot:showpilot /opt/showpilot/data
 ```
 
 ### "Cover art doesn't show" / "wrong covers"
@@ -610,10 +610,10 @@ In admin → **Sequences**, click **Fetch Covers** to re-pull all sequence cover
 
 ```bash
 # systemd
-sudo journalctl -u openfalcon -f --since "10 minutes ago"
+sudo journalctl -u showpilot -f --since "10 minutes ago"
 
 # pm2
-pm2 logs openfalcon
+pm2 logs showpilot
 ```
 
 ---
@@ -621,7 +621,7 @@ pm2 logs openfalcon
 ## Project structure (for the curious)
 
 ```
-openfalcon/
+showpilot/
 ├── server.js                # Express app + Socket.io server
 ├── config.js                # Your config (gitignored)
 ├── config.example.js        # Template config
@@ -650,9 +650,9 @@ MIT. Use it however you like — just don't blame me if your show breaks on Hall
 
 ## Contributing
 
-Issues and PRs welcome at https://github.com/OFPlugin/openfalcon
+Issues and PRs welcome at https://github.com/ShowPilotFPP/ShowPilot
 
-If you have ideas, find bugs, or want to share what your show looks like running on OpenFalcon — please post in the xLights forum or open a GitHub issue.
+If you have ideas, find bugs, or want to share what your show looks like running on ShowPilot — please post in the xLights forum or open a GitHub issue.
 
 ---
 

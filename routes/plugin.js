@@ -160,12 +160,17 @@ router.get('/state', (req, res) => {
         votes: top.vote_count,
       };
       rememberHandoff(top.sequence_name, 'vote');
-      if (cfg.reset_votes_after_round) {
-        db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfg.current_voting_round);
-        advanceVotingRound();
-        const io = req.app.get('io');
-        if (io) io.emit('voteReset');
-      }
+      // NOTE: We used to delete votes and advance the round here.
+      // That was wrong — the plugin polls /state continuously, so a
+      // round would advance on the FIRST vote (whoever votes first
+      // "wins" because the next poll returns them as the winner and
+      // immediately resets the round). Subsequent votes never accumulated.
+      //
+      // Instead, the round now advances when the winning sequence
+      // ACTUALLY STARTS PLAYING — handled in /playing when the source
+      // of the now-playing report is 'vote' (set by consumeHandoff).
+      // That ensures votes accumulate during the entire current song,
+      // and the round only closes when the winner truly takes over.
     }
   } else if (cfg.viewer_control_mode === 'JUKEBOX') {
     const next = popNextQueuedRequest();
@@ -261,6 +266,52 @@ router.post('/playing', (req, res) => {
       markQueueEntryPlayed(name);
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
+    }
+
+    // ---- Voting round close (v0.23.7+) ----
+    // When a vote-winning sequence actually starts playing, THAT'S when
+    // the round officially ends. We delete the round's votes, advance
+    // the round counter, and emit a socket event so all connected viewers
+    // can show a winner notification.
+    //
+    // This timing matters: deleting votes earlier (e.g. when the winner
+    // is QUEUED but not yet playing) would let viewers vote again before
+    // the supposedly-decided song actually started, which feels weird and
+    // creates a window where two consecutive winners could be picked.
+    // Waiting until playback starts means the round is over only when
+    // the listener actually hears the result.
+    if (source === 'vote') {
+      const cfg = getConfig();
+      // Look up the sequence's display name for the notification —
+      // viewers care about the human-readable name, not the file name.
+      const seqRow = db.prepare(`
+        SELECT display_name, name, image_url, artist
+        FROM sequences WHERE name = ? COLLATE NOCASE
+      `).get(name);
+      const winnerDisplay = (seqRow && seqRow.display_name) || name;
+      const winnerArtist = (seqRow && seqRow.artist) || '';
+      const winnerImage = (seqRow && seqRow.image_url) || '';
+
+      if (cfg.reset_votes_after_round) {
+        db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfg.current_voting_round);
+        advanceVotingRound();
+        const io = req.app.get('io');
+        if (io) {
+          // voteReset clears each viewer's local vote-state. Existing event,
+          // kept for backward compatibility.
+          io.emit('voteReset');
+          // votingRoundEnded delivers the winner info to all viewers so they
+          // can show a celebratory toast. Includes display name, artist,
+          // and image URL so the toast can be visually rich without an
+          // additional API call.
+          io.emit('votingRoundEnded', {
+            sequenceName: name,
+            displayName: winnerDisplay,
+            artist: winnerArtist,
+            imageUrl: winnerImage,
+          });
+        }
+      }
     }
 
     // Mark this sequence as played; reset its hidden counter

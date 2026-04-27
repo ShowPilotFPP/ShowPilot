@@ -1568,6 +1568,11 @@
       // "audio arrived later" relative to wherever it would have been.
       const serverNow = Date.now() + clockOffset;
       const positionSec = (serverNow - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
+      // Diagnostic — temporary, remove after sync issue is resolved
+      console.log('[ShowPilot] scheduleStart',
+        'audioSyncOffsetMs=', audioSyncOffsetMs,
+        'positionSec=', positionSec.toFixed(3),
+        'trackStartedAtMs=', trackStartedAtMs);
 
       // If already past the end, skip — next sync will pick up new track
       if (positionSec >= currentBuffer.duration) {

@@ -1031,6 +1031,7 @@
     let clockOffset = 0;          // serverNow - clientNow at last sync
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
+    let audioSyncOffsetMs = 0;    // per-show offset to compensate for FPP audio output latency vs cache delivery speed. Server sends this; positive = audio plays LATER (compensates for too-early arrival)
     let lastSyncResponse = null;  // raw response for debugging
     let pollTimer = null;
     let driftTimer = null;
@@ -1071,6 +1072,23 @@
     let trackScheduledAtPositionSec = 0;
     let trackScheduledOutputLatency = 0;
     let pendingStartTimeout = null;
+
+    // ---- Auto-sync state ----
+    // We adjust playbackRate at the start of each track to converge on
+    // the server's expected position. Once drift is below a threshold,
+    // we lock back to rate=1.0 and stop adjusting. The audio clock then
+    // carries the rest of the track at native rate; for sub-5-minute
+    // tracks the natural drift after convergence is well under perceptible.
+    //
+    // Resets to false in stopAudio() so every new track starts a fresh
+    // convergence cycle. Without that reset, a converged-then-restarted
+    // track wouldn't re-correct any drift introduced during the gap.
+    let syncConverged = false;
+    // Track the last rate we applied so we don't write the same value
+    // every poll (audio engines vary in how they handle rate.value
+    // assignments — some interpolate, some snap; setting only on change
+    // is the consistent path).
+    let lastAppliedRate = 1.0;
 
     // ---- UI handlers ----
     // When the audio distance gate is enabled (admin opt-in), tapping the
@@ -1446,6 +1464,7 @@
           // Same track — just update timing anchor in case server has new info
           if (data.trackStartedAtMs) trackStartedAtMs = data.trackStartedAtMs;
           if (data.durationSec) trackDuration = data.durationSec;
+          if (typeof data.audioSyncOffsetMs === 'number') audioSyncOffsetMs = data.audioSyncOffsetMs;
           // Refresh metadata in case admin changed it
           if (data.imageUrl && coverEl.src !== data.imageUrl) coverEl.src = data.imageUrl;
 
@@ -1465,6 +1484,7 @@
       currentMediaName = data.sequenceName;
       trackStartedAtMs = data.trackStartedAtMs || (Date.now() + clockOffset - (data.elapsedSec * 1000));
       trackDuration = data.durationSec || 0;
+      if (typeof data.audioSyncOffsetMs === 'number') audioSyncOffsetMs = data.audioSyncOffsetMs;
 
       titleEl.textContent = data.displayName || data.sequenceName;
       artistEl.textContent = data.artist || '';
@@ -1535,8 +1555,19 @@
       stopAudio();
 
       // Where should we be in the track right now (server time)?
+      // We also subtract the configured audio-sync offset:
+      //   positive offset = "play audio LATER" (because audio was arriving
+      //                      ahead of the lights — typical case after the
+      //                      cache change, since cache is faster than the
+      //                      old FPP-proxy path)
+      //   negative offset = "play audio EARLIER"
+      // Subtracting offset/1000 from positionSec means we believe we're
+      // less far through the track than wall-clock suggests, so the
+      // playback start_offset is smaller, and the audio plays from an
+      // earlier point in the file — which the listener experiences as
+      // "audio arrived later" relative to wherever it would have been.
       const serverNow = Date.now() + clockOffset;
-      const positionSec = (serverNow - trackStartedAtMs) / 1000;
+      const positionSec = (serverNow - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
 
       // If already past the end, skip — next sync will pick up new track
       if (positionSec >= currentBuffer.duration) {
@@ -1601,6 +1632,9 @@
       trackScheduledAtAudioCtx = 0;
       trackScheduledAtPositionSec = 0;
       trackScheduledOutputLatency = 0;
+      // Reset auto-sync state so the next track converges from scratch.
+      syncConverged = false;
+      lastAppliedRate = 1.0;
     }
 
     // If the audio gate fires during playback (e.g. user walked outside the
@@ -1644,20 +1678,63 @@
       const actualPosition = trackScheduledAtPositionSec + audioElapsed - trackScheduledOutputLatency;
 
       // Where SHOULD it be per server time?
+      // The audioSyncOffsetMs adjusts the target — positive means we
+      // want audio to lag the wall clock by that much, so the "expected"
+      // position on the audio clock is correspondingly earlier.
       const serverNow = Date.now() + clockOffset;
-      const expectedPosition = (serverNow - trackStartedAtMs) / 1000;
+      const expectedPosition = (serverNow - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
 
-      // Drift in seconds, rendered in ms with sign
+      // Drift in seconds. Positive = audio AHEAD of where it should be.
       const drift = actualPosition - expectedPosition;
       const ms = Math.round(drift * 1000);
       driftEl.textContent = '· ' + (ms >= 0 ? '+' : '') + ms + 'ms';
       // Color thresholds: green <100ms, orange <500ms, red beyond.
-      // Worth noting: 100ms is the rough threshold where humans start
-      // to perceive lip-sync issues with video; for music it's less
-      // critical but still audible if you can hear two devices side by
-      // side.
       const absMs = Math.abs(ms);
       driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
+
+      // ---- Auto-sync via playback rate ----
+      // Once converged, we leave the audio at rate=1.0 and trust the
+      // audio clock for the rest of the track. The natural drift over
+      // a few minutes is well below perception.
+      if (syncConverged) return;
+
+      // Convergence threshold. Below this, we consider sync good enough
+      // and lock the rate to 1.0 for the rest of the track. 50ms is
+      // tighter than the perception threshold for music (~100ms) and
+      // gives some headroom for the rest of the track.
+      const CONVERGE_THRESHOLD_MS = 50;
+      if (absMs < CONVERGE_THRESHOLD_MS) {
+        if (lastAppliedRate !== 1.0) {
+          currentSource.playbackRate.value = 1.0;
+          lastAppliedRate = 1.0;
+        }
+        syncConverged = true;
+        return;
+      }
+
+      // Compute a corrective rate that closes the gap over the next
+      // few seconds rather than instantly. Instant correction would
+      // require huge rate changes that are very audible. A 5-second
+      // correction window means a 500ms drift needs ~10% rate change,
+      // which we'll then clamp to ±3% — so large drifts close gradually
+      // (a 500ms drift takes ~17s to close at 3%, but it KEEPS moving
+      // toward zero the whole time, and we recompute every 250ms).
+      const CORRECTION_WINDOW_SEC = 5;
+      // If audio is AHEAD (drift > 0), we slow it down (rate < 1).
+      // If audio is BEHIND (drift < 0), we speed it up (rate > 1).
+      let rate = 1 - (drift / CORRECTION_WINDOW_SEC);
+      // Clamp to a range that's small enough to keep pitch shift below
+      // the perception threshold for most listeners. ±3% (about 50 cents
+      // of pitch shift) is the upper bound where most people don't
+      // consciously notice the speed change on music.
+      if (rate < 0.97) rate = 0.97;
+      if (rate > 1.03) rate = 1.03;
+
+      // Only write if changed (avoids redundant audio engine work).
+      if (Math.abs(rate - lastAppliedRate) > 0.001) {
+        currentSource.playbackRate.value = rate;
+        lastAppliedRate = rate;
+      }
     }
 
     // ---- Player decoration ----

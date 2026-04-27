@@ -1292,7 +1292,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.19.5</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.19.7</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2096,6 +2096,29 @@
               <span class="muted" style="font-size: 0.8rem;">— typically smaller than the interaction radius</span>
             </div>
 
+            <h3 style="margin-top: 1.25rem;">Audio sync offset <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(fine-tune playback timing)</span></h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+              Adjusts when the viewer's audio plays relative to the lights.
+              Stand near your show and tune until the phone's audio matches what you hear from your physical speakers.
+              <br /><br />
+              <strong>Positive (e.g. 200):</strong> phone audio plays LATER. Use when phone is AHEAD of the show.
+              <br />
+              <strong>Negative (e.g. -200):</strong> phone audio plays EARLIER. Use when phone is BEHIND the show.
+              <br />
+              <strong>Zero:</strong> no offset (default).
+              <br /><br />
+              Why this exists: FPP's hardware audio output has its own latency before sound physically leaves your speakers.
+              Cellular phones streaming through the cache get audio faster than the physical speakers, so the phone is typically ahead.
+              Typical values are 100–400ms positive. Changes apply to viewers on their next track change or page refresh.
+            </p>
+            <div class="row" style="margin-top: 0.5rem; gap: 0.5rem; align-items: center;">
+              <label for="cfg_audio_sync_offset_ms" style="margin: 0;">Offset (milliseconds):</label>
+              <input type="number" id="cfg_audio_sync_offset_ms" step="10" min="-2000" max="2000"
+                     onchange="saveSetting('audio_sync_offset_ms', this.value)"
+                     style="max-width: 120px;" />
+              <span class="muted" style="font-size: 0.8rem;">— positive = audio plays later</span>
+            </div>
+
             <h3 style="margin-top: 1.25rem;">View-source deterrent <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(template protection)</span></h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
               When enabled, the viewer page goes through several layers of casual deterrence:
@@ -2850,6 +2873,7 @@
       setVal('cfg_check_radius_miles', c.check_radius_miles);
       setChk('cfg_audio_gate_enabled', c.audio_gate_enabled);
       setVal('cfg_audio_gate_radius_miles', c.audio_gate_radius_miles || 0.5);
+      setVal('cfg_audio_sync_offset_ms', c.audio_sync_offset_ms || 0);
       setChk('cfg_viewer_source_obfuscate', c.viewer_source_obfuscate);
       updateAudioGateVisibility();
       setVal('cfg_hide_sequence_after_played', c.hide_sequence_after_played);

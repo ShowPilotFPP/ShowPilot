@@ -477,6 +477,11 @@ router.get('/now-playing-audio', (req, res) => {
     publicStreamUrl: cfg.public_base_url
       ? `${String(cfg.public_base_url).replace(/\/+$/, '')}/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`
       : '',
+    // Per-show sync offset in milliseconds. Positive = play audio LATER
+    // (compensates for audio arriving too early — the typical case after
+    // the cache change, since cache delivery is faster than the previous
+    // FPP-proxy path). Negative = play EARLIER. Set in admin Settings.
+    audioSyncOffsetMs: cfg.audio_sync_offset_ms || 0,
     // Visual settings (snow, decoration, custom color) — always present
     ...visualConfig,
   });

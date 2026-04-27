@@ -1093,6 +1093,20 @@
     const driftHistory = [];          // ring of recent drift values in seconds
     const DRIFT_HISTORY_SIZE = 5;     // ~1.25 seconds of samples
 
+    // Integrated playback position. We need to track this separately from
+    // (audioCtx.currentTime - trackScheduledAtAudioCtx) because the audio
+    // context's clock advances at real time regardless of playbackRate.
+    // When we set rate=0.98, real time advances at 1.0 but the audio file
+    // position advances at 0.98. Without integrating rate over time, the
+    // drift calculation diverges from reality whenever rate isn't 1.0,
+    // which is exactly when we need it to be accurate.
+    //
+    // Each drift tick we add (real_dt * current_rate) to this counter.
+    // It represents "how many seconds INTO THE FILE we have actually
+    // played back since the track was scheduled."
+    let integratedPlayedSec = 0;
+    let lastIntegrationTime = 0;      // audioCtx.currentTime at last integration tick
+
     // ---- UI handlers ----
     // When the audio distance gate is enabled (admin opt-in), tapping the
     // launcher triggers a fresh location verification before the player
@@ -1600,6 +1614,10 @@
       // especially on devices with crystal oscillator differences).
       trackScheduledAtAudioCtx = startWhen;
       trackScheduledAtPositionSec = startOffset;
+      // Initialize integration counter — we've "played" startOffset seconds
+      // into the file as of startWhen. Subsequent ticks accumulate from here.
+      integratedPlayedSec = startOffset;
+      lastIntegrationTime = startWhen;
       // outputLatency is the OS-reported delay between samples being
       // scheduled and samples actually leaving the speaker. We snapshot
       // it here so the drift display accounts for "what you HEAR now
@@ -1638,6 +1656,8 @@
       // Reset auto-sync state so the next track starts fresh.
       lastAppliedRate = 1.0;
       driftHistory.length = 0;
+      integratedPlayedSec = 0;
+      lastIntegrationTime = 0;
     }
 
     // If the audio gate fires during playback (e.g. user walked outside the
@@ -1672,13 +1692,22 @@
         if (driftEl) driftEl.textContent = '';
         return;
       }
-      // Where is audio actually playing right now? The audio clock has
-      // advanced (audioCtx.currentTime - trackScheduledAtAudioCtx) seconds
-      // since we scheduled. Add that to where the track was at scheduling
-      // time. Then subtract output latency: "what the speaker is emitting
-      // RIGHT NOW" was actually scheduled outputLatency seconds ago.
-      const audioElapsed = audioCtx.currentTime - trackScheduledAtAudioCtx;
-      const actualPosition = trackScheduledAtPositionSec + audioElapsed - trackScheduledOutputLatency;
+      // Integrate playback position. Since the last drift tick, real time
+      // has advanced by (now - lastIntegrationTime) seconds. During that
+      // span, the audio file's playback position advanced by that amount
+      // multiplied by the rate we WERE applying (lastAppliedRate). This
+      // is the only correct way to compute file position when rate varies.
+      const now = audioCtx.currentTime;
+      const realDt = now - lastIntegrationTime;
+      if (realDt > 0) {
+        integratedPlayedSec += realDt * lastAppliedRate;
+        lastIntegrationTime = now;
+      }
+      // actualPosition is the file position currently emitting from the
+      // speaker. Subtract output latency: "the sample HEARD now was
+      // scheduled outputLatency seconds ago, so the file position emitted
+      // now corresponds to a slightly earlier point."
+      const actualPosition = integratedPlayedSec - trackScheduledOutputLatency;
 
       // Where SHOULD it be per server time?
       // The audioSyncOffsetMs adjusts the target — positive means we

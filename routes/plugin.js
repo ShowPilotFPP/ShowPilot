@@ -301,8 +301,6 @@ router.post('/playing', (req, res) => {
 // ============================================================
 router.post('/position', (req, res) => {
   const { sequence, position } = req.body || {};
-  // Diagnostic — temporary, remove after architecture is verified working
-  console.log('[plugin/position]', sequence, position);
   const name = (sequence || '').trim();
   const pos = (typeof position === 'number' && isFinite(position) && position >= 0)
     ? position : null;
@@ -353,7 +351,6 @@ router.post('/next', (req, res) => {
 // POST /api/plugin/heartbeat
 // ============================================================
 router.post('/heartbeat', (req, res) => {
-  console.log('[plugin/heartbeat] from', req.ip, 'version', req.body?.pluginVersion);
   pluginStatus.lastSeen = new Date().toISOString();
   pluginStatus.version = req.body?.pluginVersion || null;
   // Capture the plugin's source IP — this is FPP's address, used as the

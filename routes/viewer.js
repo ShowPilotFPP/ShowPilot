@@ -257,6 +257,22 @@ router.post('/vote', (req, res) => {
     throw e;
   }
 
+  // Diagnostic logging — emitted at info level so it shows up in pm2 logs.
+  // Helps debug "votes always show 0" reports by confirming what was written.
+  // Counts include all rounds for this token+sequence so we can spot if a
+  // vote went into the wrong round_id (e.g. round was advanced unexpectedly).
+  try {
+    const totalForRound = db.prepare(
+      `SELECT COUNT(*) AS n FROM votes WHERE round_id = ?`
+    ).get(cfg.current_voting_round).n;
+    const totalForSeq = db.prepare(
+      `SELECT COUNT(*) AS n FROM votes WHERE sequence_name = ? AND round_id = ?`
+    ).get(seq.name, cfg.current_voting_round).n;
+    console.log(`[vote] seq="${seq.name}" round=${cfg.current_voting_round} token=${(token||'').slice(0,8)} → seq_total=${totalForSeq} round_total=${totalForRound}`);
+  } catch (e) {
+    console.warn('[vote] diagnostic logging failed:', e.message);
+  }
+
   db.prepare(`UPDATE config SET interactions_since_last_psa = interactions_since_last_psa + 1 WHERE id = 1`).run();
 
   const io = req.app.get('io');

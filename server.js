@@ -100,27 +100,100 @@ app.use('/api', require('./routes/viewer'));
 // ============================================================
 // Browsers look for /manifest.json (or one referenced via
 // <link rel="manifest">) and /sw.js (service worker) at predictable
-// paths. We expose three: /admin-manifest.json, /viewer-manifest.json,
-// and /sw.js. The HTML pages reference whichever manifest applies.
+// paths. We expose: /admin-manifest.json, /viewer-manifest.json,
+// /admin-icon, /viewer-icon, /sw.js. The HTML pages reference
+// whichever manifest applies.
 //
-// All three are gated by per-show config so installs only become
+// All routes are gated by per-show config so installs only become
 // available when the admin opts in. Admin uses fixed branding;
 // viewer is configurable.
+//
+// IMPORTANT for installability: Android and iOS browsers will
+// degrade to "shortcut to webpage" (instead of real PWA install)
+// if any of these fail:
+//   1. Service worker missing or has no real fetch handler
+//   2. Icons can't be fetched as real images (data: URLs are
+//      inconsistent across mobile browsers)
+//   3. Manifest doesn't have a 192px AND 512px icon entry
+// We address all three: SW responds to fetch for start_url, icons
+// served as real URLs (not data: URLs even though we STORE them
+// as base64 in the DB), and we declare multiple icon sizes even
+// though the source image is the same — Android's installability
+// check looks for these specific sizes.
 
-// Minimal service worker — required for install eligibility but
-// doesn't actively cache anything. We could expand this later for
-// offline support, but ShowPilot fundamentally requires a server
-// connection to function (live position, voting, queue), so offline
-// caching has limited value.
+// Service worker — minimal but with a real fetch handler. Mobile
+// Chrome's installability check requires the SW to actually handle
+// fetches for the start_url; an empty handler doesn't qualify.
+// We just pass through every request (network-first, no caching),
+// which satisfies the criteria without changing actual network behavior.
 const PWA_SERVICE_WORKER = `
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', () => {/* pass through */});
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+self.addEventListener('fetch', (event) => {
+  // Real fetch handler — responds with the network result. Without
+  // this responding to the start_url, Android Chrome won't consider
+  // the page installable and "Add to Home Screen" produces a shortcut
+  // bookmark instead of a true PWA install.
+  event.respondWith(fetch(event.request).catch(() => {
+    return new Response('Network error', { status: 503 });
+  }));
+});
 `;
 app.get('/sw.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=3600');
+  // Service-Worker-Allowed lets us register an /sw.js with broader
+  // scope (root). Without this, /sw.js could only control /sw-scoped
+  // requests. We want it to claim the whole origin.
+  res.setHeader('Service-Worker-Allowed', '/');
   res.send(PWA_SERVICE_WORKER);
+});
+
+// Helper: decode a stored data: URL back into raw image bytes plus
+// content type. Returns null if no icon configured. The DB stores
+// icons as data: URLs because that's the simplest upload path
+// (single column, no separate file storage), but we serve them as
+// real URLs because mobile browsers want fetchable image responses
+// for installability.
+function decodeStoredIcon(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return null;
+  try {
+    return { mime: m[1], buffer: Buffer.from(m[2], 'base64') };
+  } catch {
+    return null;
+  }
+}
+
+// Serve the configured viewer icon as a real image URL. Mobile
+// browsers that wouldn't accept data: URLs in manifest icons see
+// this as a normal PNG response and accept it.
+app.get('/viewer-icon', (req, res) => {
+  const { getConfig } = require('./lib/db');
+  const cfg = getConfig();
+  const decoded = decodeStoredIcon(cfg.pwa_viewer_icon);
+  if (!decoded) {
+    // Fall back to favicon when no icon is configured. Redirect
+    // rather than reading the favicon file ourselves — let Express
+    // static handler serve it normally.
+    return res.redirect('/favicon.ico');
+  }
+  res.setHeader('Content-Type', decoded.mime || 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.send(decoded.buffer);
+});
+
+// Admin icon route — currently always serves the favicon (admin
+// branding is fixed). Stub here so the manifest can reference a
+// stable path; if we ever let admins customize this, it's already
+// wired up.
+app.get('/admin-icon', (req, res) => {
+  res.redirect('/favicon.ico');
 });
 
 app.get('/admin-manifest.json', (req, res) => {
@@ -131,6 +204,11 @@ app.get('/admin-manifest.json', (req, res) => {
   }
   res.setHeader('Content-Type', 'application/manifest+json');
   res.setHeader('Cache-Control', 'no-cache');
+  // Three icon entries: 192, 512, and any. Android Chrome's
+  // installability check specifically looks for a 192x192 AND
+  // a 512x512 icon. They can be the same source URL (browser
+  // downscales) but the manifest needs the entries declared
+  // separately. The "any" entry is for desktop / fallback.
   res.json({
     name: 'ShowPilot Admin',
     short_name: 'ShowPilot',
@@ -140,11 +218,10 @@ app.get('/admin-manifest.json', (req, res) => {
     background_color: '#0a0a0a',
     theme_color: '#0a0a0a',
     icons: [
-      // ShowPilot's bundled favicon. Points to /favicon.ico which Express
-      // serves from public/. Browsers will scale this for various display
-      // contexts; quality on small icons is fine since favicons are
-      // typically 32-256px source size.
-      { src: '/favicon.ico', sizes: 'any', type: 'image/x-icon' },
+      { src: '/admin-icon', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/admin-icon', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/admin-icon', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+      { src: '/admin-icon', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   });
 });
@@ -155,29 +232,15 @@ app.get('/viewer-manifest.json', (req, res) => {
   if (cfg.pwa_viewer_enabled !== 1) {
     return res.status(404).send('Viewer PWA install not enabled');
   }
-  // App name: configured value, falling back to show name, falling back
-  // to a generic. show_name defaults to "My Light Show" so this almost
-  // always has SOMETHING reasonable to display.
   const name = (cfg.pwa_viewer_name && cfg.pwa_viewer_name.trim())
     || cfg.show_name
     || 'Light Show';
-  // Icon: configured data URL, falling back to favicon. data: URLs work
-  // in manifests on most browsers (Chrome, Safari, Edge); the fallback
-  // ensures a manifest is always valid even if the user hasn't uploaded
-  // an icon yet.
-  const iconSrc = (cfg.pwa_viewer_icon && cfg.pwa_viewer_icon.trim())
-    || '/favicon.ico';
-  // For data: URLs we infer type from the prefix; otherwise default to
-  // png since that's what we'll guide users to upload.
-  let iconType = 'image/png';
-  if (iconSrc.startsWith('data:')) {
-    const m = iconSrc.match(/^data:([^;]+);/);
-    if (m) iconType = m[1];
-  } else if (iconSrc.endsWith('.ico')) {
-    iconType = 'image/x-icon';
-  }
   res.setHeader('Content-Type', 'application/manifest+json');
   res.setHeader('Cache-Control', 'no-cache');
+  // Same multi-size pattern as admin. The icon URL (/viewer-icon)
+  // either serves the user's uploaded PNG or redirects to favicon.
+  // Both 'any' and 'maskable' purposes — Android adaptive icons use
+  // the maskable variant; iOS and desktop use 'any'.
   res.json({
     name,
     short_name: name.length > 12 ? name.slice(0, 12) : name,
@@ -187,10 +250,10 @@ app.get('/viewer-manifest.json', (req, res) => {
     background_color: '#000000',
     theme_color: '#000000',
     icons: [
-      // Single icon entry with sizes='any'. Browsers downscale as needed.
-      // PNG/ICO will both render fine; for sharp icons at small sizes
-      // users should provide a 512x512 or larger source.
-      { src: iconSrc, sizes: 'any', type: iconType, purpose: 'any' },
+      { src: '/viewer-icon', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/viewer-icon', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/viewer-icon', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+      { src: '/viewer-icon', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   });
 });

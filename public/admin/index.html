@@ -1275,6 +1275,7 @@
        returns 404 and the browser just silently doesn't offer install.
        Registration is always present; a 404'd manifest is harmless. -->
   <link rel="manifest" href="/admin-manifest.json" />
+  <link rel="apple-touch-icon" href="/admin-icon" />
   <meta name="theme-color" content="#0a0a0a" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -1320,7 +1321,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.23.0</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.23.1</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2095,12 +2096,15 @@
             </div>
             <div class="row" style="margin-top: 0.5rem;">
               <button type="button" id="pwaInstallBtn" class="secondary"
-                      style="display: none;"
-                      onclick="if (window.__deferredInstallPrompt) { window.__deferredInstallPrompt.prompt(); window.__deferredInstallPrompt = null; this.style.display='none'; }">
-                📲 Install ShowPilot Admin
+                      style="display: none; gap: 0.5rem; align-items: center;"
+                      onclick="if (window.__deferredInstallPrompt) { window.__deferredInstallPrompt.prompt(); window.__deferredInstallPrompt.userChoice.finally(function(){ window.__deferredInstallPrompt = null; document.getElementById('pwaInstallBtn').style.display='none'; }); }">
+                <img src="/admin-icon" alt=""
+                     style="width: 20px; height: 20px; border-radius: 4px; vertical-align: middle;" />
+                Install ShowPilot Admin
               </button>
               <span class="muted" style="font-size: 0.8rem;">
-                Button appears when your browser is ready to install.
+                Button appears once your browser is ready (open the admin
+                page once and interact with it; then refresh).
               </span>
             </div>
 

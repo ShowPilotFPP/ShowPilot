@@ -562,7 +562,9 @@ router.get('/now-playing-audio', (req, res) => {
   let versionParam = '';
   try {
     const audioCache = require('../lib/audio-cache');
-    const cached = audioCache.getCachedFileForMediaName(seq.media_name);
+    // Look up via sequence name (resolves to sequence's audio_hash if
+    // set, falls back to media_name for legacy installs).
+    const cached = audioCache.getCachedFileForSequence(seq.name);
     if (cached && cached.hash) {
       versionParam = '?v=' + cached.hash.slice(0, 8);
     }
@@ -653,7 +655,7 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   // with installs that haven't upgraded their plugin yet.
   try {
     const audioCache = require('../lib/audio-cache');
-    const cachedFile = audioCache.getCachedFileForMediaName(seq.media_name);
+    const cachedFile = audioCache.getCachedFileForSequence(seq.name);
     if (cachedFile) {
       // Aggressive caching for cellular listeners. Audio file bytes are
       // immutable — same hash, same content. Cloudflare or other edge

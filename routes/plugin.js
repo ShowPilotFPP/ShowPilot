@@ -886,6 +886,20 @@ router.post(
 
     try {
       audioCache.storeUploadedFile(req.body, claimedHash, mediaName, mimeType);
+      // Also stamp the hash onto every sequence row whose media_name
+      // matches. This is the v0.24.3+ many-to-one fix: cache lookup
+      // now goes sequence → audio_hash → cache row, so a sequence
+      // without audio_hash won't find its file even if the cache row
+      // exists. Multiple sequences with the same media_name (e.g.
+      // "indoor+outdoor" and "outdoor only" variants of the same song)
+      // all get the same hash here and share the cache row cleanly.
+      try {
+        db.prepare(
+          `UPDATE sequences SET audio_hash = ? WHERE media_name = ?`
+        ).run(claimedHash, mediaName);
+      } catch (e) {
+        console.warn('[audio-cache/upload] could not stamp audio_hash on sequences:', e.message);
+      }
       res.json({ ok: true, hash: claimedHash, sizeBytes: req.body.length });
     } catch (err) {
       // Hash mismatch is the most likely cause — return a structured error
@@ -908,7 +922,20 @@ router.post('/audio-cache/link', (req, res) => {
     return res.status(400).json({ error: 'mediaName required' });
   }
   try {
-    audioCache.linkMediaNameToHash(String(mediaName), String(hash).toLowerCase());
+    const lowerHash = String(hash).toLowerCase();
+    audioCache.linkMediaNameToHash(String(mediaName), lowerHash);
+    // Stamp this hash onto every sequence row matching the media_name —
+    // see /audio-cache/upload for the rationale. Defensive update
+    // covers the case where two FPP sequences share the same audio
+    // filename, AND the case where a sequence's media_name was just
+    // renamed (the new name maps to the same bytes as before).
+    try {
+      db.prepare(
+        `UPDATE sequences SET audio_hash = ? WHERE media_name = ?`
+      ).run(lowerHash, String(mediaName));
+    } catch (e) {
+      console.warn('[audio-cache/link] could not stamp audio_hash on sequences:', e.message);
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

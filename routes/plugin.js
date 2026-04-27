@@ -173,15 +173,19 @@ router.get('/state', (req, res) => {
     const tiebreakEnabled = cfg.tiebreak_enabled === 1;
     let returnedWinner = false;
 
-    if (tiebreakEnabled && cfg.tiebreak_active === 1 && cfg.tiebreak_started_at) {
+    if (tiebreakEnabled && cfg.tiebreak_active === 1 && cfg.tiebreak_deadline_at) {
       const candidates = (cfg.tiebreak_candidates || '')
         .split(',').map(s => s.trim()).filter(Boolean);
-      const startedAt = new Date(cfg.tiebreak_started_at + 'Z').getTime();
-      const elapsedMs = Date.now() - startedAt;
-      const durationMs = (cfg.tiebreak_duration_sec || 60) * 1000;
+      // Use the stored deadline (set when tiebreak started, capped at
+      // min(timer-expiry, current-song-end)) rather than re-computing
+      // from started_at + duration. This ensures the deadline shown to
+      // viewers and the deadline we enforce are the same value, even
+      // across server restarts or clock weirdness.
+      const deadlineMs = new Date(cfg.tiebreak_deadline_at + 'Z').getTime();
+      const nowMs = Date.now();
 
-      if (elapsedMs >= durationMs) {
-        // Path 2: timer expired. Dump everything.
+      if (nowMs >= deadlineMs) {
+        // Timer expired. Dump everything.
         clearVotesForRound(cfg.current_voting_round);
         clearTiebreakState();
         // Advance the round — votes are gone, we're moving on. Next
@@ -192,13 +196,13 @@ router.get('/state', (req, res) => {
           io.emit('voteReset');
           io.emit('tiebreakFailed', {
             candidates,
-            reason: 'timer expired without clear winner',
+            reason: 'deadline reached without clear winner',
           });
         }
         // Fall through — no winner. Plugin handles this by letting FPP
         // play its scheduled next song.
       } else {
-        // Path 1: tiebreak still active. Check for resolution.
+        // Tiebreak still active. Check for resolution.
         const leader = getTiebreakLeader(cfg.current_voting_round, candidates);
         if (leader) {
           response.winningVote = {
@@ -220,16 +224,59 @@ router.get('/state', (req, res) => {
       // but there's a tie at the top.
       const tied = detectVoteTie(cfg.current_voting_round);
       if (tied) {
-        // Start tiebreak. Persist state to config so it survives across
-        // /state polls, and emit a socket event so viewers update.
-        const startedAtIso = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        // Compute the tiebreak deadline. The configured timer is the
+        // worst-case max, but the tie window can never extend PAST the
+        // current song's end — otherwise the banner stays up into the
+        // next song's playback, which is wrong (next song was either
+        // a tiebreak winner or a schedule fill, either way the round
+        // moves on at song change).
+        //
+        // We need: the wall-clock moment the current song will end.
+        //   currentSongEndMs = trackStartedAtMs + duration_seconds * 1000
+        // If we don't know the duration (plugin hasn't synced sequences,
+        // or the sequence row is missing), fall back to the configured
+        // timer alone — better to over-extend than to expire instantly.
+        const nowMs = Date.now();
+        const durationCapMs = (cfg.tiebreak_duration_sec || 60) * 1000;
+        const timerDeadlineMs = nowMs + durationCapMs;
+
+        let songEndMs = null;
+        try {
+          const np = db.prepare(`SELECT sequence_name, started_at FROM now_playing WHERE id = 1`).get();
+          if (np && np.sequence_name && np.started_at) {
+            const seq = db.prepare(
+              `SELECT duration_seconds FROM sequences WHERE name = ? COLLATE NOCASE`
+            ).get(np.sequence_name);
+            if (seq && seq.duration_seconds && seq.duration_seconds > 0) {
+              // started_at is stored as UTC text in SQLite — append 'Z'
+              // so JS treats it as UTC, not local.
+              const startedMs = new Date(np.started_at + 'Z').getTime();
+              if (isFinite(startedMs)) {
+                songEndMs = startedMs + (seq.duration_seconds * 1000);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[tiebreak] could not compute song end:', e.message);
+        }
+
+        // Take the EARLIER of the two caps. If we have no song end,
+        // use the timer alone.
+        const deadlineMs = (songEndMs && songEndMs > nowMs)
+          ? Math.min(timerDeadlineMs, songEndMs)
+          : timerDeadlineMs;
+        const deadlineIso = new Date(deadlineMs).toISOString().slice(0, 19).replace('T', ' ');
+        const startedAtIso = new Date(nowMs).toISOString().slice(0, 19).replace('T', ' ');
+
         db.prepare(`
           UPDATE config
           SET tiebreak_active = 1,
               tiebreak_started_at = ?,
+              tiebreak_deadline_at = ?,
               tiebreak_candidates = ?
           WHERE id = 1
-        `).run(startedAtIso, tied.join(','));
+        `).run(startedAtIso, deadlineIso, tied.join(','));
+
         const io = req.app.get('io');
         if (io) {
           // Look up display info for each candidate so viewers can render
@@ -246,10 +293,15 @@ router.get('/state', (req, res) => {
             artist: r.artist || '',
             imageUrl: r.image_url || '',
           }));
+          // Send absolute deadline (server wall-clock ms) instead of a
+          // relative duration. Viewers compute remaining = deadline - now,
+          // which is correct regardless of when they receive the event
+          // and accounts for any clock skew using the same burst-sync
+          // offset they already have.
           io.emit('tiebreakStarted', {
             candidates: candidateInfo,
-            durationSec: cfg.tiebreak_duration_sec || 60,
-            startedAtMs: Date.now(),
+            deadlineAtMs: deadlineMs,
+            startedAtMs: nowMs,
           });
         }
         // No winner returned this poll. Plugin lets FPP play schedule.
@@ -400,17 +452,23 @@ router.post('/playing', (req, res) => {
     console.log(`[playing] seq="${name}" source=${source} mode=${cfgForRound.viewer_control_mode} isChange=${isSequenceChange}`);
 
     const isVoting = cfgForRound.viewer_control_mode === 'VOTING';
-    // Suppress round-advance while a tiebreak is active. The tiebreak
-    // window holds the round open until the timer expires or a clear
-    // winner emerges; advancing here would dump candidate votes mid-tie
-    // and break the feature. (The /state endpoint handles tiebreak
-    // resolution and round-clearing in those cases.)
-    const tiebreakInProgress = cfgForRound.tiebreak_active === 1;
-    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round && !tiebreakInProgress) {
-      // Look up the winner display info ONLY if this song was a vote winner.
-      // The toast notification fires only in that case — don't celebrate a
-      // schedule-fill song as if it won.
+    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round) {
+      // Determine if this song change is a tiebreak resolution.
+      // Tiebreak rules:
+      //   - If the winning sequence (by handoff) is a tiebreak candidate
+      //     AND tiebreak was active → tiebreak resolved successfully.
+      //   - If tiebreak was active but song change happened to something
+      //     else (FPP played schedule because winner couldn't queue in
+      //     time) → tiebreak failed; emit tiebreakFailed.
+      //   - If no tiebreak was active → normal round-end behavior.
+      // Either way, the round advances now — song change always ends
+      // the round. This makes the tiebreak window naturally cap at
+      // current-song-end even if the configured timer is longer.
       let winnerInfo = null;
+      const wasTiebreak = cfgForRound.tiebreak_active === 1;
+      const tiebreakCandidates = (cfgForRound.tiebreak_candidates || '')
+        .split(',').map(s => s.trim()).filter(Boolean);
+
       if (source === 'vote') {
         const seqRow = db.prepare(`
           SELECT display_name, name, image_url, artist
@@ -425,23 +483,27 @@ router.post('/playing', (req, res) => {
       }
 
       // Clear BOTH main-round and tiebreak votes for the closing round.
-      // (Tiebreak rows shouldn't normally exist when no tiebreak was
-      // active — but covering this guarantees no orphaned tiebreak rows
-      // accumulate if state ever gets out of sync.)
       clearVotesForRound(cfgForRound.current_voting_round);
-      // If a tiebreak ran and resolved, the active flag was suppressing
-      // round-advance until song change. Now that the song actually
-      // changed, clear the tiebreak state too.
-      if (cfgForRound.tiebreak_active === 1) clearTiebreakState();
+      // If a tiebreak was active, clear that state too.
+      if (wasTiebreak) clearTiebreakState();
       advanceVotingRound();
       const io = req.app.get('io');
       if (io) {
-        // voteReset clears each viewer's local vote-state. Always emitted
-        // so viewers can vote again in the new round.
         io.emit('voteReset');
-        // votingRoundEnded only fires if this was a vote winner — drives
-        // the celebratory toast. Schedule-fill round closes are silent.
-        if (winnerInfo) io.emit('votingRoundEnded', winnerInfo);
+        if (winnerInfo) {
+          // Vote-winning song actually played. Fire the celebratory toast.
+          io.emit('votingRoundEnded', winnerInfo);
+        } else if (wasTiebreak) {
+          // Tiebreak was open but song change happened without a vote
+          // winner playing. Either the timer expired (handled in /state)
+          // or FPP played its scheduled song before tiebreak could
+          // resolve. Tell viewers the tiebreak failed so they can
+          // dismiss the banner.
+          io.emit('tiebreakFailed', {
+            candidates: tiebreakCandidates,
+            reason: 'song changed before tiebreak resolved',
+          });
+        }
       }
     }
 

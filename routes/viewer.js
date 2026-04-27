@@ -208,8 +208,12 @@ router.get('/state', (req, res) => {
     // fired). Empty/false when no tiebreak active.
     tiebreak: cfg.tiebreak_active === 1 ? {
       candidates: (cfg.tiebreak_candidates || '').split(',').map(s => s.trim()).filter(Boolean),
+      // Absolute deadline timestamp (ISO server time). Viewer computes
+      // remaining = deadline - now using its server-time offset from
+      // burst clock sync, so the displayed countdown is accurate
+      // regardless of network/render lag.
+      deadlineAtIso: cfg.tiebreak_deadline_at,
       startedAtIso: cfg.tiebreak_started_at,
-      durationSec: cfg.tiebreak_duration_sec || 60,
     } : null,
   });
 });

@@ -161,6 +161,10 @@ router.put('/config', requireAdmin, (req, res) => {
     'reset_votes_after_round',
     'tiebreak_enabled',
     'tiebreak_duration_sec',
+    // tiebreak_active, tiebreak_started_at, tiebreak_deadline_at,
+    // tiebreak_candidates are server-managed runtime state, not admin
+    // settings — explicitly NOT whitelisted here so they can't be
+    // overwritten via the settings save endpoint.
     // PSA
     'play_psa_enabled',
     'psa_frequency',

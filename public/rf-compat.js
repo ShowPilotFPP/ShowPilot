@@ -311,10 +311,12 @@
     // clean up.
     if (data.tiebreak && data.tiebreak.candidates && data.tiebreak.candidates.length >= 2) {
       if (!tiebreakState) {
-        // Reconstruct the started-at moment from the ISO timestamp.
-        const startedAtMs = data.tiebreak.startedAtIso
-          ? new Date(data.tiebreak.startedAtIso + 'Z').getTime()
-          : Date.now();
+        // Compute deadline. Server sends ISO timestamp for the absolute
+        // deadline (capped at song-end on the server side). Append 'Z'
+        // since SQLite stores UTC without the marker.
+        const deadlineMs = data.tiebreak.deadlineAtIso
+          ? new Date(data.tiebreak.deadlineAtIso + 'Z').getTime()
+          : Date.now() + 60000;
         // Look up display info for each candidate from the sequences list
         const seqByName = {};
         (data.sequences || []).forEach(s => { seqByName[s.name] = s; });
@@ -329,8 +331,7 @@
         });
         showTiebreakUI({
           candidates,
-          startedAtMs,
-          durationSec: data.tiebreak.durationSec,
+          deadlineAtMs: deadlineMs,
         });
       }
     } else if (tiebreakState) {
@@ -433,11 +434,16 @@
   // are eligible for the tiebreak vote.
   function showTiebreakUI(data) {
     if (!data || !Array.isArray(data.candidates) || data.candidates.length < 2) return;
-    const startedAtMs = data.startedAtMs || Date.now();
-    const durationSec = data.durationSec || 60;
+    // The deadline is a wall-clock moment, computed server-side as
+    // min(timer-cap, current-song-end). The viewer countdown is just
+    // (deadline - now) capped at 0 — no need to know the configured
+    // timer duration, just the absolute end moment.
+    const deadlineMs = data.deadlineAtMs || (data.startedAtMs && data.durationSec
+      ? data.startedAtMs + data.durationSec * 1000
+      : Date.now() + 60000);
     tiebreakState = {
       candidates: data.candidates,
-      deadlineMs: startedAtMs + (durationSec * 1000),
+      deadlineMs,
     };
     hasTiebreakVoted = false;
     renderTiebreakBanner();

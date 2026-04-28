@@ -2165,9 +2165,20 @@
       samples.sort((a, b) => a.rtt - b.rtt);
       // Keep the best half (or all if we have <4 samples).
       const keep = samples.length >= 4 ? samples.slice(0, Math.ceil(samples.length / 2)) : samples;
-      const avgOffset = keep.reduce((sum, s) => sum + s.offset, 0) / keep.length;
+      // Use the MEDIAN offset from the kept samples, not the mean (v0.28.2).
+      // On cellular networks, even after RTT-based outlier filtering, a
+      // single sample can still be biased by event-loop lag or momentary
+      // scheduling glitches on either end. Mean is sensitive to that one
+      // bad sample; median ignores it. With 2-3 kept samples the median
+      // and mean usually agree within a few ms; the win is when one of
+      // the "best" samples is still a lemon.
+      const offsets = keep.map(s => s.offset).sort((a, b) => a - b);
+      const mid = Math.floor(offsets.length / 2);
+      const medianOffset = offsets.length % 2 === 1
+        ? offsets[mid]
+        : (offsets[mid - 1] + offsets[mid]) / 2;
 
-      clockOffset = avgOffset;
+      clockOffset = medianOffset;
       lastClockSyncAt = Date.now();
     }
 
@@ -2612,7 +2623,7 @@
       const absMs = Math.abs(ms);
       driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
 
-      // ---- One-shot post-start correction (v0.27.0) ----
+      // ---- One-shot post-start correction (v0.27.0, median-of-3 in v0.28.2) ----
       // Fires once, ~1s after .play() was called for the current track.
       // This is the moment of truth for multi-phone sync: the browser's
       // .play() startup latency has had time to settle, so the drift we
@@ -2621,35 +2632,57 @@
       // show speakers). We snap-correct it in one move — no rolling
       // average, no throttle, tighter threshold than the long-tail loop.
       //
-      // Fires before the rolling-average re-seek block so a single drift
-      // tick is enough to trigger correction; we don't have to wait for
-      // DRIFT_HISTORY_SIZE samples to fill.
+      // Median of 3 samples taken 25ms apart (v0.28.2): a single sample
+      // can be biased by event-loop lag, momentary clock-sync glitches,
+      // or jitter on the position-update channel — all amplified on
+      // cellular. Median of 3 is robust to one outlier sample without
+      // adding meaningful latency. The whole sampling window is ~50ms,
+      // imperceptible.
       if (pendingPostStartCorrectionAtMs > 0 && Date.now() >= pendingPostStartCorrectionAtMs) {
-        // Clear FIRST so any failure path doesn't re-fire on every tick.
+        // Clear FIRST so subsequent drift-loop ticks don't re-fire while
+        // the async sampler is collecting its 3 samples.
         pendingPostStartCorrectionAtMs = 0;
         const POST_START_THRESHOLD_MS = 80;
-        if (Math.abs(ms) >= POST_START_THRESHOLD_MS &&
-            expectedPosition >= 0 &&
-            (!htmlAudio.duration || expectedPosition < htmlAudio.duration - 0.1)) {
-          try {
-            htmlAudio.currentTime = expectedPosition;
-            // Reset rolling history — the snap invalidated whatever
-            // samples we had, and we want clean measurements going
-            // forward for the long-tail loop.
-            driftHistory.length = 0;
-            // Update lastReseekAtMs so the long-tail loop respects its
-            // own throttle relative to this snap (no double-correcting
-            // a few seconds later).
-            lastReseekAtMs = Date.now();
-            if (typeof console !== 'undefined' && console.info) {
-              console.info('[ShowPilot] post-start correction:',
-                'startup error', ms, 'ms,',
-                'snapped to', expectedPosition.toFixed(3), 's');
-            }
-          } catch (err) {
-            console.warn('[ShowPilot] post-start correction failed:', err);
+        // Capture the audio element handle so a stopAudio()/track-change
+        // mid-sampling doesn't snap a stale element. If htmlAudio gets
+        // reassigned during the 50ms window, we abort the snap.
+        const audioForCorrection = htmlAudio;
+        (async () => {
+          const samples = [];
+          for (let i = 0; i < 3; i++) {
+            if (htmlAudio !== audioForCorrection) return; // track changed mid-sample, abort
+            samples.push(audioForCorrection.currentTime - getExpectedPosition());
+            if (i < 2) await new Promise(r => setTimeout(r, 25));
           }
-        }
+          if (htmlAudio !== audioForCorrection) return; // track changed before snap, abort
+          samples.sort((a, b) => a - b);
+          const medianDrift = samples[1]; // middle of 3
+          const medianMs = Math.round(medianDrift * 1000);
+          if (Math.abs(medianMs) >= POST_START_THRESHOLD_MS) {
+            const target = audioForCorrection.currentTime - medianDrift;
+            if (target >= 0 && (!audioForCorrection.duration || target < audioForCorrection.duration - 0.1)) {
+              try {
+                audioForCorrection.currentTime = target;
+                // Reset rolling history — the snap invalidated whatever
+                // samples we had, and we want clean measurements going
+                // forward for the long-tail loop.
+                driftHistory.length = 0;
+                // Update lastReseekAtMs so the long-tail loop respects its
+                // own throttle relative to this snap (no double-correcting
+                // a few seconds later).
+                lastReseekAtMs = Date.now();
+                if (typeof console !== 'undefined' && console.info) {
+                  console.info('[ShowPilot] post-start correction:',
+                    'startup error', medianMs, 'ms (median of 3),',
+                    'samples', samples.map(s => Math.round(s * 1000) + 'ms').join(','),
+                    'snapped to', target.toFixed(3), 's');
+                }
+              } catch (err) {
+                console.warn('[ShowPilot] post-start correction failed:', err);
+              }
+            }
+          }
+        })();
       }
 
       // ---- Auto-correction via re-seek ----

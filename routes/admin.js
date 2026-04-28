@@ -196,6 +196,11 @@ router.put('/config', requireAdmin, (req, res) => {
     'pwa_viewer_enabled',
     'pwa_viewer_name',
     'pwa_viewer_icon',
+    // Listen-on-phone launcher button
+    'launcher_icon_source',
+    'launcher_icon_data',
+    'launcher_show_chrome',
+    'launcher_size',
   ];
   const updates = {};
   for (const k of allowed) {

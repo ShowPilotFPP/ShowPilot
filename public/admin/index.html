@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.25.7</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.26.0</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2251,6 +2251,89 @@
           <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0;">
             50 snowflakes drift down across the entire page. Doesn't block clicks. Visitors with reduced-motion accessibility setting won't see animations.
           </p>
+        </div>
+
+        <div class="card">
+          <h2>Listen-on-Phone Launcher Button</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            The floating button viewers tap to open the audio player. Pick a built-in icon, upload your own, and choose how it looks.
+            Changes take effect on viewer page reload.
+          </p>
+
+          <div class="row">
+            <div style="flex: 1;">
+              <label for="cfg_launcher_icon_source">Icon</label>
+              <select id="cfg_launcher_icon_source" onchange="saveSetting('launcher_icon_source', this.value); updateLauncherUI();">
+                <option value="default">🎧 Default (headphones emoji)</option>
+                <option value="preset:headphones">🎧 Headphones</option>
+                <option value="preset:tree">🎄 Christmas tree</option>
+                <option value="preset:pumpkin">🎃 Pumpkin</option>
+                <option value="preset:ghost">👻 Ghost</option>
+                <option value="preset:snowflake">❄️ Snowflake</option>
+                <option value="preset:music">🎵 Music note</option>
+                <option value="preset:heart">💝 Heart</option>
+                <option value="preset:shamrock">☘️ Shamrock</option>
+                <option value="preset:star">⭐ Star</option>
+                <option value="custom">🖼️ Custom image…</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Custom image picker — only visible when source = 'custom' -->
+          <div class="row" id="cfg_launcher_custom_row" style="display:none;">
+            <div style="flex: 1;">
+              <label for="launcherIconFile">Upload icon (PNG, JPG, SVG, or WebP — under 250KB)</label>
+              <input type="file" id="launcherIconFile" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
+              <div id="launcherIconPreviewWrap" style="margin-top: 0.6rem;">
+                <span class="muted" style="font-size: 0.8rem;">No custom icon uploaded yet.</span>
+              </div>
+              <button class="secondary" type="button" id="launcherIconClearBtn"
+                      style="margin-top: 0.5rem; display:none;"
+                      onclick="clearLauncherIcon();">
+                Clear custom icon
+              </button>
+              <p class="muted" style="font-size: 0.78rem; margin: 0.4rem 0 0;">
+                Square images work best. Transparent PNGs are recommended when the round button background is hidden (below).
+              </p>
+            </div>
+          </div>
+
+          <div class="row">
+            <input type="checkbox" id="cfg_launcher_show_chrome" onchange="saveSetting('launcher_show_chrome', this.checked ? 1 : 0); updateLauncherPreview();" />
+            <label for="cfg_launcher_show_chrome" style="margin: 0;">Show round button background</label>
+          </div>
+          <p class="muted" style="font-size: 0.78rem; margin: 0.25rem 0 0.75rem;">
+            On: classic red circular button with the icon inside. Off: bare icon — your image becomes the button. Use a clearly-clickable image when off.
+          </p>
+
+          <div class="row">
+            <div style="flex: 1; max-width: 280px;">
+              <label for="cfg_launcher_size">Size</label>
+              <select id="cfg_launcher_size" onchange="saveSetting('launcher_size', this.value); updateLauncherPreview();">
+                <option value="small">Small (40 px)</option>
+                <option value="medium">Medium (52 px) — default</option>
+                <option value="large">Large (72 px)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Live preview -->
+          <div style="margin-top: 0.9rem;">
+            <div class="muted" style="font-size: 0.78rem; margin-bottom: 0.4rem;">Preview (how viewers will see it):</div>
+            <div style="background: linear-gradient(135deg, #1a1a2e, #2a1a3e);
+                        border-radius: 8px; border: 1px solid var(--border);
+                        padding: 1.25rem; display: flex; align-items: center; justify-content: center;
+                        min-height: 110px;">
+              <div id="launcherPreviewBtn" style="
+                  width: 52px; height: 52px; border-radius: 50%;
+                  background: rgba(220,38,38,0.95); color: white;
+                  border: 2px solid rgba(255,255,255,0.4);
+                  font-size: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                  display: flex; align-items: center; justify-content: center;
+                  padding: 0; line-height: 1; overflow: hidden;
+                  ">🎧</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3664,6 +3747,12 @@
       setChk('cfg_page_snow_enabled', c.page_snow_enabled);
       loadCustomColorState(c.player_custom_color || '');
       updatePlayerCustomColorVisibility();
+      // Listen-on-phone launcher button
+      setVal('cfg_launcher_icon_source', c.launcher_icon_source || 'default');
+      setChk('cfg_launcher_show_chrome', (c.launcher_show_chrome === undefined || c.launcher_show_chrome === null) ? 1 : c.launcher_show_chrome);
+      setVal('cfg_launcher_size', c.launcher_size || 'medium');
+      updateLauncherIconPreview(c.launcher_icon_data || '');
+      updateLauncherUI();
       updateLocationMap();
     }
 
@@ -3829,6 +3918,129 @@
           const dataUrl = reader.result;
           saveSetting('pwa_viewer_icon', dataUrl);
           updatePwaIconPreview(dataUrl);
+        };
+        reader.onerror = function() {
+          alert('Could not read the selected file. Try a different image.');
+        };
+        reader.readAsDataURL(file);
+      });
+    }, 0);
+
+    // ============================================================
+    // LISTEN-ON-PHONE LAUNCHER BUTTON
+    // ============================================================
+    // Mirror of the preset SVGs in public/rf-compat.js. Kept in sync by
+    // copy-paste — small enough that a runtime fetch isn't worth it. If
+    // you change one, change the other.
+    const LAUNCHER_PRESETS = {
+      headphones: '<svg viewBox="0 0 24 24" fill="currentColor" width="60%" height="60%" style="display:block;"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 1 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg>',
+      tree: '<svg viewBox="0 0 24 24" fill="currentColor" width="65%" height="65%" style="display:block;"><path d="M12 2L7 9h3l-4 6h3l-5 7h16l-5-7h3l-4-6h3l-5-7zm-1 19h2v2h-2v-2z"/></svg>',
+      pumpkin: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 4c-.7 0-1.3.3-1.7.8A2.5 2.5 0 0 0 8 5C5 5 3 8 3 12s2 7 5 7c.6 0 1.2-.1 1.7-.4.7.5 1.5.8 2.3.8s1.6-.3 2.3-.8c.5.3 1.1.4 1.7.4 3 0 5-3 5-7s-2-7-5-7c-.8 0-1.6.3-2.3.8C12.6 4.3 12.3 4 12 4zm-3 7l1.5 2L9 15l-1.5-2L9 11zm6 0l1.5 2L15 15l-1.5-2L15 11zm-5 4h4l-1 2h-2l-1-2z"/></svg>',
+      ghost: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 2a8 8 0 0 0-8 8v12l2.5-2 2.5 2 2.5-2 2.5 2 2.5-2 2.5 2v-12a8 8 0 0 0-8-8zm-3 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></svg>',
+      snowflake: '<svg viewBox="0 0 24 24" fill="currentColor" width="65%" height="65%" style="display:block;"><path d="M12 2v3.5l2-1.5 1 1.3-3 2.2v3l2.6-1.5.5-3.6 1.7.2-.3 2.4 3-1.7.9 1.5-3 1.7 2.2.9-.7 1.6-3-1.2L17 12l2.2 1.2 3-1.2.7 1.6-2.2.9 3 1.7-.9 1.5-3-1.7.3 2.4-1.7.2-.5-3.6-2.6-1.5v3l3 2.2-1 1.3-2-1.5V22h-2v-3.5l-2 1.5-1-1.3 3-2.2v-3l-2.6 1.5-.5 3.6-1.7-.2.3-2.4-3 1.7-.9-1.5 3-1.7L4.6 13l.7-1.6 3 1.2L7 12l-2.2-1.2-3 1.2-.7-1.6 2.2-.9-3-1.7.9-1.5 3 1.7-.3-2.4 1.7-.2.5 3.6L9 9.5v-3L6 4.3l1-1.3 2 1.5V2h3z" transform="scale(0.85) translate(2.1,2.1)"/></svg>',
+      music: '<svg viewBox="0 0 24 24" fill="currentColor" width="60%" height="60%" style="display:block;"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>',
+      heart: '<svg viewBox="0 0 24 24" fill="currentColor" width="60%" height="60%" style="display:block;"><path d="M12 21s-7-4.5-9.5-9.5C1 8 3 4 7 4c2 0 3.5 1 5 3 1.5-2 3-3 5-3 4 0 6 4 4.5 7.5C19 16.5 12 21 12 21z"/></svg>',
+      shamrock: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 11c-1.5-3-4.5-3-5.5-1.5S6 13 9 14c-2.5 1-3 4-1.5 5s4 .5 5-2c0 3 2 5 4 5s4-2 4-5c1 2.5 3.5 3 5 2s1-4-1.5-5c3-1 4-3.5 2.5-4.5S14 8 12.5 11l-.5-9-.5 9z" transform="translate(0,1)"/></svg>',
+      star: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7l3-7z"/></svg>',
+    };
+    const LAUNCHER_SIZES = { small: 40, medium: 52, large: 72 };
+
+    // Render the preview button using current admin form values.
+    function updateLauncherPreview() {
+      const previewBtn = document.getElementById('launcherPreviewBtn');
+      if (!previewBtn) return;
+      const source = (document.getElementById('cfg_launcher_icon_source') || {}).value || 'default';
+      const showChrome = (document.getElementById('cfg_launcher_show_chrome') || {}).checked;
+      const sizeKey = (document.getElementById('cfg_launcher_size') || {}).value || 'medium';
+      const px = LAUNCHER_SIZES[sizeKey] || 52;
+
+      // Resolve icon HTML to mirror the viewer-side logic.
+      const iconSizePct = showChrome ? 75 : 100;
+      let iconHtml;
+      if (source === 'custom') {
+        const stored = window._launcherCustomIconData || '';
+        if (stored) {
+          iconHtml = '<img src="' + stored + '" alt="" style="width:' + iconSizePct +
+            '%;height:' + iconSizePct + '%;object-fit:contain;display:block;" />';
+        } else {
+          // No image uploaded yet — show emoji as a stand-in.
+          iconHtml = '🎧';
+        }
+      } else if (source.indexOf('preset:') === 0) {
+        iconHtml = LAUNCHER_PRESETS[source.slice(7)] || '🎧';
+      } else {
+        iconHtml = '🎧';
+      }
+
+      previewBtn.innerHTML = iconHtml;
+      const chrome = showChrome
+        ? 'background: rgba(220,38,38,0.95); color: white; border: 2px solid rgba(255,255,255,0.4); box-shadow: 0 4px 12px rgba(0,0,0,0.4);'
+        : 'background: transparent; color: white; border: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));';
+      previewBtn.style.cssText = `
+        width: ${px}px; height: ${px}px; border-radius: 50%;
+        ${chrome}
+        font-size: ${Math.round(px * 0.46)}px;
+        display: flex; align-items: center; justify-content: center;
+        padding: 0; line-height: 1; overflow: hidden;
+      `;
+    }
+
+    // Show/hide the custom-image picker row + refresh preview when the
+    // icon source dropdown changes.
+    function updateLauncherUI() {
+      const sel = document.getElementById('cfg_launcher_icon_source');
+      const customRow = document.getElementById('cfg_launcher_custom_row');
+      if (sel && customRow) {
+        customRow.style.display = (sel.value === 'custom') ? '' : 'none';
+      }
+      updateLauncherPreview();
+    }
+
+    function updateLauncherIconPreview(dataUrl) {
+      const wrap = document.getElementById('launcherIconPreviewWrap');
+      const clearBtn = document.getElementById('launcherIconClearBtn');
+      if (!wrap) return;
+      window._launcherCustomIconData = dataUrl || '';
+      if (dataUrl) {
+        wrap.innerHTML = '<img src="' + dataUrl + '" alt="" style="width: 64px; height: 64px; ' +
+          'border-radius: 8px; object-fit: contain; border: 1px solid var(--border); ' +
+          'background: rgba(255,255,255,0.04); padding: 4px;" />';
+        if (clearBtn) clearBtn.style.display = '';
+      } else {
+        wrap.innerHTML = '<span class="muted" style="font-size: 0.8rem;">No custom icon uploaded yet.</span>';
+        if (clearBtn) clearBtn.style.display = 'none';
+      }
+      updateLauncherPreview();
+    }
+
+    function clearLauncherIcon() {
+      saveSetting('launcher_icon_data', '');
+      updateLauncherIconPreview('');
+      const fileInp = document.getElementById('launcherIconFile');
+      if (fileInp) fileInp.value = '';
+    }
+
+    // Wire up the file picker. Same defer pattern as the PWA icon picker
+    // above (DOM-ready guard).
+    setTimeout(function() {
+      const inp = document.getElementById('launcherIconFile');
+      if (!inp) return;
+      inp.addEventListener('change', function(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        // 250KB raw cap — same reasoning as PWA icon. Launcher images are
+        // displayed at 40-72px, so even smaller files render fine.
+        const MAX_BYTES = 250 * 1024;
+        if (file.size > MAX_BYTES) {
+          alert('Image is too large. Please use a smaller file (under 250KB).');
+          inp.value = '';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = function() {
+          const dataUrl = reader.result;
+          saveSetting('launcher_icon_data', dataUrl);
+          updateLauncherIconPreview(dataUrl);
         };
         reader.onerror = function() {
           alert('Could not read the selected file. Try a different image.');

@@ -972,6 +972,52 @@
     }
 
     /* ============================================================
+     * BACKUP & RESTORE — section policy panels
+     * ============================================================
+     * Each section in the restore picker (Settings, Sequences, Templates,
+     * Users, Secrets, Cover art) renders as a small bordered panel with
+     * a header row and a row of radio buttons. These match the
+     * .cover-pick / .row card patterns used elsewhere.
+     */
+    .sp-restore-panel {
+      padding: 0.75rem 0.85rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+    }
+    .sp-restore-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .sp-restore-panel-radios {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.9rem;
+    }
+    .sp-restore-panel-radios label {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+      cursor: pointer;
+    }
+    .sp-restore-panel-radios input[type="radio"] {
+      width: auto;
+      margin: 0;
+    }
+    .sp-restore-actions {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    /* ============================================================
      * STAT CARDS (Dashboard)
      * ============================================================ */
     .stat-grid {
@@ -1545,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.25.2</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.25.3</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2513,23 +2559,21 @@
             ShowPilot instance. Useful for backups before major changes,
             or for moving to a new server.
           </p>
-          <div class="row" style="gap: 1rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
-            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; margin: 0;">
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.75rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0; cursor: pointer;">
               <input type="checkbox" id="exportIncludeCoverArt" style="width: auto; margin: 0;" />
-              Include cover-art images
+              <span>Include cover-art images</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; margin: 0;"
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0; cursor: pointer;"
                    title="Includes last_played_at and play counters per sequence. Useful when migrating servers and you want to preserve play history.">
               <input type="checkbox" id="exportIncludeStats" style="width: auto; margin: 0;" />
-              Include play stats
+              <span>Include play stats</span>
             </label>
           </div>
-          <button onclick="downloadBackup()">⬇ Download backup</button>
+          <button onclick="downloadBackup()">Download backup</button>
           <div id="exportStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
 
-          <hr style="margin: 1.75rem 0; border: none; border-top: 1px solid var(--border);" />
-
-          <h3>Restore from backup</h3>
+          <h3 style="margin-top: 2rem;">Restore from backup</h3>
           <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
             Upload a previously-exported backup. You'll see a comparison of what's
             in the backup vs your current data, and pick what to do per section
@@ -2538,8 +2582,7 @@
           </p>
           <input type="file" id="restoreFileInput" accept="application/json,.json"
                  class="sp-file-input"
-                 onchange="onRestoreFileSelected(event)"
-                 style="margin-bottom: 0.5rem;" />
+                 onchange="onRestoreFileSelected(event)" />
           <div id="restoreStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
 
           <!-- The inspect/policies UI gets injected here -->
@@ -3104,8 +3147,8 @@
         const showMerge = s !== 'config';
         const defaultPolicy = s === 'config' ? 'replace' : 'merge';
         sectionsHtml += `
-          <div class="row" style="display: block; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem;">
+          <div class="sp-restore-panel">
+            <div class="sp-restore-panel-header">
               <div><strong>${sectionLabels[s]}</strong></div>
               <div class="muted" style="font-size: 0.85rem;">
                 Backup: ${info.backupCount ?? 0} ·
@@ -3115,19 +3158,19 @@
                   : ''}
               </div>
             </div>
-            <div style="margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9rem;">
-              <label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">
-                <input type="radio" name="policy_${s}" value="replace" ${defaultPolicy === 'replace' ? 'checked' : ''} style="width: auto; margin: 0;" />
+            <div class="sp-restore-panel-radios">
+              <label>
+                <input type="radio" name="policy_${s}" value="replace" ${defaultPolicy === 'replace' ? 'checked' : ''} />
                 Replace ${showMerge ? '(wipe and overwrite)' : ''}
               </label>
               ${showMerge ? `
-                <label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">
-                  <input type="radio" name="policy_${s}" value="merge" ${defaultPolicy === 'merge' ? 'checked' : ''} style="width: auto; margin: 0;" />
+                <label>
+                  <input type="radio" name="policy_${s}" value="merge" ${defaultPolicy === 'merge' ? 'checked' : ''} />
                   Merge (upsert by name)
                 </label>
               ` : ''}
-              <label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">
-                <input type="radio" name="policy_${s}" value="skip" style="width: auto; margin: 0;" />
+              <label>
+                <input type="radio" name="policy_${s}" value="skip" />
                 Skip
               </label>
             </div>
@@ -3144,16 +3187,13 @@
         ? "Restores just the jwtSecret and showToken from the backup, leaving this server's port, database path, and other config.js settings untouched. All current admin sessions will end. The FPP plugin keeps working without re-pasting the token. Server restart required."
         : "The backup does not include a config.js — secrets cannot be restored.";
       const secretsRadios = summary.hasConfigJs
-        ? '<div style="display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9rem;">'
-          + '<label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">'
-          + '<input type="radio" name="policy_secrets" value="replace" style="width: auto; margin: 0;" />'
-          + 'Replace (will trigger server restart)</label>'
-          + '<label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">'
-          + '<input type="radio" name="policy_secrets" value="keep" checked style="width: auto; margin: 0;" />'
-          + 'Keep current secrets</label></div>'
+        ? '<div class="sp-restore-panel-radios">'
+          + '<label><input type="radio" name="policy_secrets" value="replace" />Replace (triggers server restart)</label>'
+          + '<label><input type="radio" name="policy_secrets" value="keep" checked />Keep current secrets</label>'
+          + '</div>'
         : '';
       const secretsHtml = `
-        <div class="row" style="display: block; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.5rem;">
+        <div class="sp-restore-panel">
           <div><strong>Secrets (config.js)</strong></div>
           <p class="muted" style="font-size: 0.85rem; margin: 0.3rem 0 0.5rem;">${secretsExplain}</p>
           ${secretsRadios}
@@ -3161,17 +3201,18 @@
       `;
 
       const coverArtHtml = summary.coverArtCount > 0 ? `
-        <div class="row" style="display: block; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.5rem;">
-          <div><strong>Cover-art images</strong>
-            <span class="muted" style="font-size: 0.85rem;"> · ${summary.coverArtCount} files in backup</span>
+        <div class="sp-restore-panel">
+          <div class="sp-restore-panel-header">
+            <div><strong>Cover-art images</strong></div>
+            <div class="muted" style="font-size: 0.85rem;">${summary.coverArtCount} files in backup</div>
           </div>
-          <div style="margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9rem;">
-            <label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">
-              <input type="radio" name="policy_coverArt" value="restore" checked style="width: auto; margin: 0;" />
+          <div class="sp-restore-panel-radios">
+            <label>
+              <input type="radio" name="policy_coverArt" value="restore" checked />
               Restore (overwrites existing files with same name)
             </label>
-            <label style="display:flex; align-items:center; gap: 0.3rem; margin: 0; cursor: pointer;">
-              <input type="radio" name="policy_coverArt" value="skip" style="width: auto; margin: 0;" />
+            <label>
+              <input type="radio" name="policy_coverArt" value="skip" />
               Skip
             </label>
           </div>
@@ -3187,7 +3228,7 @@
         ${sectionsHtml}
         ${secretsHtml}
         ${coverArtHtml}
-        <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+        <div class="sp-restore-actions">
           <button onclick="confirmRestore()">Apply restore</button>
           <button class="secondary" onclick="cancelRestore()">Cancel</button>
         </div>

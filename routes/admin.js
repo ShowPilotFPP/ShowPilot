@@ -46,7 +46,11 @@ const loginLimiter = rateLimit({
 const REMEMBER_ME_DAYS = 30;
 
 function requireAdmin(req, res, next) {
-  const token = req.cookies[config.sessionCookieName];
+  // Defensive: req.cookies is undefined if cookieParser hasn't run.
+  // That's a server misconfiguration (see comment on cookieParser
+  // ordering in server.js), but treat it as "not authed" so we
+  // return a clean 401 JSON instead of an unhandled-error HTML page.
+  const token = req.cookies && req.cookies[config.sessionCookieName];
   if (!token) return res.status(401).json({ error: 'Not logged in' });
   try {
     const payload = jwt.verify(token, config.jwtSecret);

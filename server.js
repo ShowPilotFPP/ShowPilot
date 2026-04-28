@@ -67,7 +67,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Backup & restore API (v0.25.0+) — must be mounted BEFORE the global
+// cookieParser must be installed BEFORE the backup router below, because
+// requireAdmin needs req.cookies to verify the session JWT. We don't need
+// cookieParser before plugin/viewer routes, but installing it once at
+// the top is simpler than re-applying per-route.
+app.use(cookieParser());
+
+// Backup & restore API (v0.25.0+) — mounted BEFORE the global
 // express.json() parser below, because backup files (with cover art)
 // can run 5-50 MB and the default 1MB limit would reject them with an
 // HTML 413 response. The backup router declares its own parser with a
@@ -91,7 +97,6 @@ app.post(
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
 
 // Simple request logging
 app.use((req, res, next) => {

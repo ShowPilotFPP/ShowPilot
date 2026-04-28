@@ -877,6 +877,13 @@
             window._ofApplySnowState(!!data.pageSnowEnabled);
           }
           applyAudioGateState(!!data.audioGateBlocked, data.audioGateReason || '');
+          // Show-not-playing is a SEPARATE, non-sticky signal from the audio
+          // gate. The launcher button stays visible (so viewers can still
+          // tap it) but the player panel content swaps to a "Show isn't
+          // playing right now" message. Toggles freely as FPP starts/stops.
+          if (typeof window._ofApplyShowNotPlaying === 'function') {
+            window._ofApplyShowNotPlaying(!!data.showNotPlaying);
+          }
         }
       } catch {}
     }
@@ -1113,21 +1120,82 @@
 
   (function initListenOnPhone() {
     // ---- Floating launcher button ----
+    //
+    // Customizable per admin Settings → Viewer Page → Listen Button:
+    //   - launcherIconSource: 'default' | 'preset:<key>' | 'custom'
+    //   - launcherIconData: base64 data URL when source='custom'
+    //   - launcherShowChrome: round red button background visible
+    //   - launcherSize: 'small' | 'medium' | 'large' (40 / 52 / 72 px)
+    //
+    // Presets are inline SVGs (compact, scale cleanly, no extra requests).
+    // Sized to the button via 100% width/height; SVGs use currentColor so
+    // they pick up the button's text color when chrome is enabled.
+
+    const LAUNCHER_PRESETS = {
+      headphones: '<svg viewBox="0 0 24 24" fill="currentColor" width="60%" height="60%" style="display:block;"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 1 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg>',
+      tree: '<svg viewBox="0 0 24 24" fill="currentColor" width="65%" height="65%" style="display:block;"><path d="M12 2L7 9h3l-4 6h3l-5 7h16l-5-7h3l-4-6h3l-5-7zm-1 19h2v2h-2v-2z"/></svg>',
+      pumpkin: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 4c-.7 0-1.3.3-1.7.8A2.5 2.5 0 0 0 8 5C5 5 3 8 3 12s2 7 5 7c.6 0 1.2-.1 1.7-.4.7.5 1.5.8 2.3.8s1.6-.3 2.3-.8c.5.3 1.1.4 1.7.4 3 0 5-3 5-7s-2-7-5-7c-.8 0-1.6.3-2.3.8C12.6 4.3 12.3 4 12 4zm-3 7l1.5 2L9 15l-1.5-2L9 11zm6 0l1.5 2L15 15l-1.5-2L15 11zm-5 4h4l-1 2h-2l-1-2z"/></svg>',
+      ghost: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 2a8 8 0 0 0-8 8v12l2.5-2 2.5 2 2.5-2 2.5 2 2.5-2 2.5 2v-12a8 8 0 0 0-8-8zm-3 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></svg>',
+      snowflake: '<svg viewBox="0 0 24 24" fill="currentColor" width="65%" height="65%" style="display:block;"><path d="M12 2v3.5l2-1.5 1 1.3-3 2.2v3l2.6-1.5.5-3.6 1.7.2-.3 2.4 3-1.7.9 1.5-3 1.7 2.2.9-.7 1.6-3-1.2L17 12l2.2 1.2 3-1.2.7 1.6-2.2.9 3 1.7-.9 1.5-3-1.7.3 2.4-1.7.2-.5-3.6-2.6-1.5v3l3 2.2-1 1.3-2-1.5V22h-2v-3.5l-2 1.5-1-1.3 3-2.2v-3l-2.6 1.5-.5 3.6-1.7-.2.3-2.4-3 1.7-.9-1.5 3-1.7L4.6 13l.7-1.6 3 1.2L7 12l-2.2-1.2-3 1.2-.7-1.6 2.2-.9-3-1.7.9-1.5 3 1.7-.3-2.4 1.7-.2.5 3.6L9 9.5v-3L6 4.3l1-1.3 2 1.5V2h3z" transform="scale(0.85) translate(2.1,2.1)"/></svg>',
+      music: '<svg viewBox="0 0 24 24" fill="currentColor" width="60%" height="60%" style="display:block;"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>',
+      heart: '<svg viewBox="0 0 24 24" fill="currentColor" width="60%" height="60%" style="display:block;"><path d="M12 21s-7-4.5-9.5-9.5C1 8 3 4 7 4c2 0 3.5 1 5 3 1.5-2 3-3 5-3 4 0 6 4 4.5 7.5C19 16.5 12 21 12 21z"/></svg>',
+      shamrock: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 11c-1.5-3-4.5-3-5.5-1.5S6 13 9 14c-2.5 1-3 4-1.5 5s4 .5 5-2c0 3 2 5 4 5s4-2 4-5c1 2.5 3.5 3 5 2s1-4-1.5-5c3-1 4-3.5 2.5-4.5S14 8 12.5 11l-.5-9-.5 9z" transform="translate(0,1)"/></svg>',
+      star: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7l3-7z"/></svg>',
+    };
+
+    // Resolve config to concrete style values.
+    const SIZES = { small: 40, medium: 52, large: 72 };
+    const launcherPx = SIZES[boot.launcherSize] || SIZES.medium;
+    const showChrome = boot.launcherShowChrome !== false;
+    const iconSource = boot.launcherIconSource || 'default';
+
+    // Build the icon HTML based on source. If a custom image fails to load,
+    // we fall back to the default emoji visually (broken-image alt would
+    // look bad as a launcher). Image fills more of the button when chrome
+    // is off (no border to compete with) and leaves padding when chrome is
+    // on so the icon doesn't crowd the red ring.
+    const iconSizePct = showChrome ? 75 : 100;
+    let iconHtml;
+    if (iconSource === 'custom' && boot.launcherIconData) {
+      iconHtml =
+        '<img src="' + boot.launcherIconData + '" alt="" ' +
+        'style="width:' + iconSizePct + '%;height:' + iconSizePct + '%;' +
+        'object-fit:contain;display:block;" ' +
+        'onerror="this.outerHTML=\'\\u{1F3A7}\';" />';
+    } else if (iconSource && iconSource.indexOf('preset:') === 0) {
+      const key = iconSource.slice(7);
+      iconHtml = LAUNCHER_PRESETS[key] || '🎧';
+    } else {
+      iconHtml = '🎧';
+    }
+
     const btn = document.createElement('button');
     btn.id = 'of-listen-btn';
     btn.setAttribute('aria-label', 'Listen on phone');
     btn.title = 'Listen on phone';
-    btn.innerHTML = '🎧';
+    btn.innerHTML = iconHtml;
+
+    // Chrome ON — original red round button with image/SVG inside.
+    // Chrome OFF — bare image: no background, no border, no shadow. The
+    // image itself is the affordance. We still keep cursor:pointer and a
+    // subtle drop-shadow so it reads as tappable on light backgrounds.
+    const chromeStyles = showChrome
+      ? `background: rgba(220,38,38,0.95); color: white;
+         border: 2px solid rgba(255,255,255,0.4);
+         box-shadow: 0 4px 12px rgba(0,0,0,0.4);`
+      : `background: transparent; color: white;
+         border: 0;
+         filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));`;
+
     btn.style.cssText = `
       position: fixed; bottom: 16px; right: 16px; z-index: 9998;
-      width: 52px; height: 52px; border-radius: 50%;
-      background: rgba(220,38,38,0.95); color: white;
-      border: 2px solid rgba(255,255,255,0.4);
-      font-size: 24px; cursor: pointer;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      width: ${launcherPx}px; height: ${launcherPx}px; border-radius: 50%;
+      ${chromeStyles}
+      font-size: ${Math.round(launcherPx * 0.46)}px; cursor: pointer;
       transition: transform 0.15s, background 0.15s, opacity 0.2s;
       padding: 0; line-height: 1;
       display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
     `;
     // If audio gate is enabled, hide the button initially via CSS class
     // (with !important so other state changes like setMode('closed') can't
@@ -1372,6 +1440,97 @@
     const closeBtn = panel.querySelector('#of-listen-close');
     const pillText = minimizedPill.querySelector('#of-listen-pill-text');
 
+    // ============================================================
+    // SHOW-NOT-PLAYING STATE
+    //
+    // When the server reports that FPP isn't actively playing a sequence
+    // (e.g. show is between songs, FPP stopped, plugin stale), we swap
+    // the player into a stripped-down "Show isn't playing right now"
+    // message instead of hiding the launcher. Per Will's spec: viewers
+    // should NOT have to refresh to get the player back when the show
+    // resumes — so the launcher stays available, and this state toggles
+    // freely as FPP starts/stops.
+    //
+    // Stripped state hides: cover art, title/artist/status block, play,
+    // mute, and minimize buttons. Shows: a centered message and the
+    // close (×) button. Restoring un-hides everything.
+    // ============================================================
+
+    // Locate the inner column that holds title/artist/status — it's the
+    // sibling of coverEl with no ID. Cache it so we don't re-query.
+    const textCol = coverEl.nextElementSibling;
+
+    // Inject the "not playing" message element. Hidden by default; lives
+    // in the same flex row as the cover so it can take its place when
+    // we hide the cover/text/buttons.
+    const notPlayingMsg = document.createElement('div');
+    notPlayingMsg.id = 'of-listen-not-playing';
+    notPlayingMsg.style.cssText = `
+      flex: 1; min-width: 0;
+      text-align: center;
+      font-size: 15px; font-weight: 500;
+      color: rgba(255,255,255,0.92);
+      padding: 4px 8px;
+      display: none;
+    `;
+    notPlayingMsg.textContent = "Show isn't playing right now";
+    // Insert before the close button so the close stays at the right edge.
+    closeBtn.parentElement.insertBefore(notPlayingMsg, closeBtn);
+
+    let _showNotPlaying = false;
+
+    function applyShowNotPlaying(notPlaying) {
+      // No-op if state hasn't changed — avoids redundant DOM thrash on
+      // every 5s poll.
+      if (notPlaying === _showNotPlaying) return;
+      _showNotPlaying = notPlaying;
+
+      if (notPlaying) {
+        // Hide the hidden minimized pill if it was visible — a "Playing"
+        // indicator while nothing is playing would be confusing.
+        minimizedPill.style.display = 'none';
+
+        // Stop any in-flight audio so we're not pumping silence (or worse,
+        // stale buffer tails) through the speakers while showing "not
+        // playing." Don't tear down audioCtx — recreating it later requires
+        // a user gesture on iOS, which would break the resume-on-restart
+        // flow.
+        try { stopAudio(); } catch {}
+
+        // Hide the player content. notPlayingMsg has flex:1 so it takes
+        // the textCol's place. Close (×) stays visible.
+        coverEl.style.display = 'none';
+        if (textCol) textCol.style.display = 'none';
+        playBtn.style.display = 'none';
+        muteBtn.style.display = 'none';
+        minBtn.style.display = 'none';
+        notPlayingMsg.style.display = 'block';
+      } else {
+        notPlayingMsg.style.display = 'none';
+        coverEl.style.display = '';
+        if (textCol) textCol.style.display = '';
+        playBtn.style.display = '';
+        muteBtn.style.display = '';
+        minBtn.style.display = '';
+        // If the user has the panel open when the show resumes, get audio
+        // going. If audioCtx already exists (panel was opened during a
+        // prior playing window), a syncOnce() picks up the new track.
+        // If not (panel was opened in the not-playing state), we need a
+        // full startup() — but Web Audio init requires a user gesture on
+        // iOS, so this will only succeed if the user interacted recently.
+        // Acceptable: if startup fails silently, the panel still shows the
+        // (now-empty) controls and they can tap play to retry.
+        if (panelMode === 'open') {
+          if (audioCtx) {
+            try { syncOnce(); } catch {}
+          } else {
+            try { startup(); } catch {}
+          }
+        }
+      }
+    }
+    window._ofApplyShowNotPlaying = applyShowNotPlaying;
+
     // Apply marquee scroll if text overflows the wrapper. Called after any
     // title/artist text update. Adds 24px padding on the "scrolled-to" position
     // so the user can see the full text comfortably. Speed scales with overflow:
@@ -1562,6 +1721,14 @@
     // permission prompts, no GPS. Showrunners playing original or licensed
     // content shouldn't have to ask viewers for location just to listen.
     btn.onclick = async () => {
+      // If the show isn't currently playing, there's no audio to gate on.
+      // Skip the location prompt entirely — just open the panel so the
+      // user sees the "Show isn't playing" message. We'll ask for location
+      // when it actually matters (when they tap to listen to real audio).
+      if (_showNotPlaying) {
+        setMode('open');
+        return;
+      }
       if (!boot.audioGateEnabled) {
         setMode('open');
         return;
@@ -1631,7 +1798,12 @@
         // Force reflow then transition in
         void panel.offsetHeight;
         panel.style.transform = 'translateY(0)';
-        if (!audioCtx) startup();
+        // Skip audio init when the show isn't playing — there's nothing
+        // to sync to, and starting audio + running the gate check would
+        // cause syncOnce() to flip the gate latch and immediately hide
+        // the panel we just opened. The applyShowNotPlaying transition
+        // back to false will call startup() when the show resumes.
+        if (!audioCtx && !_showNotPlaying) startup();
       } else if (mode === 'minimized') {
         panel.style.transform = 'translateY(100%)';
         setTimeout(() => { panel.style.display = 'none'; }, 250);

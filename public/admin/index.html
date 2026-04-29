@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.29.0</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.29.1</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2791,7 +2791,7 @@
                 <li style="margin-bottom: 0.5rem;">Sign in (or sign up) at <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener">one.dash.cloudflare.com</a>. Add a domain to your Cloudflare account if you don't have one yet — Cloudflare also sells domains for ~$10/year if you need one just for this.</li>
                 <li style="margin-bottom: 0.5rem;">Go to <strong>Networks → Tunnels</strong> and click <strong>Create a tunnel</strong>. Choose the <strong>Cloudflared</strong> connector type and name it anything (e.g. <em>my-light-show</em>).</li>
                 <li style="margin-bottom: 0.5rem;">On the next screen, copy the <strong>token</strong> from the install command. The token is the long string after <code>--token</code>. <em>Don't run any commands</em> — just copy the token.</li>
-                <li style="margin-bottom: 0.5rem;">Click <strong>Next</strong>, then on the <strong>Public Hostname</strong> page: pick a subdomain (e.g. <code>show</code>), pick your domain, and set <strong>Service</strong> to <code>HTTP</code> with URL <code>localhost:3100</code> (or whatever port your ShowPilot is on). Save.</li>
+                <li style="margin-bottom: 0.5rem;">Click <strong>Next</strong>, then on the <strong>Public Hostname</strong> page: pick a subdomain (e.g. <code>show</code>), pick your domain, and set <strong>Service</strong> to <code>HTTP</code> with URL <code>127.0.0.1:3100</code> (or whatever port your ShowPilot is on). Save.</li>
                 <li>Paste the token below and click <strong>Save Token</strong>. Your show is now live at the hostname you configured.</li>
               </ol>
               <p class="muted" style="margin: 0.75rem 0 0;">

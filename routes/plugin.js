@@ -137,7 +137,15 @@ router.get('/state', (req, res) => {
   //                    themselves). Counter is sequences_since_last_psa,
   //                    incremented in /playing below. Fires regardless of
   //                    viewer activity — best for schedule-driven shows.
-  if (cfg.play_psa_enabled && cfg.psa_frequency > 0) {
+  //
+  // OFF-mode rule (v0.30.1+): when viewer_control_mode is OFF, ShowPilot
+  // is hands-off — it observes FPP via /playing for the now-playing
+  // display but never directs FPP. PSAs are a form of direction (we tell
+  // the plugin to play a specific sequence), so they don't fire in OFF
+  // mode regardless of trigger mode or threshold. The counters keep
+  // incrementing in the background so when viewer mode is re-enabled,
+  // PSAs can fire normally without a hard reset.
+  if (cfg.viewer_control_mode !== 'OFF' && cfg.play_psa_enabled && cfg.psa_frequency > 0) {
     const mode = cfg.psa_trigger_mode === 'sequences' ? 'sequences' : 'interactions';
     const counter = mode === 'sequences'
       ? (cfg.sequences_since_last_psa || 0)

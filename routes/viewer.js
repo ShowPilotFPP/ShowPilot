@@ -179,12 +179,27 @@ router.get('/state', (req, res) => {
   `).all();
 
   const { bustSequenceCovers } = require('../lib/cover-art');
-  // Apply cover-art cache busting and decorate each sequence with its
-  // cooldown_until timestamp (null if not in cooldown). Existing
-  // count-based hide_sequence_after_played still applies separately —
-  // a sequence can be hidden by either or both rules.
-  const sequences = bustSequenceCovers(allSequences.filter(s => !isSequenceHidden(s, cfg)))
-    .map(s => ({ ...s, cooldown_until: sequenceCooldownUntil(s) }));
+  // Filter sequences the viewer shouldn't see right now:
+  //   1. count-based hide rule (hide_sequence_after_played) — pre-existing
+  //   2. per-sequence cooldown (v0.29.2+) — sequence in cooldown drops out
+  //      of the response entirely so user-authored viewer templates don't
+  //      need to know about cooldown. They just render whatever's in the
+  //      list. When the cooldown expires, the sequence reappears on the
+  //      next poll.
+  // Both rules can apply independently — a sequence can be hidden by
+  // either or both.
+  //
+  // cooldown_minutes is used internally by the cooldown filter but isn't
+  // needed by the viewer client. Strip it so we don't ship configuration
+  // state to anonymous users. last_played_at and plays_since_hidden
+  // were already exposed to viewers pre-v0.29.2 and we keep them for
+  // backward compat with custom templates.
+  const sequences = bustSequenceCovers(
+    allSequences
+      .filter(s => !isSequenceHidden(s, cfg))
+      .filter(s => !sequenceCooldownUntil(s))
+      .map(({ cooldown_minutes, ...rest }) => rest)
+  );
 
   const voteCounts = db.prepare(`
     SELECT sequence_name, COUNT(*) AS count FROM votes WHERE round_id = ? GROUP BY sequence_name

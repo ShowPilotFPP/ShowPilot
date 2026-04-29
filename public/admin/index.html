@@ -338,6 +338,66 @@
       font-weight: 400;
     }
 
+    /* ============================================================
+       Viewer-control slide toggle (replaces the old Turn On/Off button).
+       The wrapping <label> keeps id="toggleViewerBtn" so existing JS that
+       calls getElementById('toggleViewerBtn') still finds it. The visual
+       state is driven by data-on="1"/"0" on the .toggle-track child, so
+       updateViewerControlBadge can flip it with a single attribute set.
+       Colors derive from the existing --status-* theme tokens, so every
+       theme (Christmas, Halloween, etc.) gets a coherent toggle without
+       per-theme work. */
+    .vc-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      margin-left: auto;
+    }
+    .vc-toggle .toggle-track {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      background: var(--status-danger-soft);
+      border: 1px solid var(--status-danger);
+      border-radius: 999px;
+      transition: background 0.2s ease, border-color 0.2s ease;
+      flex-shrink: 0;
+      box-sizing: border-box;
+    }
+    .vc-toggle .toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: var(--status-danger);
+      border-radius: 50%;
+      transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .vc-toggle .toggle-track[data-on="1"] {
+      background: var(--status-success-soft);
+      border-color: var(--status-success);
+    }
+    .vc-toggle .toggle-track[data-on="1"] .toggle-thumb {
+      transform: translateX(22px);
+      background: var(--status-success);
+    }
+    .vc-toggle .toggle-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      min-width: 22px;
+    }
+    .vc-toggle:hover .toggle-track {
+      filter: brightness(1.1);
+    }
+    .vc-toggle:focus-visible .toggle-track {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
     .mode-pill {
       font-size: 0.72rem;
       padding: 4px 10px;
@@ -1706,7 +1766,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.30.5</span>
+        <span class="app-version">v0.30.6</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1816,7 +1876,13 @@
           <div class="row" style="align-items: center;">
             <strong style="font-size: 1rem;">Viewer Control:</strong>
             <span id="viewerControlStatus" class="pill pill-neutral">—</span>
-            <button id="toggleViewerBtn" onclick="toggleViewerControl()" style="margin-left: auto;">Toggle</button>
+            <label id="toggleViewerBtn" class="vc-toggle" tabindex="0"
+                   onclick="toggleViewerControl()"
+                   onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleViewerControl();}"
+                   role="switch" aria-checked="false" title="Toggle viewer control on/off">
+              <span class="toggle-text" data-off-text="Off">Off</span>
+              <span class="toggle-track" data-on="0"><span class="toggle-thumb"></span></span>
+            </label>
           </div>
           <div class="row">
             <label for="modeSelect" style="margin: 0;">Mode:</label>
@@ -4958,11 +5024,11 @@
         if (mode === 'OFF') {
           badge.textContent = 'OFF';
           badge.className = 'pill pill-danger';
-          if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
+          setVcToggle(btn, false);
         } else {
           badge.textContent = 'ON · ' + mode;
           badge.className = 'pill pill-success';
-          if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+          setVcToggle(btn, true);
         }
       }
       // Also update the header mode pill
@@ -4973,7 +5039,21 @@
       }
     }
 
-    async function toggleViewerControl() {
+    /* Helper used by every updateViewerControlBadge implementation to flip
+       the slide toggle's visual state. The toggle's <label> wrapper carries
+       id="toggleViewerBtn"; its inner .toggle-track holds data-on. We also
+       keep aria-checked in sync for screen readers and toggle the small
+       "Off" text label so users see at a glance which side the switch is on. */
+    function setVcToggle(el, on) {
+      if (!el) return;
+      const track = el.querySelector('.toggle-track');
+      const text  = el.querySelector('.toggle-text');
+      if (track) track.setAttribute('data-on', on ? '1' : '0');
+      if (text)  text.textContent = on ? 'On' : 'Off';
+      el.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+
+        async function toggleViewerControl() {
       const current = document.getElementById('modeSelect').value;
       if (current !== 'OFF') {
         // Currently on — turn off. Server-side, this stashes the current mode.
@@ -7181,11 +7261,11 @@
       if (mode === 'OFF') {
         badge.textContent = 'OFF';
         badge.className = 'pill pill-danger';
-        if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
+        setVcToggle(btn, false);
       } else {
         badge.textContent = 'ON · ' + mode;
         badge.className = 'pill pill-success';
-        if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+        setVcToggle(btn, true);
       }
       // Also update the header mode pill
       updateModePill(mode);
@@ -7204,11 +7284,11 @@
         if (mode === 'OFF') {
           badge.className = 'pill pill-danger';
           badge.textContent = 'OFF · was ' + lastActiveMode;
-          if (btn) { btn.textContent = 'Turn On (' + lastActiveMode + ')'; btn.className = ''; }
+          setVcToggle(btn, false);
         } else {
           badge.className = 'pill pill-success';
           badge.textContent = 'ON · ' + mode;
-          if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+          setVcToggle(btn, true);
         }
         updateModePill(mode);
       };

@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.30.1</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.30.2</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2351,6 +2351,7 @@
             <div class="sub-tab" data-subtab="audio" onclick="switchTab('audio')">Audio</div>
             <div class="sub-tab" data-subtab="app" onclick="switchTab('app')">App</div>
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
+            <div class="sub-tab" data-subtab="public-access" onclick="switchTab('public-access')">Public Access</div>
             <div class="sub-tab" data-subtab="backup" onclick="switchTab('backup')">Backup &amp; Restore</div>
           </div>
 
@@ -2659,6 +2660,115 @@
             </div>
           </div>
 
+          <!-- PUBLIC ACCESS — Cloudflare Tunnel (v0.29.0+; moved here from
+               Plugin tab in v0.30.2). Lets the operator share their show
+               with friends/neighbors over the internet without port
+               forwarding. No Cloudflare account is required from us — the
+               operator brings their own free CF account and pastes a tunnel
+               token.
+
+               Implementation note: main runs cloudflared as a managed CHILD
+               PROCESS (not a systemd service like Lite does), because main
+               also runs in Docker where systemd isn't available. The lifecycle
+               is tied to ShowPilot's process — when ShowPilot stops, the
+               tunnel stops too. -->
+          <div class="sub-tab-pane" data-subtab="public-access">
+            <div class="card card-accent-purple">
+              <div class="row" style="justify-content: space-between; align-items: center; margin: 0 0 0.5rem;">
+                <h2 style="margin: 0;">Public Access (Cloudflare Tunnel)</h2>
+                <span id="cfStatusPill" class="pill pill-neutral">Loading…</span>
+              </div>
+              <p class="muted" style="font-size: 0.9rem; margin: 0 0 1rem;">
+                Share your show with anyone on the internet — no port forwarding, no static IP, no domain rewiring on your router.
+                You bring your own free Cloudflare account; ShowPilot runs the tunnel for you.
+              </p>
+
+              <!-- Detected info row -->
+              <div class="grid-2" style="margin-bottom: 1rem;">
+                <div>
+                  <label>Status</label>
+                  <div id="cfStateLine" class="muted">—</div>
+                </div>
+                <div>
+                  <label>Architecture</label>
+                  <div id="cfArchLine" class="muted">—</div>
+                </div>
+              </div>
+
+              <!-- STATE A: cloudflared not installed -->
+              <div id="cfStateNotInstalled" style="display: none;">
+                <p style="margin: 0 0 0.75rem;">
+                  <strong>Step 1 — install the tunnel runtime.</strong>
+                  This downloads the <code>cloudflared</code> binary from Cloudflare's official GitHub releases into ShowPilot's data directory.
+                  Takes about 30 seconds on most networks.
+                </p>
+                <button onclick="cfInstall()" id="cfInstallBtn">Install Cloudflare Tunnel</button>
+                <div id="cfInstallStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+              </div>
+
+              <!-- STATE B: installed, no token configured -->
+              <div id="cfStateNeedsToken" style="display: none;">
+                <p style="margin: 0 0 0.75rem;">
+                  <strong>Step 2 — connect a Cloudflare tunnel.</strong>
+                  You'll need a free Cloudflare account.
+                  <a href="#" onclick="cfToggleHelp(event)">Show me how →</a>
+                </p>
+
+                <div id="cfHelp" style="display: none; background: var(--surface-elevated); border-radius: 8px; padding: 1rem; margin: 0 0 1rem; font-size: 0.9rem;">
+                  <ol style="margin: 0; padding-left: 1.25rem;">
+                    <li style="margin-bottom: 0.5rem;">Sign in (or sign up) at <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener">one.dash.cloudflare.com</a>. Add a domain to your Cloudflare account if you don't have one yet — Cloudflare also sells domains for ~$10/year if you need one just for this.</li>
+                    <li style="margin-bottom: 0.5rem;">Go to <strong>Networks → Tunnels</strong> and click <strong>Create a tunnel</strong>. Choose the <strong>Cloudflared</strong> connector type and name it anything (e.g. <em>my-light-show</em>).</li>
+                    <li style="margin-bottom: 0.5rem;">On the next screen, copy the <strong>token</strong> from the install command. The token is the long string after <code>--token</code>. <em>Don't run any commands</em> — just copy the token.</li>
+                    <li style="margin-bottom: 0.5rem;">Click <strong>Next</strong>, then on the <strong>Public Hostname</strong> page: pick a subdomain (e.g. <code>show</code>), pick your domain, and set <strong>Service</strong> to <code>HTTP</code> with URL <code>127.0.0.1:3100</code> (or whatever port your ShowPilot is on). Save.</li>
+                    <li>Paste the token below and click <strong>Save Token</strong>. Your show is now live at the hostname you configured.</li>
+                  </ol>
+                  <p class="muted" style="margin: 0.75rem 0 0;">
+                    <strong>Recommended:</strong> protect your <code>/admin</code> path with Cloudflare Access (free for up to 50 users) so only you can reach the admin panel. Your viewers don't need it; only you do.
+                  </p>
+                </div>
+
+                <label for="cfTokenInput">Tunnel token</label>
+                <input type="password" id="cfTokenInput" placeholder="eyJhIjoiYWJjMTIzZGVmNDU2..." autocomplete="off" />
+                <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
+                  Treat this like a password. Anyone with the token can connect to your tunnel.
+                </p>
+                <div class="row" style="gap: 0.5rem;">
+                  <button onclick="cfSaveToken()" id="cfSaveTokenBtn">Save Token &amp; Start Tunnel</button>
+                  <button class="secondary" onclick="cfUninstall()">Uninstall</button>
+                </div>
+                <div id="cfTokenStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+              </div>
+
+              <!-- STATE C: configured (running or stopped) -->
+              <div id="cfStateConfigured" style="display: none;">
+                <p style="margin: 0 0 0.75rem;">
+                  Your tunnel is configured. The public URL is whatever hostname you set up in your Cloudflare dashboard.
+                </p>
+                <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+                  <button onclick="cfStart()"   id="cfStartBtn"   style="display: none;">Start Tunnel</button>
+                  <button onclick="cfStop()"    id="cfStopBtn"    class="secondary" style="display: none;">Stop Tunnel</button>
+                  <button onclick="cfRestart()" id="cfRestartBtn" class="secondary">Restart</button>
+                  <button onclick="cfReplaceToken()"               class="secondary">Replace Token</button>
+                  <button onclick="cfShowLogs()"                   class="secondary">View Logs</button>
+                  <button onclick="cfUninstall()"                  class="secondary">Uninstall</button>
+                </div>
+                <div id="cfControlStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+              </div>
+
+              <!-- LOGS — toggled by View Logs button. Also shown automatically
+                   when the tunnel is running but not yet "connected" — useful
+                   for diagnosing why a freshly-pasted token isn't connecting. -->
+              <div id="cfLogsBlock" style="display: none; margin-top: 1rem;">
+                <label>Recent tunnel logs</label>
+                <pre id="cfLogsPre" style="max-height: 280px; overflow: auto; background: var(--surface-elevated); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; line-height: 1.4; margin: 0;"></pre>
+                <div class="row" style="gap: 0.5rem; margin-top: 0.5rem;">
+                  <button class="secondary" onclick="cfShowLogs()">Refresh</button>
+                  <button class="secondary" onclick="document.getElementById('cfLogsBlock').style.display='none'">Hide</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- BACKUP & RESTORE — full instance backup including DB, config.js, optional cover art -->
           <div class="sub-tab-pane" data-subtab="backup">
             <h3>Export configuration</h3>
@@ -2757,114 +2867,6 @@
             <button class="secondary" onclick="copyShowToken()">Copy</button>
           </div>
           <div id="copyTokenStatus" class="muted" style="margin-top: 0.5rem;"></div>
-        </div>
-
-        <!-- ============================================================
-             PUBLIC ACCESS — Cloudflare Tunnel (v0.29.0+)
-             ============================================================
-             Lets the operator share their show with friends/neighbors over
-             the internet without port forwarding. No Cloudflare account is
-             required from us — the operator brings their own free CF account
-             and pastes a tunnel token.
-
-             Implementation note: main runs cloudflared as a managed CHILD
-             PROCESS (not a systemd service like Lite does), because main
-             also runs in Docker where systemd isn't available. The lifecycle
-             is tied to ShowPilot's process — when ShowPilot stops, the
-             tunnel stops too. -->
-        <div class="card card-accent-purple">
-          <div class="row" style="justify-content: space-between; align-items: center; margin: 0 0 0.5rem;">
-            <h2 style="margin: 0;">Public Access (Cloudflare Tunnel)</h2>
-            <span id="cfStatusPill" class="pill pill-neutral">Loading…</span>
-          </div>
-          <p class="muted" style="font-size: 0.9rem; margin: 0 0 1rem;">
-            Share your show with anyone on the internet — no port forwarding, no static IP, no domain rewiring on your router.
-            You bring your own free Cloudflare account; ShowPilot runs the tunnel for you.
-          </p>
-
-          <!-- Detected info row -->
-          <div class="grid-2" style="margin-bottom: 1rem;">
-            <div>
-              <label>Status</label>
-              <div id="cfStateLine" class="muted">—</div>
-            </div>
-            <div>
-              <label>Architecture</label>
-              <div id="cfArchLine" class="muted">—</div>
-            </div>
-          </div>
-
-          <!-- STATE A: cloudflared not installed -->
-          <div id="cfStateNotInstalled" style="display: none;">
-            <p style="margin: 0 0 0.75rem;">
-              <strong>Step 1 — install the tunnel runtime.</strong>
-              This downloads the <code>cloudflared</code> binary from Cloudflare's official GitHub releases into ShowPilot's data directory.
-              Takes about 30 seconds on most networks.
-            </p>
-            <button onclick="cfInstall()" id="cfInstallBtn">Install Cloudflare Tunnel</button>
-            <div id="cfInstallStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
-          </div>
-
-          <!-- STATE B: installed, no token configured -->
-          <div id="cfStateNeedsToken" style="display: none;">
-            <p style="margin: 0 0 0.75rem;">
-              <strong>Step 2 — connect a Cloudflare tunnel.</strong>
-              You'll need a free Cloudflare account.
-              <a href="#" onclick="cfToggleHelp(event)">Show me how →</a>
-            </p>
-
-            <div id="cfHelp" style="display: none; background: var(--surface-elevated); border-radius: 8px; padding: 1rem; margin: 0 0 1rem; font-size: 0.9rem;">
-              <ol style="margin: 0; padding-left: 1.25rem;">
-                <li style="margin-bottom: 0.5rem;">Sign in (or sign up) at <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener">one.dash.cloudflare.com</a>. Add a domain to your Cloudflare account if you don't have one yet — Cloudflare also sells domains for ~$10/year if you need one just for this.</li>
-                <li style="margin-bottom: 0.5rem;">Go to <strong>Networks → Tunnels</strong> and click <strong>Create a tunnel</strong>. Choose the <strong>Cloudflared</strong> connector type and name it anything (e.g. <em>my-light-show</em>).</li>
-                <li style="margin-bottom: 0.5rem;">On the next screen, copy the <strong>token</strong> from the install command. The token is the long string after <code>--token</code>. <em>Don't run any commands</em> — just copy the token.</li>
-                <li style="margin-bottom: 0.5rem;">Click <strong>Next</strong>, then on the <strong>Public Hostname</strong> page: pick a subdomain (e.g. <code>show</code>), pick your domain, and set <strong>Service</strong> to <code>HTTP</code> with URL <code>127.0.0.1:3100</code> (or whatever port your ShowPilot is on). Save.</li>
-                <li>Paste the token below and click <strong>Save Token</strong>. Your show is now live at the hostname you configured.</li>
-              </ol>
-              <p class="muted" style="margin: 0.75rem 0 0;">
-                <strong>Recommended:</strong> protect your <code>/admin</code> path with Cloudflare Access (free for up to 50 users) so only you can reach the admin panel. Your viewers don't need it; only you do.
-              </p>
-            </div>
-
-            <label for="cfTokenInput">Tunnel token</label>
-            <input type="password" id="cfTokenInput" placeholder="eyJhIjoiYWJjMTIzZGVmNDU2..." autocomplete="off" />
-            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
-              Treat this like a password. Anyone with the token can connect to your tunnel.
-            </p>
-            <div class="row" style="gap: 0.5rem;">
-              <button onclick="cfSaveToken()" id="cfSaveTokenBtn">Save Token &amp; Start Tunnel</button>
-              <button class="secondary" onclick="cfUninstall()">Uninstall</button>
-            </div>
-            <div id="cfTokenStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
-          </div>
-
-          <!-- STATE C: configured (running or stopped) -->
-          <div id="cfStateConfigured" style="display: none;">
-            <p style="margin: 0 0 0.75rem;">
-              Your tunnel is configured. The public URL is whatever hostname you set up in your Cloudflare dashboard.
-            </p>
-            <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
-              <button onclick="cfStart()"   id="cfStartBtn"   style="display: none;">Start Tunnel</button>
-              <button onclick="cfStop()"    id="cfStopBtn"    class="secondary" style="display: none;">Stop Tunnel</button>
-              <button onclick="cfRestart()" id="cfRestartBtn" class="secondary">Restart</button>
-              <button onclick="cfReplaceToken()"               class="secondary">Replace Token</button>
-              <button onclick="cfShowLogs()"                   class="secondary">View Logs</button>
-              <button onclick="cfUninstall()"                  class="secondary">Uninstall</button>
-            </div>
-            <div id="cfControlStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
-          </div>
-
-          <!-- LOGS — toggled by View Logs button. Also shown automatically
-               when the tunnel is running but not yet "connected" — useful
-               for diagnosing why a freshly-pasted token isn't connecting. -->
-          <div id="cfLogsBlock" style="display: none; margin-top: 1rem;">
-            <label>Recent tunnel logs</label>
-            <pre id="cfLogsPre" style="max-height: 280px; overflow: auto; background: var(--surface-elevated); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; line-height: 1.4; margin: 0;"></pre>
-            <div class="row" style="gap: 0.5rem; margin-top: 0.5rem;">
-              <button class="secondary" onclick="cfShowLogs()">Refresh</button>
-              <button class="secondary" onclick="document.getElementById('cfLogsBlock').style.display='none'">Hide</button>
-            </div>
-          </div>
         </div>
 
         <div class="card">
@@ -3154,7 +3156,6 @@
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
       if (name === 'settings') refreshAudioCacheStats();
-      if (name === 'plugin') loadCloudflaredStatus();
     }
 
     function copyShowToken() {
@@ -4646,6 +4647,9 @@
     function switchTab(name) {
       document.querySelectorAll('.sub-tab').forEach(t => t.classList.toggle('active', t.dataset.subtab === name));
       document.querySelectorAll('.sub-tab-pane').forEach(c => c.classList.toggle('active', c.dataset.subtab === name));
+      // Per-sub-tab data refresh hooks. Same pattern as switchMainTab —
+      // refresh-on-open keeps the UI fresh without polling when not visible.
+      if (name === 'public-access') loadCloudflaredStatus();
     }
 
     async function saveSetting(key, value) {

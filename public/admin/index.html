@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.28.2</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.29.0</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2732,6 +2732,114 @@
           <div id="copyTokenStatus" class="muted" style="margin-top: 0.5rem;"></div>
         </div>
 
+        <!-- ============================================================
+             PUBLIC ACCESS — Cloudflare Tunnel (v0.29.0+)
+             ============================================================
+             Lets the operator share their show with friends/neighbors over
+             the internet without port forwarding. No Cloudflare account is
+             required from us — the operator brings their own free CF account
+             and pastes a tunnel token.
+
+             Implementation note: main runs cloudflared as a managed CHILD
+             PROCESS (not a systemd service like Lite does), because main
+             also runs in Docker where systemd isn't available. The lifecycle
+             is tied to ShowPilot's process — when ShowPilot stops, the
+             tunnel stops too. -->
+        <div class="card card-accent-purple">
+          <div class="row" style="justify-content: space-between; align-items: center; margin: 0 0 0.5rem;">
+            <h2 style="margin: 0;">Public Access (Cloudflare Tunnel)</h2>
+            <span id="cfStatusPill" class="pill pill-neutral">Loading…</span>
+          </div>
+          <p class="muted" style="font-size: 0.9rem; margin: 0 0 1rem;">
+            Share your show with anyone on the internet — no port forwarding, no static IP, no domain rewiring on your router.
+            You bring your own free Cloudflare account; ShowPilot runs the tunnel for you.
+          </p>
+
+          <!-- Detected info row -->
+          <div class="grid-2" style="margin-bottom: 1rem;">
+            <div>
+              <label>Status</label>
+              <div id="cfStateLine" class="muted">—</div>
+            </div>
+            <div>
+              <label>Architecture</label>
+              <div id="cfArchLine" class="muted">—</div>
+            </div>
+          </div>
+
+          <!-- STATE A: cloudflared not installed -->
+          <div id="cfStateNotInstalled" style="display: none;">
+            <p style="margin: 0 0 0.75rem;">
+              <strong>Step 1 — install the tunnel runtime.</strong>
+              This downloads the <code>cloudflared</code> binary from Cloudflare's official GitHub releases into ShowPilot's data directory.
+              Takes about 30 seconds on most networks.
+            </p>
+            <button onclick="cfInstall()" id="cfInstallBtn">Install Cloudflare Tunnel</button>
+            <div id="cfInstallStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+          </div>
+
+          <!-- STATE B: installed, no token configured -->
+          <div id="cfStateNeedsToken" style="display: none;">
+            <p style="margin: 0 0 0.75rem;">
+              <strong>Step 2 — connect a Cloudflare tunnel.</strong>
+              You'll need a free Cloudflare account.
+              <a href="#" onclick="cfToggleHelp(event)">Show me how →</a>
+            </p>
+
+            <div id="cfHelp" style="display: none; background: var(--surface-elevated); border-radius: 8px; padding: 1rem; margin: 0 0 1rem; font-size: 0.9rem;">
+              <ol style="margin: 0; padding-left: 1.25rem;">
+                <li style="margin-bottom: 0.5rem;">Sign in (or sign up) at <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener">one.dash.cloudflare.com</a>. Add a domain to your Cloudflare account if you don't have one yet — Cloudflare also sells domains for ~$10/year if you need one just for this.</li>
+                <li style="margin-bottom: 0.5rem;">Go to <strong>Networks → Tunnels</strong> and click <strong>Create a tunnel</strong>. Choose the <strong>Cloudflared</strong> connector type and name it anything (e.g. <em>my-light-show</em>).</li>
+                <li style="margin-bottom: 0.5rem;">On the next screen, copy the <strong>token</strong> from the install command. The token is the long string after <code>--token</code>. <em>Don't run any commands</em> — just copy the token.</li>
+                <li style="margin-bottom: 0.5rem;">Click <strong>Next</strong>, then on the <strong>Public Hostname</strong> page: pick a subdomain (e.g. <code>show</code>), pick your domain, and set <strong>Service</strong> to <code>HTTP</code> with URL <code>localhost:3100</code> (or whatever port your ShowPilot is on). Save.</li>
+                <li>Paste the token below and click <strong>Save Token</strong>. Your show is now live at the hostname you configured.</li>
+              </ol>
+              <p class="muted" style="margin: 0.75rem 0 0;">
+                <strong>Recommended:</strong> protect your <code>/admin</code> path with Cloudflare Access (free for up to 50 users) so only you can reach the admin panel. Your viewers don't need it; only you do.
+              </p>
+            </div>
+
+            <label for="cfTokenInput">Tunnel token</label>
+            <input type="password" id="cfTokenInput" placeholder="eyJhIjoiYWJjMTIzZGVmNDU2..." autocomplete="off" />
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
+              Treat this like a password. Anyone with the token can connect to your tunnel.
+            </p>
+            <div class="row" style="gap: 0.5rem;">
+              <button onclick="cfSaveToken()" id="cfSaveTokenBtn">Save Token &amp; Start Tunnel</button>
+              <button class="secondary" onclick="cfUninstall()">Uninstall</button>
+            </div>
+            <div id="cfTokenStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+          </div>
+
+          <!-- STATE C: configured (running or stopped) -->
+          <div id="cfStateConfigured" style="display: none;">
+            <p style="margin: 0 0 0.75rem;">
+              Your tunnel is configured. The public URL is whatever hostname you set up in your Cloudflare dashboard.
+            </p>
+            <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+              <button onclick="cfStart()"   id="cfStartBtn"   style="display: none;">Start Tunnel</button>
+              <button onclick="cfStop()"    id="cfStopBtn"    class="secondary" style="display: none;">Stop Tunnel</button>
+              <button onclick="cfRestart()" id="cfRestartBtn" class="secondary">Restart</button>
+              <button onclick="cfReplaceToken()"               class="secondary">Replace Token</button>
+              <button onclick="cfShowLogs()"                   class="secondary">View Logs</button>
+              <button onclick="cfUninstall()"                  class="secondary">Uninstall</button>
+            </div>
+            <div id="cfControlStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+          </div>
+
+          <!-- LOGS — toggled by View Logs button. Also shown automatically
+               when the tunnel is running but not yet "connected" — useful
+               for diagnosing why a freshly-pasted token isn't connecting. -->
+          <div id="cfLogsBlock" style="display: none; margin-top: 1rem;">
+            <label>Recent tunnel logs</label>
+            <pre id="cfLogsPre" style="max-height: 280px; overflow: auto; background: var(--surface-elevated); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; line-height: 1.4; margin: 0;"></pre>
+            <div class="row" style="gap: 0.5rem; margin-top: 0.5rem;">
+              <button class="secondary" onclick="cfShowLogs()">Refresh</button>
+              <button class="secondary" onclick="document.getElementById('cfLogsBlock').style.display='none'">Hide</button>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <h2>Audio Cache</h2>
           <p class="muted">
@@ -3019,6 +3127,7 @@
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
       if (name === 'settings') refreshAudioCacheStats();
+      if (name === 'plugin') loadCloudflaredStatus();
     }
 
     function copyShowToken() {
@@ -3030,6 +3139,247 @@
         s.style.color = 'var(--status-success)';
         setTimeout(() => { s.textContent = ''; }, 2000);
       });
+    }
+
+    // ============================================================
+    // Cloudflare Tunnel (Public Access) — v0.29.0+
+    // ============================================================
+    // The card has three primary states (not-installed, needs-token,
+    // configured) and surfaces "running but not yet connected" by
+    // auto-opening the logs panel. Polling is only active during
+    // long-running ops (install, token save) so the idle case doesn't
+    // burn cycles.
+
+    let cfPollTimer = null;
+
+    function cfSetStatusMessage(elId, text, kind) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.color =
+        kind === 'success' ? 'var(--status-success)' :
+        kind === 'error'   ? 'var(--status-danger)'  :
+        '';
+    }
+
+    function cfToggleHelp(ev) {
+      if (ev) ev.preventDefault();
+      const h = document.getElementById('cfHelp');
+      h.style.display = (h.style.display === 'none' || !h.style.display) ? 'block' : 'none';
+    }
+
+    async function loadCloudflaredStatus() {
+      try {
+        const r = await fetch('/api/admin/cloudflared/status', { credentials: 'include' });
+        if (!r.ok) return;
+        const s = await r.json();
+        cfApplyStatus(s);
+      } catch (err) {
+        // Silent on the polling path. Manual actions surface their own errors.
+      }
+    }
+
+    function cfApplyStatus(s) {
+      // Header pill
+      const pill = document.getElementById('cfStatusPill');
+      pill.classList.remove('pill-success', 'pill-warning', 'pill-danger', 'pill-neutral');
+      if (s.running && s.connected) {
+        pill.classList.add('pill-success');
+        pill.textContent = 'Tunnel Online';
+      } else if (s.running) {
+        pill.classList.add('pill-warning');
+        pill.textContent = 'Connecting…';
+      } else if (s.hasToken) {
+        pill.classList.add('pill-warning');
+        pill.textContent = 'Stopped';
+      } else if (s.installed) {
+        pill.classList.add('pill-warning');
+        pill.textContent = 'Needs Token';
+      } else {
+        pill.classList.add('pill-neutral');
+        pill.textContent = 'Not Installed';
+      }
+
+      // Detected info row
+      document.getElementById('cfStateLine').textContent =
+        (s.running && s.connected) ? 'Running and forwarding traffic to localhost'
+        : s.running                  ? `Process running (attempt ${s.respawnAttempts || 1}); waiting for connection registration…`
+        : s.hasToken                 ? 'Token saved, tunnel stopped'
+        : s.installed                ? `Installed (${s.version || 'version unknown'}), waiting for tunnel token`
+        : 'Cloudflare Tunnel runtime is not installed';
+
+      const archStr =
+        !s.archSupported && s.platform !== 'linux' ? `${s.platform} ${s.arch || '?'} (unsupported — Linux only)` :
+        s.archSupported                            ? `${s.arch} (supported)` :
+        s.arch                                     ? `${s.arch} (unsupported)` :
+        'Unknown architecture';
+      document.getElementById('cfArchLine').textContent = archStr;
+
+      // State panel visibility
+      const setShow = (id, show) => { document.getElementById(id).style.display = show ? '' : 'none'; };
+      setShow('cfStateNotInstalled', !s.installed);
+      setShow('cfStateNeedsToken',    s.installed && !s.hasToken);
+      setShow('cfStateConfigured',    s.installed &&  s.hasToken);
+
+      if (s.installed && s.hasToken) {
+        setShow('cfStartBtn', !s.running);
+        setShow('cfStopBtn',   s.running);
+      }
+
+      // Disable install button on unsupported platforms
+      const installBtn = document.getElementById('cfInstallBtn');
+      if (installBtn) {
+        installBtn.disabled = !s.archSupported || s.platform !== 'linux';
+        if (!s.archSupported || s.platform !== 'linux') {
+          cfSetStatusMessage('cfInstallStatus',
+            s.platform !== 'linux'
+              ? 'Cloudflare Tunnel only works on Linux hosts.'
+              : 'This host\'s architecture is not supported by Cloudflare\'s prebuilt cloudflared binaries.',
+            'error');
+        }
+      }
+
+      // If the tunnel is running but not yet connected, auto-show logs so
+      // the operator sees what's happening (most often: invalid token,
+      // hostname not configured in CF dashboard, etc.).
+      if (s.running && !s.connected && s.respawnAttempts > 0) {
+        const block = document.getElementById('cfLogsBlock');
+        if (block.style.display === 'none') cfShowLogs();
+      }
+    }
+
+    function cfStartPolling(intervalMs = 2000, maxDurationMs = 60000) {
+      cfStopPolling();
+      const startedAt = Date.now();
+      cfPollTimer = setInterval(() => {
+        if (Date.now() - startedAt > maxDurationMs) {
+          cfStopPolling();
+          return;
+        }
+        loadCloudflaredStatus();
+      }, intervalMs);
+    }
+    function cfStopPolling() {
+      if (cfPollTimer) { clearInterval(cfPollTimer); cfPollTimer = null; }
+    }
+
+    async function cfInstall() {
+      const btn = document.getElementById('cfInstallBtn');
+      btn.disabled = true;
+      cfSetStatusMessage('cfInstallStatus', 'Downloading cloudflared… (this can take 30–60 seconds)', 'info');
+      try {
+        const r = await fetch('/api/admin/cloudflared/install', { method: 'POST', credentials: 'include' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          cfSetStatusMessage('cfInstallStatus', 'Install failed: ' + (j.error || 'unknown error'), 'error');
+        } else {
+          cfSetStatusMessage('cfInstallStatus',
+            j.alreadyInstalled ? 'Already installed.' : 'Installed successfully. Now paste your tunnel token below.',
+            'success');
+        }
+      } catch (err) {
+        cfSetStatusMessage('cfInstallStatus', 'Network error: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        loadCloudflaredStatus();
+      }
+    }
+
+    async function cfSaveToken() {
+      const tokenInput = document.getElementById('cfTokenInput');
+      const token = tokenInput.value;
+      if (!token || token.trim().length < 20) {
+        cfSetStatusMessage('cfTokenStatus', 'Please paste a valid tunnel token.', 'error');
+        return;
+      }
+      const btn = document.getElementById('cfSaveTokenBtn');
+      btn.disabled = true;
+      cfSetStatusMessage('cfTokenStatus', 'Saving token and starting tunnel…', 'info');
+      try {
+        const r = await fetch('/api/admin/cloudflared/token', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token.trim() }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          cfSetStatusMessage('cfTokenStatus', j.error || 'Token registration failed.', 'error');
+          btn.disabled = false;
+          return;
+        }
+        // Clear the field — never leave the token sitting in DOM.
+        tokenInput.value = '';
+        cfSetStatusMessage('cfTokenStatus', 'Tunnel started. Confirming connection…', 'success');
+        cfStartPolling(1500, 30000);
+      } catch (err) {
+        cfSetStatusMessage('cfTokenStatus', 'Network error: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        loadCloudflaredStatus();
+      }
+    }
+
+    async function cfStart()    { await cfSimpleAction('/api/admin/cloudflared/start',    'Starting tunnel…',   'Tunnel started.'); }
+    async function cfStop()     { await cfSimpleAction('/api/admin/cloudflared/stop',     'Stopping tunnel…',   'Tunnel stopped.'); }
+    async function cfRestart()  { await cfSimpleAction('/api/admin/cloudflared/restart',  'Restarting tunnel…', 'Tunnel restarted.'); }
+
+    async function cfSimpleAction(url, pendingMsg, successMsg) {
+      cfSetStatusMessage('cfControlStatus', pendingMsg, 'info');
+      try {
+        const r = await fetch(url, { method: 'POST', credentials: 'include' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          cfSetStatusMessage('cfControlStatus', j.error || 'Operation failed.', 'error');
+          return;
+        }
+        cfSetStatusMessage('cfControlStatus', successMsg, 'success');
+        setTimeout(loadCloudflaredStatus, 800);
+      } catch (err) {
+        cfSetStatusMessage('cfControlStatus', 'Network error: ' + err.message, 'error');
+      }
+    }
+
+    function cfReplaceToken() {
+      // Just flip back to the token-entry state visually. cfSaveToken
+      // handles the stop-then-restart with the new token.
+      document.getElementById('cfStateConfigured').style.display = 'none';
+      document.getElementById('cfStateNeedsToken').style.display = '';
+      document.getElementById('cfTokenInput').focus();
+    }
+
+    async function cfUninstall() {
+      if (!confirm('Uninstall Cloudflare Tunnel?\n\nThis stops the tunnel, removes the token, and deletes the cloudflared binary. Your tunnel configuration in the Cloudflare dashboard is NOT affected — you can reconnect later by reinstalling and pasting the same token.')) return;
+      try {
+        const r = await fetch('/api/admin/cloudflared/uninstall', { method: 'POST', credentials: 'include' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          alert('Uninstall failed: ' + (j.error || 'unknown error'));
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      } finally {
+        loadCloudflaredStatus();
+      }
+    }
+
+    async function cfShowLogs() {
+      const block = document.getElementById('cfLogsBlock');
+      const pre = document.getElementById('cfLogsPre');
+      block.style.display = '';
+      pre.textContent = 'Loading…';
+      try {
+        const r = await fetch('/api/admin/cloudflared/logs?n=80', { credentials: 'include' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          pre.textContent = '(' + (j.error || 'failed to load logs') + ')';
+          return;
+        }
+        pre.textContent = j.logs || '(no log output yet)';
+        pre.scrollTop = pre.scrollHeight;
+      } catch (err) {
+        pre.textContent = '(network error: ' + err.message + ')';
+      }
     }
 
     // ============================================================

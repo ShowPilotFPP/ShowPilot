@@ -121,6 +121,13 @@ app.use('/api/plugin', require('./routes/plugin'));
 // see the comment up there for why the order matters.
 app.use('/api/admin', adminRouter);
 
+// Cloudflare Tunnel admin endpoints (v0.29.0+). Mounted as a sibling of
+// /api/admin/backup. Auth applied at the mount point, same pattern as
+// backup. See lib/cloudflared.js for the supervisor design — this is a
+// child-process implementation rather than the systemd one used by
+// ShowPilot-Lite, because main has to work in Docker too.
+app.use('/api/admin/cloudflared', adminRouter.requireAdmin, require('./routes/cloudflared'));
+
 // Public viewer API
 app.use('/api', require('./routes/viewer'));
 
@@ -632,4 +639,45 @@ server.listen(config.port, config.host, () => {
   // Secret resolution + any "first run, generated for you" announcements
   // happen in lib/config-loader.js — by the time we get here, secrets are
   // already real values from one of: env > config.js > secrets.json > generated.
+
+  // Cloudflare Tunnel: if the operator has previously saved a token,
+  // spawn cloudflared as a child process so the tunnel comes back
+  // automatically after a restart. Done after listen() so any spawn
+  // logging goes to operator output, not interleaved with startup.
+  try {
+    require('./lib/cloudflared').autoStartIfConfigured();
+  } catch (err) {
+    console.error('[cloudflared] auto-start failed:', err.message);
+  }
+});
+
+// Clean shutdown: tell the cloudflared supervisor to stop respawning
+// and kill its child process before we exit. We hook SIGTERM/SIGINT
+// because adding a listener overrides Node's default exit behavior,
+// so we have to explicitly exit ourselves.
+//
+// PM2 reload sends SIGINT; systemd stop sends SIGTERM. Both flow
+// through here. The exit hook is a belt-and-suspenders for unexpected
+// process.exit() calls elsewhere (e.g. backup-restore's clean-exit
+// path) — synchronous-only, can't await.
+//
+// If we don't clean up, a SIGKILL'd cloudflared child gets reparented
+// to init and keeps running — an orphaned tunnel pointing at nothing.
+function gracefulExit(signal, code) {
+  try {
+    require('./lib/cloudflared').shutdownHook();
+  } catch {}
+  // Give the SIGTERM we just sent to cloudflared a moment to land,
+  // then exit. A 500ms wait isn't perfect but it's almost always enough
+  // for a child process to receive the signal and start exiting.
+  setTimeout(() => process.exit(code), 500).unref();
+}
+process.on('SIGTERM', () => gracefulExit('SIGTERM', 0));
+process.on('SIGINT',  () => gracefulExit('SIGINT',  0));
+// Synchronous-only on 'exit' — can't delay or do anything async here.
+// shutdownHook is async-shaped but its only effect (kill -TERM) is sync.
+process.on('exit', () => {
+  try {
+    require('./lib/cloudflared').shutdownHook();
+  } catch {}
 });

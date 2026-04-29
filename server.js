@@ -227,7 +227,9 @@ const FALLBACK_ICON_SVG = (() => {
   } catch {
     // If the file ever goes missing, return a tiny inline SVG so the
     // route doesn't break. Better to serve a generic icon than 404.
-    return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#1a3a5c"/><text x="16" y="22" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="18" font-weight="bold">SP</text></svg>');
+    // This is the simplified ShowPilot mark — same shape as the favicon
+    // file, so the fallback looks identical to the normal path.
+    return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#0F1A36"/><g transform="translate(16 16) scale(0.28)"><rect x="-5" y="-46" width="10" height="10" rx="2" fill="#F4B942"/><rect x="36" y="-5" width="10" height="10" rx="2" fill="#F4B942"/><rect x="-5" y="36" width="10" height="10" rx="2" fill="#F4B942"/><rect x="-46" y="-5" width="10" height="10" rx="2" fill="#F4B942"/><rect x="22" y="-32" width="8" height="8" rx="2" fill="#E94B7B"/><rect x="-30" y="-32" width="8" height="8" rx="2" fill="#E94B7B"/><rect x="22" y="24" width="8" height="8" rx="2" fill="#E94B7B"/><rect x="-30" y="24" width="8" height="8" rx="2" fill="#E94B7B"/><polygon points="-14,-18 -14,18 18,0" fill="#F4B942"/></g></svg>');
   }
 })();
 

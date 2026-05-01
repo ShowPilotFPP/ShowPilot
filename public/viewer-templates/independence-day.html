@@ -359,6 +359,46 @@
     color: var(--blue);
     border: 2px solid var(--red);
   }
+
+  /* ---------- After hours ---------- */
+  body:has([data-showpilot-container="afterhours"]:not([style*="display:none"]):not([style*="display: none"])) .banner {
+    display: none !important;
+  }
+  .liberty-closed {
+    text-align: center;
+    padding: 56px 28px 64px;
+    margin: 16px 0 24px;
+    background: linear-gradient(180deg, rgba(11,29,79,0.7), rgba(5,13,45,0.85));
+    border: 3px double var(--gold);
+    border-radius: 6px;
+    box-shadow: 0 0 28px rgba(244,196,48,0.18), inset 0 0 40px rgba(0,0,0,0.4);
+  }
+  .liberty-closed .closed-glyph {
+    font-size: 56px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 0 18px var(--gold));
+  }
+  .liberty-closed h2 {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: var(--gold);
+    font-size: 32px;
+    margin: 0 0 14px;
+    letter-spacing: 2px;
+    text-shadow: 0 0 14px rgba(244,196,48,0.5), 2px 2px 0 rgba(0,0,0,0.6);
+  }
+  .liberty-closed p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--cream);
+    margin: 0 0 20px;
+  }
+  .liberty-closed .small-tag {
+    font-size: 12px;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--red-bright);
+    text-shadow: 0 0 10px rgba(230,57,70,0.5);
+  }
 </style>
 </head>
 <body>
@@ -371,6 +411,18 @@
       <div class="stars">★ ★ ★ ★ ★</div>
       <p class="underline">A Light Show Spectacular</p>
     </header>
+
+    <div {after-hours-message}>
+      <div class="liberty-closed">
+        <div class="closed-glyph">🎆</div>
+        <h2>The Stars Are Sleeping</h2>
+        <p>
+          Tonight's celebration has ended.<br>
+          Return at sundown for the next anthem.
+        </p>
+        <div class="small-tag">★ See you at showtime ★</div>
+      </div>
+    </div>
 
     <div class="banner">
       <p class="label">Now Playing</p>

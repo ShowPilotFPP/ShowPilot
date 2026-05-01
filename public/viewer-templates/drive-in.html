@@ -330,6 +330,48 @@
     color: var(--dark);
     border: 2px solid var(--marquee);
   }
+
+  /* ---------- After hours ---------- */
+  /* When the after-hours container is visible (no display:none),
+     hide the now-playing ticket since there's nothing playing. */
+  body:has([data-showpilot-container="afterhours"]:not([style*="display:none"]):not([style*="display: none"])) .ticket {
+    display: none !important;
+  }
+  .marquee-closed {
+    text-align: center;
+    padding: 56px 28px 64px;
+    margin: 16px 0 24px;
+    background: linear-gradient(180deg, rgba(28,15,36,0.6), rgba(10,6,18,0.85));
+    border: 3px double var(--marquee);
+    border-radius: 6px;
+    box-shadow: 0 0 28px rgba(255, 216, 107, 0.18), inset 0 0 40px rgba(0,0,0,0.4);
+  }
+  .marquee-closed .closed-glyph {
+    font-size: 56px;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 0 18px var(--neon-red-glow));
+  }
+  .marquee-closed h2 {
+    font-family: 'Times New Roman', Georgia, serif;
+    color: var(--marquee);
+    font-size: 32px;
+    margin: 0 0 14px;
+    letter-spacing: 2px;
+    text-shadow: 0 0 14px var(--marquee-glow), 2px 2px 0 rgba(0,0,0,0.6);
+  }
+  .marquee-closed p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--cream);
+    margin: 0 0 20px;
+  }
+  .marquee-closed .small-tag {
+    font-size: 12px;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--neon-red);
+    text-shadow: 0 0 10px var(--neon-red-glow);
+  }
 </style>
 </head>
 <body>
@@ -341,6 +383,18 @@
       <h1 class="big">Now Showing</h1>
       <span class="underline">A Holiday Light Spectacular</span>
     </header>
+
+    <div {after-hours-message}>
+      <div class="marquee-closed">
+        <div class="closed-glyph">🎬</div>
+        <h2>The Marquee Is Dark</h2>
+        <p>
+          Tonight's feature presentation has ended.<br>
+          Come back at showtime for the next reel!
+        </p>
+        <div class="small-tag">★ See you at sundown ★</div>
+      </div>
+    </div>
 
     <div class="ticket">
       <p class="label">★ Now Playing ★</p>

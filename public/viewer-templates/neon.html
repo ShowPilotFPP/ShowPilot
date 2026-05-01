@@ -331,6 +331,48 @@
     text-shadow: 0 0 8px var(--yellow);
     box-shadow: 0 0 14px var(--yellow), 0 6px 22px rgba(0,0,0,0.55);
   }
+
+  /* ---------- After hours ---------- */
+  body:has([data-showpilot-container="afterhours"]:not([style*="display:none"]):not([style*="display: none"])) .now-playing-box {
+    display: none !important;
+  }
+  .neon-closed {
+    text-align: center;
+    padding: 56px 28px 64px;
+    margin: 16px 0 24px;
+    background: linear-gradient(180deg, rgba(13,2,51,0.7), rgba(5,0,24,0.9));
+    border: 1px solid var(--pink);
+    border-radius: 4px;
+    box-shadow: 0 0 28px var(--pink), inset 0 0 30px rgba(255,28,247,0.12);
+  }
+  .neon-closed .closed-glyph {
+    font-size: 56px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 0 18px var(--cyan));
+  }
+  .neon-closed h2 {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: var(--cyan);
+    font-size: 32px;
+    margin: 0 0 14px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    text-shadow: 0 0 14px var(--cyan), 0 0 28px var(--cyan-soft);
+  }
+  .neon-closed p {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text);
+    margin: 0 0 20px;
+    letter-spacing: 1px;
+  }
+  .neon-closed .small-tag {
+    font-size: 11px;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: var(--pink);
+    text-shadow: 0 0 10px var(--pink-soft);
+  }
 </style>
 </head>
 <body>
@@ -340,6 +382,18 @@
       <h1>Light Show</h1>
       <span class="underbar"></span>
     </header>
+
+    <div {after-hours-message}>
+      <div class="neon-closed">
+        <div class="closed-glyph">⚡</div>
+        <h2>Lights Out</h2>
+        <p>
+          The arcade is closed for tonight.<br>
+          Plug back in at showtime.
+        </p>
+        <div class="small-tag">▸ See you after dark ◂</div>
+      </div>
+    </div>
 
     <div class="now-playing-box">
       <p class="label">▸ Now Playing ◂</p>

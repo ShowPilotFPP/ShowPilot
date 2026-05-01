@@ -366,6 +366,55 @@
     text-shadow: 0 0 8px var(--amber);
     box-shadow: 0 0 14px rgba(255, 184, 77, 0.4), 0 6px 22px rgba(0,0,0,0.7);
   }
+
+  /* ---------- After hours ---------- */
+  body:has([data-showpilot-container="afterhours"]:not([style*="display:none"]):not([style*="display: none"])) .broadcast-card {
+    display: none !important;
+  }
+  .signal-lost {
+    text-align: center;
+    padding: 56px 28px 64px;
+    margin: 16px 0 24px;
+    background: var(--crt-bg-tint);
+    border: 1px solid var(--phosphor-dim);
+    border-radius: 4px;
+    box-shadow: 0 0 24px rgba(93,255,177,0.15), inset 0 0 30px rgba(0,0,0,0.5);
+    font-family: 'Courier New', 'Lucida Console', monospace;
+  }
+  .signal-lost .closed-glyph {
+    font-size: 56px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 0 18px var(--warning));
+    animation: tvFlicker 2.4s steps(2) infinite;
+  }
+  @keyframes tvFlicker {
+    0%, 100% { opacity: 1; }
+    52%      { opacity: 0.7; }
+    53%      { opacity: 1; }
+  }
+  .signal-lost h2 {
+    color: var(--warning);
+    font-family: 'Courier New', monospace;
+    font-size: 28px;
+    margin: 0 0 14px;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 12px var(--warning);
+  }
+  .signal-lost p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+    margin: 0 0 20px;
+    letter-spacing: 1px;
+  }
+  .signal-lost .small-tag {
+    font-size: 12px;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--phosphor);
+    text-shadow: 0 0 10px var(--phosphor-soft);
+  }
 </style>
 </head>
 <body>
@@ -377,6 +426,18 @@
       <h1>Light-TV</h1>
       <p class="sub">All Lights · All Night · All-American</p>
     </header>
+
+    <div {after-hours-message}>
+      <div class="signal-lost">
+        <div class="closed-glyph">📺</div>
+        <h2>No Signal</h2>
+        <p>
+          Broadcast off-air for tonight.<br>
+          Tune back in at showtime.
+        </p>
+        <div class="small-tag">▸ End of transmission ◂</div>
+      </div>
+    </div>
 
     <div class="broadcast-card">
       <p class="label">Live Feed Status</p>

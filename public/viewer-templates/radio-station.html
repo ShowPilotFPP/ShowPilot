@@ -315,6 +315,46 @@
     color: var(--bg);
     border: 2px solid var(--gold-soft);
   }
+
+  /* ---------- After hours ---------- */
+  body:has([data-showpilot-container="afterhours"]:not([style*="display:none"]):not([style*="display: none"])) .deck {
+    display: none !important;
+  }
+  .signoff {
+    text-align: center;
+    padding: 56px 28px 64px;
+    margin: 16px 0 24px;
+    background: linear-gradient(180deg, var(--panel-light), var(--panel));
+    border: 2px solid var(--gold);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .signoff .closed-glyph {
+    font-size: 56px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 0 16px var(--red));
+  }
+  .signoff h2 {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: var(--gold);
+    font-size: 30px;
+    margin: 0 0 14px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 2px 0 rgba(0,0,0,0.6);
+  }
+  .signoff p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--cream);
+    margin: 0 0 20px;
+  }
+  .signoff .small-tag {
+    font-size: 12px;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--red);
+  }
 </style>
 </head>
 <body>
@@ -325,6 +365,18 @@
       <p class="tagline">All-Request Holiday Light Radio</p>
       <div class="on-air">● ON AIR</div>
     </header>
+
+    <div {after-hours-message}>
+      <div class="signoff">
+        <div class="closed-glyph">📻</div>
+        <h2>We've Signed Off</h2>
+        <p>
+          Tonight's broadcast has ended.<br>
+          Tune back in at showtime for more requests.
+        </p>
+        <div class="small-tag">● Off air ●</div>
+      </div>
+    </div>
 
     <div class="deck">
       <span class="led"></span>

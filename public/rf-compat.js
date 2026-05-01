@@ -645,18 +645,36 @@
 
     // --- Mode container visibility ---
     // Both data-showpilot-container and data-openfalcon-container are honored
-    // so templates from earlier versions keep working.
+    // so templates from earlier versions keep working. We toggle via the
+    // HTML5 `hidden` attribute (matching the server-side renderer in
+    // v0.33.8+), AND clear any inline `display:none` left by older
+    // server renders (in case the user is running a viewer page that
+    // was loaded before a server upgrade). Idempotent on repeat calls.
+    function setVisible(el, visible) {
+      if (visible) {
+        el.removeAttribute('hidden');
+        // If a previous render set inline display:none, clear it. Don't
+        // touch any non-display inline styles the template author may
+        // have placed (margin, etc.) — only flip display.
+        if (el.style && el.style.display === 'none') el.style.display = '';
+      } else {
+        el.setAttribute('hidden', '');
+        // Belt-and-braces: also set inline display:none for older
+        // viewer-side code paths that may have read it directly.
+        if (el.style) el.style.display = 'none';
+      }
+    }
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
-      el.style.display = data.viewerControlMode === 'JUKEBOX' ? '' : 'none';
+      setVisible(el, data.viewerControlMode === 'JUKEBOX');
     });
     document.querySelectorAll('[data-showpilot-container="voting"], [data-openfalcon-container="voting"]').forEach(el => {
-      el.style.display = data.viewerControlMode === 'VOTING' ? '' : 'none';
+      setVisible(el, data.viewerControlMode === 'VOTING');
     });
     // After-hours: visible when viewer control is OFF. Mirror of the server-side
     // logic in viewer-renderer.js, so flipping the admin "Off" toggle propagates
     // to viewers within one poll without requiring a reload.
     document.querySelectorAll('[data-showpilot-container="afterhours"]').forEach(el => {
-      el.style.display = data.viewerControlMode === 'OFF' ? '' : 'none';
+      setVisible(el, data.viewerControlMode === 'OFF');
     });
   }
 

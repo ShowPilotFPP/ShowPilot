@@ -933,6 +933,68 @@
   // pointer-events:none on the layer so it never blocks clicks. z-index
   // sits above page background but below the player bar.
   // ============================================================
+  // ============================================================
+  // Long-name truncation guard (v0.32.14+)
+  // ============================================================
+  // Some imported third-party templates (e.g. RF Page Builder)
+  // style `.sequence-name` with `white-space: nowrap; overflow: hidden;
+  // text-overflow: ellipsis;`. That assumes one-line song titles. Real
+  // shows have titles like "Walk the Dinosaur (From Ice Age: Dawn of
+  // the Dinosaurs)" which then truncate to "Walk the Din…". The
+  // template author can't anticipate every show's catalog, and asking
+  // every operator to learn CSS to fix it is a non-starter.
+  //
+  // Strategy: inject a low-specificity defensive rule that allows
+  // wrapping AND caps at 2 lines. We scope it to .sequence-name inside
+  // .sequence-item — that's RF Page Builder territory. Built-in
+  // ShowPilot templates and canonical RF templates never style
+  // .sequence-name (they target .jukebox-list / .cell-vote-playlist
+  // descendants), so this override is invisible to them.
+  //
+  // We use !important so RFPB's existing rules don't beat us. The
+  // 2-line clamp uses both the modern `line-clamp` and the legacy
+  // `-webkit-line-clamp` for browser coverage; modern browsers honor
+  // both. The min-width:0 guard prevents flex children from refusing
+  // to shrink and overflowing their card.
+  // ============================================================
+  (function initSequenceNameWrap() {
+    if (document.getElementById('of-seqname-wrap-style')) return; // idempotent
+    const style = document.createElement('style');
+    style.id = 'of-seqname-wrap-style';
+    style.textContent = `
+      .sequence-item .sequence-name {
+        white-space: normal !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        display: -webkit-box !important;
+        -webkit-line-clamp: 2 !important;
+        line-clamp: 2 !important;
+        -webkit-box-orient: vertical !important;
+        word-break: break-word;
+        min-width: 0;
+      }
+      .sequence-item .sequence-artist {
+        white-space: normal !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        display: -webkit-box !important;
+        -webkit-line-clamp: 1 !important;
+        line-clamp: 1 !important;
+        -webkit-box-orient: vertical !important;
+        word-break: break-word;
+        min-width: 0;
+      }
+    `;
+    // Append to <head> so it lands before the template's late <style>
+    // blocks at the end of <body>. CSS source order is what determines
+    // which rule wins among tied specificity, so position matters; but
+    // we also use !important to win across the board against templates
+    // that put nowrap rules in the body's late <style>.
+    (document.head || document.documentElement).appendChild(style);
+  })();
+
+  // ============================================================
+  // Page effects engine — snow / leaves / etc.
   (function initPageEffects() {
     const prefersReduced = window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;

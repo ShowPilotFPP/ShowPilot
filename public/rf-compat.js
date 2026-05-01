@@ -972,8 +972,12 @@
       const safeDisplay = escapeHtml(seq.display_name || seq.name);
       const safeArtist = seq.artist ? escapeHtml(seq.artist) : '';
       const count = voteCountsByName[seq.name] || 0;
+      // width/height are presentational hints — author CSS overrides them.
+      // See lib/viewer-renderer.js renderPlaylistGrid for the full rationale.
+      // Mirror the server-side defaults here so live rebuilds (mode flip,
+      // sequence list change) don't reintroduce native-resolution images.
       const artImg = seq.image_url
-        ? `<img class="sequence-image" data-seq-name="${safeNameAttr}" src="${escapeHtml(seq.image_url)}" alt="" loading="lazy" />`
+        ? `<img class="sequence-image" data-seq-name="${safeNameAttr}" src="${escapeHtml(seq.image_url)}" alt="" width="40" height="40" loading="lazy" />`
         : '';
       if (mode === 'VOTING') {
         return `<div class="cell-vote-playlist sequence-item" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" data-seq-count="${safeNameAttr}">${count}</div>`;

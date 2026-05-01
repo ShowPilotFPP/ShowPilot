@@ -265,6 +265,16 @@ router.put('/config', requireAdmin, (req, res) => {
   }
 
   updateConfig(updates);
+
+  // If the admin actually changed viewer_control_mode (not just other
+  // settings), emit the same event the plugin's mode-toggle endpoint
+  // emits — so connected viewers refresh immediately instead of waiting
+  // up to 3s for the polling fallback. Mirrors routes/plugin.js.
+  if ('viewer_control_mode' in updates) {
+    const io = req.app.get('io');
+    if (io) io.emit('viewerModeChanged', { mode: updates.viewer_control_mode });
+  }
+
   res.json({ ok: true });
 });
 

@@ -26,6 +26,10 @@
   // voteReset socket events that may be missed on mobile when the
   // socket dies during backgrounding.
   let lastKnownRoundId = null;
+  // Show name as last seen from the server. When this changes, we update
+  // document.title — but only if the title currently matches what we last
+  // saw, so a template that hard-coded its own <title> isn't stomped on.
+  let lastKnownShowName = null;
   // Tiebreak state — separate from main-round vote tracking. A user who
   // voted in the main round can still cast a tiebreak vote; this flag
   // tracks the latter independently.
@@ -465,6 +469,23 @@
       allowVoteChange = data.allowVoteChange;
     }
 
+    // --- Show name → document title (v0.33.6+) ---
+    // Admin renaming the show in settings updates every viewer's tab
+    // title within a poll. We only overwrite document.title if it
+    // currently matches the previously-seen show name — that way a
+    // template that hard-coded its own <title> (which the server-side
+    // renderer respects) keeps it.
+    if (data.showName) {
+      if (lastKnownShowName === null) {
+        lastKnownShowName = data.showName;
+      } else if (data.showName !== lastKnownShowName) {
+        if (document.title === lastKnownShowName) {
+          document.title = data.showName;
+        }
+        lastKnownShowName = data.showName;
+      }
+    }
+
     // --- Now-playing timer (v0.32.9+) ---
     // The server sends started_at + duration on every state poll. Pass
     // both (even if null — that's how we know to render --:--).
@@ -591,10 +612,27 @@
       }
     }
 
+    // --- Sequence list live rebuild (v0.33.6+) ---
+    // When admin adds/removes/reorders/renames sequences (or edits
+    // display_name / artist / image_url), the viewer's clickable grid is
+    // stale until refresh. We mirror renderPlaylistGrid from
+    // lib/viewer-renderer.js client-side and rebuild the affected
+    // wrapper's innerHTML when the data signature changes.
+    //
+    // We find the wrapper by walking up from any [data-seq] element.
+    // Templates have at most two wrappers (one in the jukebox container,
+    // one in the voting container, if they support both modes). If the
+    // server-rendered list was empty at page load, there are no [data-seq]
+    // anchors and we can't find the wrapper — viewers in that narrow case
+    // need a refresh to see newly-added sequences. Documented as known.
+    rebuildPlaylistGridIfNeeded(data);
+
     // --- Sequence cover images (live-update when admin changes a cover) ---
     // Each sequence-image carries data-seq-name so we can target it precisely.
     // The server returns image_url with a ?v=<mtime> cache-buster, so a different
-    // src means the cover was updated.
+    // src means the cover was updated. After rebuildPlaylistGridIfNeeded this is
+    // typically a no-op (the rebuild used the new url) — kept as a lighter-weight
+    // path for the "only the cover changed" case where rebuild was skipped.
     (data.sequences || []).forEach(seq => {
       if (!seq.image_url) return;
       const imgs = document.querySelectorAll(`img[data-seq-name="${CSS.escape(seq.name)}"]`);
@@ -859,6 +897,132 @@
     return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   }
 
+  // ============================================================
+  // Playlist grid live rebuild (v0.33.6+)
+  // ============================================================
+  // Mirrors lib/viewer-renderer.js#renderPlaylistGrid so the viewer's
+  // clickable list updates without a refresh when admin edits the
+  // sequence list. Called from applyStateUpdate on every state poll.
+  //
+  // We find playlist wrappers by walking up from any [data-seq]
+  // element. The wrapper is the parent that holds rows. Templates may
+  // have one (single-mode template) or two (dual-mode template, one
+  // wrapper per mode-container). We rebuild each wrapper independently
+  // and only when its computed signature differs from the data — so
+  // unchanged wrappers don't churn the DOM and unrelated event handlers
+  // / hover state survive.
+  //
+  // The empty-initial-load edge case: if the page was rendered with
+  // zero sequences, there are no [data-seq] anchors to find a wrapper
+  // by, and a subsequent admin sequence-add won't appear until the
+  // viewer refreshes. Acceptable trade-off — alternative would be
+  // emitting a sentinel element on every {PLAYLISTS} substitution,
+  // which risks breaking template CSS that targets direct-child
+  // siblings (.voting_table grid-template-columns, etc.).
+
+  // Stable signature of the desired grid contents — name, display_name,
+  // artist, image_url, and vote count. Order matters (admin-controlled
+  // ordering is meaningful). Mode is included so a JUKEBOX→VOTING flip
+  // forces a rebuild even if sequences are identical.
+  function computeGridSignature(sequences, voteCountsByName, mode) {
+    const parts = [mode];
+    for (const s of sequences) {
+      parts.push(
+        s.name + '|' +
+        (s.display_name || '') + '|' +
+        (s.artist || '') + '|' +
+        (s.image_url || '') + '|' +
+        (voteCountsByName[s.name] || 0)
+      );
+    }
+    return parts.join('\n');
+  }
+
+  // Mirror of the server's renderPlaylistGrid — must produce IDENTICAL
+  // markup so click handlers and template CSS keep working. If you
+  // change one side, change the other. (Tested by comparing rendered
+  // HTML in /tmp/test-playlist-rebuild.js.)
+  //
+  // Note: we use escapeHtml (not escapeAttr) for data-seq and
+  // data-seq-name values because that's what the server-side renderer
+  // does — escapeAttr doesn't escape ' or > and would produce
+  // divergent markup for sequences with those chars in their names.
+  function renderRowsForMode(sequences, voteCountsByName, mode) {
+    return sequences.map(seq => {
+      const safeNameJs = escapeJsString(seq.name);
+      const safeNameAttr = escapeHtml(seq.name);
+      const safeDisplay = escapeHtml(seq.display_name || seq.name);
+      const safeArtist = seq.artist ? escapeHtml(seq.artist) : '';
+      const count = voteCountsByName[seq.name] || 0;
+      const artImg = seq.image_url
+        ? `<img class="sequence-image" data-seq-name="${safeNameAttr}" src="${escapeHtml(seq.image_url)}" alt="" loading="lazy" />`
+        : '';
+      if (mode === 'VOTING') {
+        return `<div class="cell-vote-playlist sequence-item" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" data-seq-count="${safeNameAttr}">${count}</div>`;
+      } else {
+        return `<div class="jukebox-list sequence-item" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
+      }
+    }).join('');
+  }
+
+  // Find the unique playlist wrapper(s) by walking up from existing rows.
+  // Returns 0, 1, or 2 elements depending on template shape.
+  function findPlaylistWrappers() {
+    const wrappers = new Set();
+    document.querySelectorAll('[data-seq]').forEach(el => {
+      // Skip queue items and tiebreak candidate buttons — they also use
+      // data-seq but live in different parents. Identify them by class.
+      if (el.classList.contains('queue-item')) return;
+      if (el.hasAttribute('data-tb-candidate')) return;
+      if (el.parentElement) wrappers.add(el.parentElement);
+    });
+    return Array.from(wrappers);
+  }
+
+  // Per-wrapper signature cache so we only rebuild on actual change.
+  // WeakMap so detached wrappers GC normally.
+  const _gridSigCache = new WeakMap();
+
+  function rebuildPlaylistGridIfNeeded(data) {
+    const sequences = data.sequences || [];
+    const mode = data.viewerControlMode || 'OFF';
+    // Only meaningful in JUKEBOX or VOTING; in OFF the mode containers
+    // are hidden, so rebuilding their stale contents wastes work but
+    // doesn't hurt. Skip to keep churn low.
+    if (mode !== 'JUKEBOX' && mode !== 'VOTING') return;
+
+    const voteCountsByName = {};
+    (data.voteCounts || []).forEach(v => { voteCountsByName[v.sequence_name] = v.count; });
+    const desiredSig = computeGridSignature(sequences, voteCountsByName, mode);
+
+    const wrappers = findPlaylistWrappers();
+    if (wrappers.length === 0) return; // Empty-initial-load edge case.
+
+    for (const wrapper of wrappers) {
+      // Determine which mode this wrapper belongs to. Walk up to the
+      // nearest [data-showpilot-container] ancestor and read its mode.
+      // If no container ancestor (single-mode template with no mode
+      // container), assume the active mode.
+      let targetMode = mode;
+      let cur = wrapper;
+      while (cur && cur !== document.body) {
+        const c = cur.getAttribute && cur.getAttribute('data-showpilot-container');
+        if (c === 'jukebox') { targetMode = 'JUKEBOX'; break; }
+        if (c === 'voting') { targetMode = 'VOTING'; break; }
+        cur = cur.parentElement;
+      }
+      // Only rebuild a wrapper whose mode matches the active mode —
+      // the inactive one is hidden anyway and won't be seen.
+      if (targetMode !== mode) continue;
+
+      const wrapperSig = _gridSigCache.get(wrapper);
+      if (wrapperSig === desiredSig) continue;
+
+      wrapper.innerHTML = renderRowsForMode(sequences, voteCountsByName, targetMode);
+      _gridSigCache.set(wrapper, desiredSig);
+    }
+  }
+
   // Initial heartbeat + immediate state refresh
   fetch('/api/heartbeat', { method: 'POST', credentials: 'include' }).catch(() => {});
   refreshState();
@@ -881,6 +1045,11 @@
       });
       socket.on('sequencesReordered', () => refreshState());
       socket.on('sequencesSynced', () => refreshState());
+      // Mode toggle (admin flipping JUKEBOX / VOTING / OFF) — fires
+      // server-side in routes/plugin.js. Without this, viewers wait up
+      // to 3s for the next poll to see the after-hours block appear or
+      // the active grid swap. With it, propagation is instant.
+      socket.on('viewerModeChanged', () => refreshState());
       // ---- Tiebreak events (v0.24.0+) ----
       socket.on('tiebreakStarted', (data) => {
         showTiebreakUI(data);

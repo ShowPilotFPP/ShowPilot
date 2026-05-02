@@ -72,9 +72,11 @@
     alreadyQueued: 'requestPlaying',
     queueFull: 'queueFull',
     alreadyVoted: 'alreadyVoted',
+    songPlaying: 'songPlaying',
+    songNextUp:  'songNextUp',
   };
 
-  function showMessage(id, durationMs, textOverride) {
+  function showMessage(id, durationMs, textOverride, fallbackText) {
     let el = document.getElementById(id);
     let usedFallback = false;
     // Fallback: if a vote-specific success isn't defined in this template,
@@ -82,6 +84,13 @@
     if (!el && id === MSG_IDS.voteSuccess) {
       el = document.getElementById(MSG_IDS.success);
       usedFallback = true;
+    }
+    // Fallback: if a specific error element isn't in this template (e.g. code-mode
+    // or imported RF templates that predate these IDs), show #requestFailed with
+    // the actual server error text so the user gets a meaningful message.
+    if (!el && fallbackText) {
+      el = document.getElementById(MSG_IDS.failed);
+      if (el) textOverride = fallbackText;
     }
     if (!el) {
       console.warn('[ShowPilot] no element with id', id, '— message could not be displayed');
@@ -132,6 +141,8 @@
     if (msg.includes('already voted')) return MSG_IDS.alreadyVoted;
     if (msg.includes('already') && (msg.includes('request') || msg.includes('queue'))) return MSG_IDS.alreadyQueued;
     if (msg.includes('queue is full') || msg.includes('full')) return MSG_IDS.queueFull;
+    if (msg.includes('playing right now')) return MSG_IDS.songPlaying;
+    if (msg.includes('already up next') || msg.includes('up next')) return MSG_IDS.songNextUp;
     return MSG_IDS.failed;
   }
 
@@ -374,7 +385,7 @@
       // ShowPilotRequest's behavior, which has always done this.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error));
+      showMessage(mapErrorToId(result.data?.error), undefined, undefined, result.data?.error);
     }
   };
 
@@ -388,7 +399,7 @@
       showMessage(MSG_IDS.success);
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error));
+      showMessage(mapErrorToId(result.data?.error), undefined, undefined, result.data?.error);
     }
   };
 
@@ -904,7 +915,7 @@
       // the tiebreakVoteUpdate socket event.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error));
+      showMessage(mapErrorToId(result.data?.error), undefined, undefined, result.data?.error);
     }
   };
 
@@ -939,18 +950,20 @@
   // siblings (.voting_table grid-template-columns, etc.).
 
   // Stable signature of the desired grid contents — name, display_name,
-  // artist, image_url, and vote count. Order matters (admin-controlled
-  // ordering is meaningful). Mode is included so a JUKEBOX→VOTING flip
-  // forces a rebuild even if sequences are identical.
-  function computeGridSignature(sequences, voteCountsByName, mode) {
+  // artist, and image_url. Order matters (admin-controlled ordering is
+  // meaningful). Mode is included so a JUKEBOX→VOTING flip forces a
+  // rebuild. Vote counts are intentionally excluded: they're managed by
+  // the direct DOM update in applyStateUpdate and don't need a full
+  // innerHTML rebuild on every vote change.
+  function computeGridSignature(sequences, mode) {
     const parts = [mode];
     for (const s of sequences) {
       parts.push(
         s.name + '|' +
         (s.display_name || '') + '|' +
         (s.artist || '') + '|' +
-        (s.image_url || '') + '|' +
-        (voteCountsByName[s.name] || 0)
+        (s.image_url || '')
+        // vote counts excluded — managed by the direct DOM update in applyStateUpdate
       );
     }
     return parts.join('\n');
@@ -1015,7 +1028,7 @@
 
     const voteCountsByName = {};
     (data.voteCounts || []).forEach(v => { voteCountsByName[v.sequence_name] = v.count; });
-    const desiredSig = computeGridSignature(sequences, voteCountsByName, mode);
+    const desiredSig = computeGridSignature(sequences, mode);
 
     const wrappers = findPlaylistWrappers();
     if (wrappers.length === 0) return; // Empty-initial-load edge case.

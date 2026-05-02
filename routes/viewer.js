@@ -204,7 +204,7 @@ router.get('/state', (req, res) => {
   const voteCounts = db.prepare(`
     SELECT sequence_name, COUNT(*) AS count FROM votes WHERE round_id = ? GROUP BY sequence_name
   `).all(cfg.current_voting_round);
-  console.log(`[/api/state] round=${cfg.current_voting_round} voteCounts=${JSON.stringify(voteCounts)}`);
+  
 
   // Queue: all unplayed entries, ordered by request time. This now includes
   // entries currently handed off to the plugin (handed_off_at IS NOT NULL,

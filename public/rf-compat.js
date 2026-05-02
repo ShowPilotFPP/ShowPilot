@@ -142,7 +142,7 @@
     if (msg.includes('already') && (msg.includes('request') || msg.includes('queue'))) return MSG_IDS.alreadyQueued;
     if (msg.includes('queue is full') || msg.includes('full')) return MSG_IDS.queueFull;
     if (msg.includes('playing right now')) return MSG_IDS.songPlaying;
-    if (msg.includes('already up next') || msg.includes('up next')) return MSG_IDS.songNextUp;
+    if (msg.includes('already up next')) return MSG_IDS.songNextUp;
     return MSG_IDS.failed;
   }
 

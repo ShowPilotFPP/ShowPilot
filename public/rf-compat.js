@@ -3158,7 +3158,9 @@
             setTimeout(() => a.addEventListener('canplay', onReady, { once: true }), 3000);
           }
           a.addEventListener('error', onErr, { once: true });
-          setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, 15000);
+          // Relay: long timeout — stream stays open for the whole song.
+          // Cache: 15s is plenty for a file download.
+          setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, useRelay ? 600000 : 15000);
         });
 
         // ---- Play immediately, correct after startup (v0.27.0) ----

@@ -2639,6 +2639,22 @@
     }
 
     // ---- Initialization (when panel first opens) ----
+    // ---- Debug overlay ----
+    // Add ?debug=1 to URL to show sync details on phone.
+    // Shows: drift, FPP position, clockOffset, playbackRate, Socket.io latency.
+    const debugMode = new URLSearchParams(window.location.search).get('debug') === '1';
+    let debugEl = null;
+    if (debugMode) {
+      debugEl = document.createElement('div');
+      debugEl.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
+        background: rgba(0,0,0,0.85); color: #0f0; font: 11px monospace;
+        padding: 6px 8px; line-height: 1.6; pointer-events: none;
+        white-space: pre;
+      `;
+      document.body.appendChild(debugEl);
+    }
+
     async function startup() {
       try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -3425,13 +3441,26 @@
         const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
         const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
         const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
-        const drift = htmlAudio.currentTime - fppPositionNow; // positive = we're ahead
+        const drift = htmlAudio.currentTime - fppPositionNow;
         const driftMs = Math.round(drift * 1000);
 
         if (driftEl) {
           driftEl.textContent = '· ' + (driftMs >= 0 ? '+' : '') + driftMs + 'ms';
           const absMs = Math.abs(driftMs);
           driftEl.style.color = absMs < 150 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
+        }
+
+        if (debugEl) {
+          const propagationMs = Math.round(Date.now() - clientTimeOfUpdate);
+          debugEl.textContent = [
+            `drift:       ${driftMs >= 0 ? '+' : ''}${driftMs}ms`,
+            `playbackRate: ${htmlAudio.playbackRate.toFixed(4)}`,
+            `fppPos:      ${fppPositionNow.toFixed(3)}s`,
+            `audioPos:    ${htmlAudio.currentTime.toFixed(3)}s`,
+            `staleness:   ${msSinceFppUpdate}ms`,
+            `propagation: ${propagationMs}ms`,
+            `clockOffset: ${Math.round(clockOffset)}ms`,
+          ].join('\n');
         }
 
         // Proportional playbackRate correction — rate scales with drift magnitude.

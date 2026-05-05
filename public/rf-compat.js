@@ -3197,16 +3197,20 @@
         htmlAudio = a;
 
         if (useRelay) {
-          // Relay mode: all phones schedule .play() at the same server-time moment.
-          // Use the serverNowMs already in data — no extra fetch needed.
-          // 1500ms window gives all phones time to buffer and reach this point.
+          // Relay mode: all phones aim at the same absolute server-time moment.
+          // trackStartedAtMs is identical for all phones for this song — it's
+          // set once when the song starts. We schedule play at:
+          //   trackStartedAtMs + elapsedSec*1000 + 800ms (server epoch)
+          // converted to each phone's local clock via clockOffset.
+          // Phones that polled at different times still land on the same target.
           const myGeneration = playGeneration;
-          const serverNow = data.serverNowMs || Date.now();
-          const clockOff = serverNow - Date.now();
-          const playAtClientMs = (serverNow + 1500) - clockOff;
-          const waitMs = Math.max(0, playAtClientMs - Date.now());
+          const songStartServerMs = data.trackStartedAtMs || (data.serverNowMs - (data.elapsedSec || 0) * 1000);
+          const targetServerMs = songStartServerMs + (data.elapsedSec || 0) * 1000 + 800;
+          const targetClientMs = targetServerMs - clockOffset;
+          const waitMs = Math.max(10, targetClientMs - Date.now());
+          console.info('[ShowPilot] relay scheduled play in', waitMs, 'ms');
           await new Promise(r => setTimeout(r, waitMs));
-          if (playGeneration !== myGeneration) return; // cancelled
+          if (playGeneration !== myGeneration) return;
         }
 
         await a.play();

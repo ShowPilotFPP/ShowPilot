@@ -3099,21 +3099,15 @@
       // if the relay isn't active the server returns 503 and we fall back to
       // the cache path. No separate HEAD probe — that would open a dead
       // connection on the relay and stagger phone join times.
-      // Server tells us via relayActive whether the relay is live.
-      // Reset useRelay here so it's fresh for each track change.
+      // Source priority: relay (live sync) → cache (fallback)
       useRelay = false;
 
       try {
-        // Create a fresh <audio> element each track. Reusing one across
-        // tracks would inherit position/buffering state in subtle ways.
-        // Cheap to create — browsers optimize this.
         if (htmlAudio) {
           try { htmlAudio.pause(); htmlAudio.src = ''; htmlAudio.load(); } catch {}
           htmlAudio = null;
         }
 
-        // Server tells us directly whether the relay is active via relayActive flag.
-        // No probe needed — avoids opening a dead streaming connection on the relay.
         useRelay = !!(data.relayActive && data.relayUrl);
         const chosenUrl = useRelay
           ? window.location.origin + data.relayUrl

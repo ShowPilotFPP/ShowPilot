@@ -838,7 +838,16 @@ router.get('/now-playing-audio', (req, res) => {
     // is not active (503 response). Relay is same-origin only (LAN/local listeners);
     // external listeners use publicStreamUrl which goes through the cache path.
     relayUrl: `/api/audio-relay/${encodeURIComponent(seq.name)}`,
-    relayActive: (() => { try { const a = require('../lib/audio-relay').getActiveSequence(); return a && a.toLowerCase() === seq.name.toLowerCase(); } catch(_) { return false; } })(),
+    relayActive: (() => {
+      try {
+        const cfg = getConfig();
+        // Relay is available whenever audio is enabled, FPP host is configured,
+        // and a sequence with audio is playing. The daemon connection lifecycle
+        // is independent — viewers connect directly to /api/audio-relay which
+        // opens a fresh daemon connection per listener if needed.
+        return !!(cfg.audio_enabled !== 0 && cfg.plugin_fpp_host && seq.media_name);
+      } catch(_) { return false; }
+    })(),
     // Per-show sync offset in milliseconds. Positive = play audio LATER
     // (compensates for audio arriving too early — the typical case after
     // the cache change, since cache delivery is faster than the previous
@@ -855,40 +864,59 @@ router.get('/now-playing-audio', (req, res) => {
 // ============================================================
 // GET /api/audio-relay/:sequence
 // ============================================================
-// Live broadcast relay endpoint. The server maintains one open
-// connection to FPP per playing song and fans the bytes to every
-// connected listener simultaneously. All listeners hear the same
-// bytes at the same wall-clock moment → automatic sync, no offset.
-//
-// Falls back to the cache/proxy endpoint if no relay is active for
-// this sequence (song not currently playing, relay not started yet,
-// or audio is disabled).
+// Proxies directly to the ShowPilot audio daemon on the FPP Pi.
+// Each viewer gets their own connection to the daemon which serves
+// from the current playback position. Since all viewers connect at
+// roughly the same time (song start) and the daemon sends at real-time
+// pace, they stay in sync with each other and with the speakers.
 router.get('/audio-relay/:sequence', (req, res) => {
   const cfg = getConfig();
   if (cfg.audio_enabled === 0) {
     return res.status(404).send('Audio is disabled for this show.');
   }
+  if (!cfg.plugin_fpp_host) {
+    return res.status(503).json({ error: 'no_fpp_host' });
+  }
 
   const reqName = String(req.params.sequence || '');
-  const { addListener, getActiveSequence } = require('../lib/audio-relay');
-
-  // Normalize: look up the canonical sequence name the same way audio-stream does.
   let seq = getSequenceByName(reqName);
   if (!seq) {
     seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
   }
-  if (!seq) return res.status(404).send('Sequence not found');
+  if (!seq || !seq.media_name) return res.status(404).send('Sequence not found');
 
-  const activeSeq = getActiveSequence();
-  if (activeSeq && activeSeq.toLowerCase() === seq.name.toLowerCase()) {
-    // Relay is live for this sequence — add this viewer to the broadcast.
-    const added = addListener(seq.name, res);
-    if (added) return; // response stays open, relay drives it from here
-  }
+  const http = require('http');
+  const daemonHost = cfg.plugin_fpp_host;
+  const daemonPort = cfg.audio_daemon_port || 8090;
+  const daemonPath = `/audio/${encodeURIComponent(seq.media_name)}`;
 
-  // No active relay (song not playing, between songs, relay not started yet).
-  // Return 503 so the viewer falls back to the cache endpoint.
-  res.status(503).json({ error: 'relay_not_active', fallback: true });
+  const daemonReq = http.get({
+    hostname: daemonHost,
+    port: daemonPort,
+    path: daemonPath,
+  }, (daemonRes) => {
+    if (daemonRes.statusCode !== 200) {
+      res.status(daemonRes.statusCode).send('Daemon error');
+      return;
+    }
+    const ct = daemonRes.headers['content-type'] || 'audio/mpeg';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Audio-Source', 'daemon-proxy');
+    res.status(200);
+    daemonRes.pipe(res);
+    res.on('close', () => daemonRes.destroy());
+  });
+
+  daemonReq.on('error', (err) => {
+    console.error('[audio-relay] daemon connect error:', err.message);
+    if (!res.headersSent) res.status(503).json({ error: 'daemon_unreachable' });
+  });
+
+  daemonReq.setTimeout(5000, () => {
+    daemonReq.destroy();
+    if (!res.headersSent) res.status(503).json({ error: 'daemon_timeout' });
+  });
 });
 
 router.get('/audio-stream/:sequence', async (req, res) => {

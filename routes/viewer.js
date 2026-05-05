@@ -840,12 +840,11 @@ router.get('/now-playing-audio', (req, res) => {
     relayUrl: `/api/audio-relay/${encodeURIComponent(seq.name)}`,
     relayActive: (() => {
       try {
+        const a = require('../lib/audio-relay').getActiveSequence();
+        // Also true if FPP host is configured — viewer will use fallback daemon proxy
         const cfg = getConfig();
-        // Relay is available whenever audio is enabled, FPP host is configured,
-        // and a sequence with audio is playing. The daemon connection lifecycle
-        // is independent — viewers connect directly to /api/audio-relay which
-        // opens a fresh daemon connection per listener if needed.
-        return !!(cfg.audio_enabled !== 0 && cfg.plugin_fpp_host && seq.media_name);
+        return !!(a && a.toLowerCase() === seq.name.toLowerCase()) ||
+               !!(cfg.plugin_fpp_host && seq.media_name);
       } catch(_) { return false; }
     })(),
     // Per-show sync offset in milliseconds. Positive = play audio LATER
@@ -864,52 +863,49 @@ router.get('/now-playing-audio', (req, res) => {
 // ============================================================
 // GET /api/audio-relay/:sequence
 // ============================================================
-// Proxies directly to the ShowPilot audio daemon on the FPP Pi.
-// Each viewer gets their own connection to the daemon which serves
-// from the current playback position. Since all viewers connect at
-// roughly the same time (song start) and the daemon sends at real-time
-// pace, they stay in sync with each other and with the speakers.
+// Primary: shared relay — one daemon connection fanned to all viewers
+// simultaneously. All viewers get the same bytes at the same moment = sync.
+// Fallback: per-viewer daemon proxy if shared relay isn't active yet.
 router.get('/audio-relay/:sequence', (req, res) => {
   const cfg = getConfig();
-  if (cfg.audio_enabled === 0) {
-    return res.status(404).send('Audio is disabled for this show.');
-  }
-  if (!cfg.plugin_fpp_host) {
-    return res.status(503).json({ error: 'no_fpp_host' });
-  }
+  if (cfg.audio_enabled === 0) return res.status(404).send('Audio is disabled.');
+  if (!cfg.plugin_fpp_host) return res.status(503).json({ error: 'no_fpp_host' });
 
   const reqName = String(req.params.sequence || '');
   let seq = getSequenceByName(reqName);
-  if (!seq) {
-    seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
-  }
+  if (!seq) seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
   if (!seq || !seq.media_name) return res.status(404).send('Sequence not found');
 
-  const http = require('http');
-  const daemonHost = cfg.plugin_fpp_host;
-  const daemonPort = cfg.audio_daemon_port || 8090;
-  const daemonPath = `/audio/${encodeURIComponent(seq.media_name)}`;
+  // Try shared relay first — all viewers get identical bytes = automatic sync
+  const { addListener, getActiveSequence } = require('../lib/audio-relay');
+  const activeSeq = getActiveSequence();
+  if (activeSeq && activeSeq.toLowerCase() === seq.name.toLowerCase()) {
+    const added = addListener(seq.name, res);
+    if (added) return;
+  }
 
+  // Fallback: direct per-viewer daemon connection.
+  // Less ideal for sync but better than silence.
+  const http = require('http');
   const daemonReq = http.get({
-    hostname: daemonHost,
-    port: daemonPort,
-    path: daemonPath,
+    hostname: cfg.plugin_fpp_host,
+    port: cfg.audio_daemon_port || 8090,
+    path: `/audio/${encodeURIComponent(seq.media_name)}`,
   }, (daemonRes) => {
     if (daemonRes.statusCode !== 200) {
-      res.status(daemonRes.statusCode).send('Daemon error');
+      if (!res.headersSent) res.status(daemonRes.statusCode).send('Daemon error');
       return;
     }
-    const ct = daemonRes.headers['content-type'] || 'audio/mpeg';
-    res.setHeader('Content-Type', ct);
+    res.setHeader('Content-Type', daemonRes.headers['content-type'] || 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Audio-Source', 'daemon-proxy');
+    res.setHeader('X-Audio-Source', 'daemon-direct');
     res.status(200);
     daemonRes.pipe(res);
     res.on('close', () => daemonRes.destroy());
   });
 
   daemonReq.on('error', (err) => {
-    console.error('[audio-relay] daemon connect error:', err.message);
+    console.error('[audio-relay] fallback daemon error:', err.message);
     if (!res.headersSent) res.status(503).json({ error: 'daemon_unreachable' });
   });
 

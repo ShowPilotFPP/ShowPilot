@@ -3098,6 +3098,17 @@
     // ---- Track switch ----
     async function handleTrackChange(data) {
       currentSequence = data.sequenceName;
+
+      // Seed fppStatus from now-playing-audio response so we always have
+      // a position to fall back to even if no fppPosition WS event has
+      // arrived yet. elapsedSec + serverNowMs gives us a usable anchor.
+      if (data.elapsedSec > 0 && data.serverNowMs && !fppStatus) {
+        fppStatus = {
+          positionSec: data.elapsedSec,
+          serverTimestamp: data.serverNowMs,
+          filename: data.mediaName || null,
+        };
+      }
       currentMediaName = data.sequenceName;
       trackStartedAtMs = data.trackStartedAtMs || (Date.now() + clockOffset - (data.elapsedSec * 1000));
       trackDuration = data.durationSec || 0;
@@ -3192,7 +3203,7 @@
           if (audioSock) audioSock.once('fppPosition', handler);
           setTimeout(() => {
             if (!resolved) { resolved = true; resolve(fppStatus); }
-          }, 500);
+          }, 1500);
         });
         if (playGeneration !== myGeneration) return;
 

@@ -3197,10 +3197,10 @@
             if (!resolved) { resolved = true; resolve(msg); }
           };
           if (audioSock) audioSock.once('fppSyncPoint', handler);
-          // Fallback: if no syncPoint in 6s, use current fppStatus
+          // Fallback: if no syncPoint in 10s, use current fppStatus
           setTimeout(() => {
             if (!resolved) { resolved = true; resolve(fppStatus); }
-          }, 6000);
+          }, 10000);
         });
         if (playGeneration !== myGeneration) return;
 

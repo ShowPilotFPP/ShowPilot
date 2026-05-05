@@ -3449,8 +3449,9 @@
         const driftMs = Math.round(drift * 1000);
 
         if (driftEl) {
-          driftEl.textContent = '· ' + (driftMs >= 0 ? '+' : '') + driftMs + 'ms';
           const absMs = Math.abs(driftMs);
+          driftEl.textContent = '· ' + (driftMs >= 0 ? '+' : '') + driftMs + 'ms' +
+            (htmlAudio._seekedTo ? ' [s:' + htmlAudio._seekedTo.toFixed(1) + ']' : '');
           driftEl.style.color = absMs < 150 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
         }
 

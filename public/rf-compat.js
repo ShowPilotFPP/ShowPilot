@@ -3415,6 +3415,14 @@
     //     to travel — usually negligible, but two devices on opposite
     //     sides of a room can be 30-40ms apart just from physics)
     function updateDriftDisplay() {
+      // In relay mode the browser's currentTime starts from 0 (time since
+      // stream connected) while expected position is calculated from FPP's
+      // started_at — completely different references. The number is meaningless
+      // so just hide it rather than confuse the user.
+      if (useRelay) {
+        if (driftEl) driftEl.textContent = '';
+        return;
+      }
       // HTML5 audio path: compare element's currentTime to expected.
       // If we have no element or it's not far enough into playback to
       // measure meaningfully, clear the display and bail.

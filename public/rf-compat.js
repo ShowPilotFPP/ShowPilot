@@ -3508,7 +3508,8 @@
             console.info('[ShowPilot] startup snap:', driftMs, 'ms → seeking to', fppPositionNow.toFixed(3), 's');
           } catch (_) {}
         } else if (Math.abs(driftMs) > 150) {
-          const correction = Math.min(Math.abs(driftMs) / 25000, 0.02);
+          // Proportional: max 0.5% — inaudible but still corrects over time
+          const correction = Math.min(Math.abs(driftMs) / 100000, 0.005);
           htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
           htmlAudio.playbackRate = 1.0;

@@ -3175,11 +3175,10 @@
 
         let targetPosition;
         if (fppStatus && fppStatus.positionSec > 0 && fppStatus.serverTimestamp) {
-          // Live FPP position available — seek to where FPP is right now.
-          // No lead time needed: we seek then play immediately.
-          const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
-          const msSinceUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
-          targetPosition = fppStatus.positionSec + (msSinceUpdate / 1000) - (audioSyncOffsetMs / 1000);
+          // Seek to raw FPP position — don't add staleness here because
+          // the time between seek and actual play() output accounts for it.
+          // Adding staleness was causing ~800ms overshoot.
+          targetPosition = fppStatus.positionSec - (audioSyncOffsetMs / 1000);
         } else {
           // No live position — use server clock extrapolation with lead time
           const TARGET_LEAD_MS = 600;
@@ -3203,6 +3202,7 @@
           return;
         }
         a.currentTime = targetPosition;
+        a._seekedTo = targetPosition; // for debug overlay
 
         htmlAudio = a;
         await a.play();
@@ -3464,6 +3464,7 @@
             `staleness:   ${msSinceFppUpdate}ms`,
             `propagation: ${propagationMs}ms`,
             `clockOffset: ${Math.round(clockOffset)}ms`,
+            `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
           ].join('\n');
         }
 

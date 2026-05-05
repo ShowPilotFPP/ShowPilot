@@ -2391,6 +2391,9 @@
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
     let audioSyncOffsetMs = 0;    // per-show offset to compensate for FPP audio output latency vs cache delivery speed. Server sends this; positive = audio plays LATER (compensates for too-early arrival)
+    // Incremented on every stopAudio/teardown/track-change so in-flight async
+    // operations (scheduled play, clock fetch) can detect they're stale and bail.
+    let playGeneration = 0;
 
     // The HTML5 <audio> element used for playback. We use HTML5 audio
     // (rather than Web Audio API) because it provides much better
@@ -3109,9 +3112,30 @@
         }
 
         useRelay = !!(data.relayActive && data.relayUrl);
-        const chosenUrl = useRelay
+        let chosenUrl = useRelay
           ? window.location.origin + data.relayUrl
           : (data.streamUrl ? window.location.origin + data.streamUrl : data.publicStreamUrl);
+
+        // If relay is flagged active but the daemon just started, retry briefly
+        // before falling back to cache. Avoids immediate load error on song change.
+        if (useRelay) {
+          const myGen = playGeneration;
+          let relayReady = false;
+          for (let i = 0; i < 5; i++) {
+            if (playGeneration !== myGen) return; // cancelled
+            try {
+              const r = await fetch(chosenUrl, { method: 'HEAD', signal: AbortSignal.timeout(600) });
+              if (r.status !== 503) { relayReady = true; break; }
+            } catch (_) {}
+            await new Promise(r => setTimeout(r, 400));
+          }
+          if (!relayReady) {
+            useRelay = false;
+            chosenUrl = data.streamUrl
+              ? window.location.origin + data.streamUrl
+              : data.publicStreamUrl;
+          }
+        }
 
         if (!chosenUrl) {
           statusEl.textContent = 'No audio source available';
@@ -3196,21 +3220,21 @@
         if (useRelay) {
           // Relay mode: schedule .play() at a fixed server-time moment so all
           // phones start playback simultaneously regardless of when canplay fired.
-          // Fetch server clock, add 500ms for all phones to receive and act on it.
+          const myGeneration = playGeneration;
           try {
             const clockRes = await fetch(window.location.origin + '/api/now-playing-audio', {
               signal: AbortSignal.timeout(1500),
             });
+            if (playGeneration !== myGeneration) return; // cancelled by stopAudio/close/track-change
             const clockData = clockRes.ok ? await clockRes.json() : null;
             const serverNow = clockData?.serverNowMs || Date.now();
-            const clientNow = Date.now();
-            const clockOffset = serverNow - clientNow; // server ahead/behind client
-            const playAtServerMs = serverNow + 500; // play 500ms from now (server time)
-            const playAtClientMs = playAtServerMs - clockOffset; // convert to client time
+            const clockOff = serverNow - Date.now();
+            const playAtClientMs = (serverNow + 500) - clockOff;
             const waitMs = Math.max(0, playAtClientMs - Date.now());
             await new Promise(r => setTimeout(r, waitMs));
+            if (playGeneration !== myGeneration) return; // cancelled during wait
           } catch (_) {
-            // Clock fetch failed — just play immediately
+            if (playGeneration !== playGeneration) return;
           }
         }
 
@@ -3220,6 +3244,13 @@
         statusEl.textContent = '';
         if (audioStartedAtMs === 0) audioStartedAtMs = Date.now();
       } catch (err) {
+        // On relay mode, a load error at song change is usually the relay
+        // starting up — wait 2s and let the poll loop retry via handleTrackChange.
+        if (useRelay && err.message && err.message.includes('load')) {
+          console.info('[ShowPilot] relay load error on song change, poll loop will retry');
+          statusEl.textContent = 'Starting…';
+          return; // don't show error, just wait for next poll
+        }
         statusEl.textContent = 'Load failed: ' + (err.message || err);
         console.warn('[ShowPilot] HTML5 audio load failed:', err);
       }
@@ -3377,6 +3408,7 @@
     }
 
     function stopAudio() {
+      playGeneration++; // cancel any in-flight scheduled play
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}

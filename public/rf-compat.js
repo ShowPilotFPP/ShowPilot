@@ -3188,16 +3188,20 @@
         // therefore to within ~2x that noise of each other. Empirically
         // this is well under 100ms — below the threshold of perception
         // for synchronized music in adjacent cars.
-        const startPosition = getExpectedPosition();
-        if (startPosition < 0) {
-          a.currentTime = 0;
-        } else if (a.duration && startPosition >= a.duration) {
-          // Track will be over by the time we'd start. Track-change poll
-          // will pick up the next sequence on its own.
-          statusEl.textContent = 'Waiting for next track…';
-          return;
-        } else {
-          a.currentTime = startPosition;
+        // Relay mode: don't seek. The stream starts at the current live
+        // position already — seeking would break the connection. Just play.
+        if (!useRelay) {
+          const startPosition = getExpectedPosition();
+          if (startPosition < 0) {
+            a.currentTime = 0;
+          } else if (a.duration && startPosition >= a.duration) {
+            // Track will be over by the time we'd start. Track-change poll
+            // will pick up the next sequence on its own.
+            statusEl.textContent = 'Waiting for next track…';
+            return;
+          } else {
+            a.currentTime = startPosition;
+          }
         }
 
         // Set as active right before play so the drift loop's re-seek
@@ -3205,8 +3209,7 @@
         htmlAudio = a;
         await a.play();
         // Schedule the one-shot post-start measurement-and-correction.
-        // updateDriftDisplay() (running on its existing interval) checks
-        // this timestamp every tick and fires the correction once.
+        // Skipped in relay mode (gated inside updateDriftDisplay).
         pendingPostStartCorrectionAtMs = Date.now() + 1000;
         setPlayIcon(true);
         statusEl.textContent = '';
@@ -3462,6 +3465,10 @@
         // Clear FIRST so subsequent drift-loop ticks don't re-fire while
         // the async sampler is collecting its 3 samples.
         pendingPostStartCorrectionAtMs = 0;
+        // Relay mode: skip correction entirely. The relay delivers the same
+        // live bytes to all listeners simultaneously — there is no "drift"
+        // to correct, and seeking a live stream would break playback.
+        if (!useRelay) {
         const POST_START_THRESHOLD_MS = 80;
         // Capture the audio element handle so a stopAudio()/track-change
         // mid-sampling doesn't snap a stale element. If htmlAudio gets
@@ -3503,6 +3510,7 @@
             }
           }
         })();
+        } // end !useRelay
       }
 
       // ---- Auto-correction via re-seek ----
@@ -3512,6 +3520,9 @@
       // This produces a tiny audible blip (browser handles a brief
       // re-buffer) but it's preferable to letting drift accumulate.
       //
+      // Skipped in relay mode — the relay delivers the same live bytes
+      // to all listeners, seeking would break the stream.
+      //
       // Tolerance is more generous than the Web Audio version because:
       // (1) every re-seek is audibly noticeable as a small pop, and
       // (2) HTML5 audio plays at native rate without rate jitter, so
@@ -3520,6 +3531,7 @@
       // position has been received, or after device sleep.
       driftHistory.push(drift);
       if (driftHistory.length > DRIFT_HISTORY_SIZE) driftHistory.shift();
+      if (useRelay) return; // relay mode — no seeking, sync is automatic
       if (driftHistory.length < DRIFT_HISTORY_SIZE) return;
 
       const avgDrift = driftHistory.reduce((a, b) => a + b, 0) / driftHistory.length;

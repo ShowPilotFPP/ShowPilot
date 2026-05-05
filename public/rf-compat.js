@@ -3219,21 +3219,12 @@
         const playAtServerMs = trackStartedAtMs + (intervalsElapsed * 500);
         const playAtClientMs = playAtServerMs - clockOffset;
 
-        // Seek to where FPP will be at the play moment
-        let targetPosition;
-        if (freshFppStatus && freshFppStatus.positionSec > 0) {
-          const msUntilPlay = playAtServerMs - (freshFppStatus.serverTimestamp || (Date.now() + clockOffset));
-          targetPosition = freshFppStatus.positionSec + (msUntilPlay / 1000) - (audioSyncOffsetMs / 1000);
-        } else {
-          const TARGET_LEAD_MS = 600;
-          const targetServerStartMs = Date.now() + clockOffset + TARGET_LEAD_MS;
-          if (livePosition && livePosition.sequence === currentSequence) {
-            const elapsedToTarget = (targetServerStartMs - livePosition.updatedAt) / 1000;
-            targetPosition = livePosition.position + elapsedToTarget - (audioSyncOffsetMs / 1000);
-          } else {
-            targetPosition = (targetServerStartMs - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
-          }
-        }
+        // Seek to where FPP will be at the play moment.
+        // CRITICAL: derive ONLY from playAtServerMs and trackStartedAtMs —
+        // both are identical on all devices for this song. Using freshFppStatus
+        // here causes different seek positions because each device gets a
+        // different fppPosition event at a different time.
+        let targetPosition = (playAtServerMs - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
 
         if (targetPosition < 0) targetPosition = 0;
         if (a.duration && targetPosition >= a.duration) {

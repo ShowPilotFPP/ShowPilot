@@ -678,14 +678,17 @@ server.listen(config.port, config.host, () => {
   console.log(`Plugin endpoint: http://${config.host}:${config.port}/api/plugin`);
   console.log(`Viewer page:     http://${config.host}:${config.port}/`);
   console.log(`Admin:           http://${config.host}:${config.port}/admin/`);
-  // Secret resolution + any "first run, generated for you" announcements
-  // happen in lib/config-loader.js — by the time we get here, secrets are
-  // already real values from one of: env > config.js > secrets.json > generated.
 
-  // Cloudflare Tunnel: if the operator has previously saved a token,
-  // spawn cloudflared as a child process so the tunnel comes back
-  // automatically after a restart. Done after listen() so any spawn
-  // logging goes to operator output, not interleaved with startup.
+  // Start audio position relay — connects to daemon WebSocket on FPP Pi
+  // and fans FPP's live playback position to all viewer phones via Socket.io.
+  // Phones use this to keep their audio in sync with the show speakers.
+  try {
+    const { getConfig } = require('./lib/db');
+    require('./lib/audio-position-relay').start(io, getConfig);
+  } catch (err) {
+    console.error('[audio-position-relay] failed to start:', err.message);
+  }
+
   try {
     require('./lib/cloudflared').autoStartIfConfigured();
   } catch (err) {

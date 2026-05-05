@@ -2401,6 +2401,7 @@
     // null after stopAudio.
     let htmlAudio = null;
     let useRelay = false;  // true when audio is coming from the live relay stream
+    let fppStatus = null;  // latest FPP position from daemon WebSocket
 
     // Post-startup correction state (v0.27.0).
     // The browser's `.play()` call has non-deterministic startup latency
@@ -2679,6 +2680,20 @@
                 sequence: msg.sequence,
                 position: msg.position,
                 updatedAt: msg.updatedAt,
+              };
+            });
+
+            // FPP live position from daemon WebSocket — use this for
+            // playbackRate drift correction so phones track FPP's speakers.
+            audioSock.on('fppPosition', (msg) => {
+              if (!htmlAudio || htmlAudio.paused || !msg || !msg.playing) return;
+              if (!msg.filename || !fppStatus) return;
+
+              // Store for drift correction loop
+              fppStatus = {
+                positionSec: msg.positionSec,
+                serverTimestamp: msg.serverTimestamp,
+                filename: msg.filename,
               };
             });
           }
@@ -3097,12 +3112,9 @@
       // moment, seeked to the same position, drift apart only by their
       // network latency variance (a few tens of ms on LAN) — far better
       // than the multi-hundred-ms drift we saw with Web Audio scheduling.
-      // Try the live relay first — one FPP connection fanned to all listeners
-      // gives automatic sync without offset math. Connect directly with GET;
-      // if the relay isn't active the server returns 503 and we fall back to
-      // the cache path. No separate HEAD probe — that would open a dead
-      // connection on the relay and stagger phone join times.
-      // Source priority: relay (live sync) → cache (fallback)
+      // Cache path only — relay caused too many issues (slow load, sync problems,
+      // Cloudflare streaming kills). Cache + wall-clock scheduled start gives
+      // the best sync between devices.
       useRelay = false;
 
       try {
@@ -3111,10 +3123,9 @@
           htmlAudio = null;
         }
 
-        useRelay = !!(data.relayActive && data.relayUrl);
-        let chosenUrl = useRelay
-          ? window.location.origin + data.relayUrl
-          : (data.streamUrl ? window.location.origin + data.streamUrl : data.publicStreamUrl);
+        const chosenUrl = data.streamUrl
+          ? window.location.origin + data.streamUrl
+          : data.publicStreamUrl;
 
         if (!chosenUrl) {
           statusEl.textContent = 'No audio source available';
@@ -3123,113 +3134,64 @@
 
         const a = new Audio();
         a.preload = 'auto';
-        // Note: do NOT set crossOrigin on the relay audio element.
-        // crossOrigin triggers CORS preflight which our relay doesn't support,
-        // causing the browser to silently fail the request.
-        if (!useRelay) a.crossOrigin = 'anonymous';
-        console.info('[ShowPilot] audio source:', useRelay ? 'RELAY' : 'CACHE', chosenUrl);
+        a.crossOrigin = 'anonymous';
+        console.info('[ShowPilot] audio source: CACHE', chosenUrl);
         a.src = chosenUrl;
         a.muted = isMuted;
         a.volume = 1;
 
-        // Wait for enough data to play. For the relay (live stream, no
-        // Content-Length) we use `canplay` immediately — `canplaythrough`
-        // never fires on a stream because the browser can't know when
-        // "through" is. For cached files we still prefer `canplaythrough`
-        // (more conservative, avoids rebuffering) with a 3s fallback.
+        // Wait for enough data. canplaythrough is more conservative than canplay —
+        // fires when the browser believes it has enough buffered to play to the end.
+        // We need this because the wall-clock scheduling below assumes .play() will
+        // start audio output immediately; if buffer runs out mid-play that breaks sync.
         await new Promise((resolve, reject) => {
           let settled = false;
           const onReady = () => { if (!settled) { settled = true; resolve(); } };
           const onErr = () => { if (!settled) { settled = true; reject(new Error('audio load failed')); } };
-          if (useRelay) {
-            // Live stream — canplay fires as soon as a few bytes arrive
-            a.addEventListener('canplay', onReady, { once: true });
-          } else {
-            a.addEventListener('canplaythrough', onReady, { once: true });
-            // Fallback to canplay if canplaythrough doesn't fire in 3s —
-            // some browsers are stingy about firing it. Better to start
-            // with less buffer than to never start.
-            setTimeout(() => a.addEventListener('canplay', onReady, { once: true }), 3000);
-          }
+          a.addEventListener('canplaythrough', onReady, { once: true });
+          // Fallback to canplay if canplaythrough doesn't fire in 3s
+          setTimeout(() => a.addEventListener('canplay', onReady, { once: true }), 3000);
           a.addEventListener('error', onErr, { once: true });
-          // Relay: long timeout — stream stays open for the whole song.
-          // Cache: 15s is plenty for a file download.
-          setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, useRelay ? 600000 : 15000);
+          setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, 15000);
         });
 
-        // ---- Play immediately, correct after startup (v0.27.0) ----
-        // Earlier versions tried to align phones by scheduling .play() at
-        // the same wall-clock moment ~600ms in the future. That doesn't
-        // work: even with perfectly synced clocks and identical seek
-        // positions, the time between calling .play() and audio actually
-        // leaving the speaker varies by 0-200ms per device per session
-        // (decoder warmup, OS audio engine startup, buffer state). Two
-        // phones aiming at the same scheduled moment land on it at
-        // measurably different real moments and stay that distance apart
-        // for the rest of the track — producing the constant offset that
-        // listeners hear as an echo between car windows.
-        //
-        // Instead: every phone seeks to the expected position and plays
-        // immediately. The startup latency error is unavoidable at this
-        // step. Then ~1s later, after playback has stabilized, we measure
-        // htmlAudio.currentTime against the expected position computed
-        // from FPP's authoritative live-position channel, and seek-
-        // correct the error in one shot. Because both phones are
-        // correcting toward the same external reference (FPP), they
-        // converge to within their measurement noise of FPP, and
-        // therefore to within ~2x that noise of each other. Empirically
-        // this is well under 100ms — below the threshold of perception
-        // for synchronized music in adjacent cars.
-        // Relay mode: don't seek. The stream starts at the current live
-        // position already — seeking would break the connection. Just play.
-        if (!useRelay) {
-          const startPosition = getExpectedPosition();
-          if (startPosition < 0) {
-            a.currentTime = 0;
-          } else if (a.duration && startPosition >= a.duration) {
-            // Track will be over by the time we'd start. Track-change poll
-            // will pick up the next sequence on its own.
-            statusEl.textContent = 'Waiting for next track…';
-            return;
-          } else {
-            a.currentTime = startPosition;
-          }
-        }
+        // ---- Wall-clock scheduled start ----
+        // Pick a future server-time moment that all phones aim for.
+        // 600ms gives all phones time to finish buffering and reach this point.
+        // Both phones compute the same targetServerStartMs, convert to local
+        // time via clockOffset, and call .play() at the same wall-clock instant.
+        const myGeneration = playGeneration;
+        const TARGET_LEAD_MS = 600;
+        const targetServerStartMs = Date.now() + clockOffset + TARGET_LEAD_MS;
 
-        // Set as active right before play so the drift loop's re-seek
-        // correction doesn't compete with us during the post-start window.
+        // Seek to where the track will be at the scheduled start moment
+        let targetPosition;
+        if (livePosition && livePosition.sequence === currentSequence) {
+          const elapsedToTarget = (targetServerStartMs - livePosition.updatedAt) / 1000;
+          targetPosition = livePosition.position + elapsedToTarget - (audioSyncOffsetMs / 1000);
+        } else {
+          targetPosition = (targetServerStartMs - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
+        }
+        if (targetPosition < 0) targetPosition = 0;
+        if (a.duration && targetPosition >= a.duration) {
+          statusEl.textContent = 'Waiting for next track…';
+          return;
+        }
+        a.currentTime = targetPosition;
+
+        // Wait until the scheduled moment
+        const localTargetMs = targetServerStartMs - clockOffset;
+        const waitMs = Math.max(0, localTargetMs - Date.now());
+        if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+        if (playGeneration !== myGeneration) return;
+
         htmlAudio = a;
-
-        if (useRelay) {
-          // Relay mode: all phones aim at the same absolute server-time moment.
-          // trackStartedAtMs is identical for all phones for this song — it's
-          // set once when the song starts. We schedule play at:
-          //   trackStartedAtMs + elapsedSec*1000 + 800ms (server epoch)
-          // converted to each phone's local clock via clockOffset.
-          // Phones that polled at different times still land on the same target.
-          const myGeneration = playGeneration;
-          const songStartServerMs = data.trackStartedAtMs || (data.serverNowMs - (data.elapsedSec || 0) * 1000);
-          const targetServerMs = songStartServerMs + (data.elapsedSec || 0) * 1000 + 800;
-          const targetClientMs = targetServerMs - clockOffset;
-          const waitMs = Math.max(10, targetClientMs - Date.now());
-          console.info('[ShowPilot] relay scheduled play in', waitMs, 'ms');
-          await new Promise(r => setTimeout(r, waitMs));
-          if (playGeneration !== myGeneration) return;
-        }
-
         await a.play();
-        pendingPostStartCorrectionAtMs = useRelay ? 0 : Date.now() + 1000;
+        pendingPostStartCorrectionAtMs = Date.now() + 1000;
         setPlayIcon(true);
         statusEl.textContent = '';
         if (audioStartedAtMs === 0) audioStartedAtMs = Date.now();
       } catch (err) {
-        if (useRelay) {
-          console.info('[ShowPilot] relay not ready yet, poll loop will retry');
-          statusEl.textContent = 'Starting…';
-          useRelay = false;
-          currentSequence = null; // force poll loop to retry handleTrackChange
-          return;
-        }
         statusEl.textContent = 'Load failed: ' + (err.message || err);
         console.warn('[ShowPilot] HTML5 audio load failed:', err);
       }
@@ -3388,6 +3350,7 @@
 
     function stopAudio() {
       playGeneration++; // cancel any in-flight scheduled play
+      fppStatus = null; // clear FPP position so drift correction stops
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}
@@ -3398,17 +3361,14 @@
         currentSourceGain = null;
       }
       if (htmlAudio) {
+        try { htmlAudio.playbackRate = 1.0; } catch (_) {}
         try { htmlAudio.pause(); } catch {}
         try { htmlAudio.src = ''; htmlAudio.load(); } catch {}
         htmlAudio = null;
       }
-      // Clear drift anchors so updateDriftDisplay() bails until the
-      // next track schedules new ones. Without this, the display would
-      // keep drawing using stale anchors after stop().
       trackScheduledAtAudioCtx = 0;
       trackScheduledAtPositionSec = 0;
       trackScheduledOutputLatency = 0;
-      // Reset auto-sync state so the next track starts fresh.
       lastAppliedRate = 1.0;
       driftHistory.length = 0;
       integratedPlayedSec = 0;
@@ -3446,29 +3406,60 @@
     //     to travel — usually negligible, but two devices on opposite
     //     sides of a room can be 30-40ms apart just from physics)
     function updateDriftDisplay() {
-      // In relay mode the browser's currentTime starts from 0 (time since
-      // stream connected) while expected position is calculated from FPP's
-      // started_at — completely different references. The number is meaningless
-      // so just hide it rather than confuse the user.
-      if (useRelay) {
-        if (driftEl) driftEl.textContent = '';
-        return;
-      }
       // HTML5 audio path: compare element's currentTime to expected.
-      // If we have no element or it's not far enough into playback to
-      // measure meaningfully, clear the display and bail.
       if (!htmlAudio || htmlAudio.paused || !currentSequence) {
         if (driftEl) driftEl.textContent = '';
+        if (htmlAudio) htmlAudio.playbackRate = 1.0;
         return;
       }
+
+      // ---- FPP position-based playbackRate correction ----
+      // If we have a live FPP position from the daemon WebSocket, use it
+      // to correct drift via playbackRate. This syncs phones to FPP's
+      // actual speakers rather than to each other or to a computed position.
+      if (fppStatus && fppStatus.positionSec > 0 && fppStatus.serverTimestamp) {
+        // Extrapolate FPP's current position to now
+        const msSinceFppUpdate = Date.now() - fppStatus.serverTimestamp + clockOffset;
+        const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
+        const drift = htmlAudio.currentTime - fppPositionNow; // positive = we're ahead of FPP
+        const driftMs = Math.round(drift * 1000);
+
+        if (driftEl) {
+          driftEl.textContent = '· ' + (driftMs >= 0 ? '+' : '') + driftMs + 'ms';
+          const absMs = Math.abs(driftMs);
+          driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
+        }
+
+        // playbackRate correction — max ±2%, inaudible
+        if (Math.abs(driftMs) > 2000) {
+          // Large drift — hard seek to correct position
+          try {
+            htmlAudio.currentTime = fppPositionNow;
+            htmlAudio.playbackRate = 1.0;
+          } catch (_) {}
+        } else if (driftMs > 50) {
+          // We're ahead of FPP — slow down slightly
+          htmlAudio.playbackRate = 0.98;
+        } else if (driftMs < -50) {
+          // We're behind FPP — speed up slightly
+          htmlAudio.playbackRate = 1.02;
+        } else {
+          // In sync — normal rate
+          htmlAudio.playbackRate = 1.0;
+        }
+        return;
+      }
+
+      // Fallback: use computed expected position when no FPP position available
       const actualPosition = htmlAudio.currentTime;
       const expectedPosition = getExpectedPosition();
       const drift = actualPosition - expectedPosition;
       const ms = Math.round(drift * 1000);
-      driftEl.textContent = '· ' + (ms >= 0 ? '+' : '') + ms + 'ms';
-      // Color thresholds: green <100ms, orange <500ms, red beyond.
-      const absMs = Math.abs(ms);
-      driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
+      if (driftEl) {
+        driftEl.textContent = '· ' + (ms >= 0 ? '+' : '') + ms + 'ms';
+        const absMs = Math.abs(ms);
+        driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
+      }
 
       // ---- One-shot post-start correction (v0.27.0, median-of-3 in v0.28.2) ----
       // Fires once, ~1s after .play() was called for the current track.

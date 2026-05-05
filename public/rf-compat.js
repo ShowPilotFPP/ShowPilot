@@ -2686,9 +2686,10 @@
         // our anchor each time, giving us near-real-time speaker-accurate
         // sync without polling overhead. socket.io is shared with the
         // outer (queue/voting) scope; window.io() returns a singleton.
+        let audioSock = null;
         try {
           if (window.io) {
-            const audioSock = window.io();
+            audioSock = window.io();
             audioSock.on('positionUpdate', (msg) => {
               if (!msg || !msg.sequence) return;
               if (currentSequence && msg.sequence !== currentSequence) return;
@@ -3188,7 +3189,7 @@
             if (!msg || !msg.playing) return;
             if (!resolved) { resolved = true; resolve(msg); }
           };
-          audioSock.once('fppPosition', handler);
+          if (audioSock) audioSock.once('fppPosition', handler);
           setTimeout(() => {
             if (!resolved) { resolved = true; resolve(fppStatus); }
           }, 500);

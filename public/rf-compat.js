@@ -2403,6 +2403,12 @@
     let useRelay = false;  // true when audio is coming from the live relay stream
     let fppStatus = null;  // latest FPP position from daemon WebSocket
     let audioSock = null;  // Socket.io connection for position updates
+    // Expose for debugging
+    window._spDebug = () => ({
+      audioSock: audioSock ? { connected: audioSock.connected, transport: audioSock.io?.engine?.transport?.name } : null,
+      fppStatus: fppStatus ? { positionSec: fppStatus.positionSec, filename: fppStatus.filename } : null,
+      clockOffset,
+    });
 
     // Post-startup correction state (v0.27.0).
     // The browser's `.play()` call has non-deterministic startup latency

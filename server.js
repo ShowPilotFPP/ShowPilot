@@ -13,7 +13,14 @@ const { cleanupStaleViewers } = require('./lib/db');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: true, credentials: true } });
+const io = new Server(server, {
+  cors: { origin: true, credentials: true },
+  // Tune for low-latency position updates
+  pingInterval: 5000,
+  pingTimeout: 10000,
+  // Prefer WebSocket over polling for lower latency
+  transports: ['websocket', 'polling'],
+});
 
 // Trust proxy: configurable so direct-exposure deployments aren't
 // vulnerable to X-Forwarded-For spoofing while reverse-proxy deployments

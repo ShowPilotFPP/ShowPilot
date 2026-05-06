@@ -3232,14 +3232,13 @@
         let playAtClientMs;
 
         if (syncPoint && syncPoint.positionSec > 0) {
-          // Grid-clock coordination: snap to the next 4-second server-time
-          // boundary that's at least 800ms away. All devices that receive
-          // ANY syncPoint within a 4-second window will compute the SAME
-          // playAtServerMs, guaranteeing they play at the same moment
-          // regardless of which specific syncPoint event they received.
+          // Grid-clock coordination: snap to the next 2-second server-time
+          // boundary that's at least 500ms away. All devices that receive
+          // ANY syncPoint within a 2-second window will compute the SAME
+          // playAtServerMs, guaranteeing they play at the same moment.
           const serverNow = syncPoint.serverTimestamp;
-          const gridMs = 4000;
-          const minPlayAt = serverNow + LEAD_MS;
+          const gridMs = 2000;
+          const minPlayAt = serverNow + 500;
           const playAtServerMs = Math.ceil(minPlayAt / gridMs) * gridMs;
           playAtClientMs = playAtServerMs - clockOffset;
 
@@ -3515,8 +3514,8 @@
         const driftMs = Math.round(drift * 1000);
 
         // Smooth the drift measurement to prevent oscillation from 500ms
-        // FIFO update jitter. α=0.3 means 70% old value, 30% new measurement.
-        smoothedDriftMs = smoothedDriftMs * 0.7 + driftMs * 0.3;
+        // FIFO update jitter. α=0.6 responds quickly while filtering noise.
+        smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
 
         if (driftEl) {
           const absMs = Math.abs(driftMs);
@@ -3555,7 +3554,9 @@
             console.info('[ShowPilot] startup snap:', correctionDriftMs, 'ms → seeking to', snapTarget.toFixed(3), 's');
           } catch (_) {}
         } else if (Math.abs(correctionDriftMs) > 50) {
-          const correction = Math.min(Math.abs(correctionDriftMs) / 20000, 0.02);
+          // Proportional correction capped at 3% — mostly inaudible,
+          // corrects 300ms drift in ~10 seconds.
+          const correction = Math.min(Math.abs(correctionDriftMs) / 10000, 0.03);
           htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
           htmlAudio.playbackRate = 1.0;

@@ -3231,9 +3231,11 @@
         let playAtClientMs;
 
         if (syncPoint && syncPoint.positionSec > 0) {
-          // Got a syncPoint — all devices with same event compute identical values
-          const arrivalTime = Date.now();
-          playAtClientMs = arrivalTime + LEAD_MS;
+          // Use syncPoint.serverTimestamp + LEAD_MS converted to local time.
+          // ALL devices compute the SAME absolute play moment regardless of
+          // when the Socket.io event arrived — clockOffset converts server
+          // time to local time consistently across devices.
+          playAtClientMs = (syncPoint.serverTimestamp + LEAD_MS) - clockOffset;
           targetPosition = syncPoint.positionSec + (LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
         } else {
           // No syncPoint — use best available position and play immediately
@@ -3504,8 +3506,10 @@
 
         if (driftEl) {
           const absMs = Math.abs(driftMs);
+          const syncPtShort = htmlAudio._syncPointTs ? String(htmlAudio._syncPointTs).slice(-6) : 'none';
           driftEl.textContent = '· ' + (driftMs >= 0 ? '+' : '') + driftMs + 'ms' +
-            (htmlAudio._seekedTo ? ' [s:' + htmlAudio._seekedTo.toFixed(1) + ']' : '');
+            (htmlAudio._seekedTo ? ' [s:' + htmlAudio._seekedTo.toFixed(1) + ']' : '') +
+            ' [sp:' + syncPtShort + ']';
           driftEl.style.color = absMs < 150 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
         }
 

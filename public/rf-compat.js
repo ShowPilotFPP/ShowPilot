@@ -3109,6 +3109,26 @@
     async function handleTrackChange(data) {
       currentSequence = data.sequenceName;
 
+      // Register syncPoint listener IMMEDIATELY — before buffering starts.
+      // The syncPoint fires 3-4 seconds after song start. If we wait until
+      // canplaythrough to register, we might miss it. Register now and store
+      // the result for use after canplaythrough.
+      let pendingSyncPoint = null;
+      let syncPointResolver = null;
+      const syncPointPromise = new Promise((resolve) => {
+        syncPointResolver = resolve;
+      });
+      const syncPointHandler = (msg) => {
+        if (!msg || !msg.playing) return;
+        if (msg.serverTimestamp) {
+          const measured = msg.serverTimestamp - Date.now();
+          clockOffset = clockOffset * 0.95 + measured * 0.05;
+        }
+        pendingSyncPoint = msg;
+        if (syncPointResolver) { syncPointResolver(msg); syncPointResolver = null; }
+      };
+      if (audioSock) audioSock.once('fppSyncPoint', syncPointHandler);
+
       // Seed fppStatus from now-playing-audio response so we always have
       // a position to fall back to even if no fppPosition WS event has
       // arrived yet. elapsedSec + serverNowMs gives us a usable anchor.
@@ -3193,29 +3213,14 @@
         });
 
         // ---- Coordinated play start ----
-        // Wait for the next fppSyncPoint event — broadcast every 2 seconds by
-        // the daemon. All devices that receive the SAME syncPoint event will:
-        // 1. Seek to the same position (positionSec + 600ms)
-        // 2. Play at the same server-time moment (serverTimestamp + 600ms)
-        // No per-device clock math — everything comes from the same daemon event.
+        // syncPointPromise was registered at track change start (before buffering)
+        // so we never miss a syncPoint that fired during buffering.
         const myGeneration = playGeneration;
 
-        const syncPoint = await new Promise((resolve) => {
-          let resolved = false;
-          const handler = (msg) => {
-            if (!msg || !msg.playing) return;
-            // Refine clock offset from syncPoint timestamp
-            if (msg.serverTimestamp) {
-              const measured = msg.serverTimestamp - Date.now();
-              clockOffset = clockOffset * 0.95 + measured * 0.05;
-            }
-            if (!resolved) { resolved = true; resolve(msg); }
-          };
-          if (audioSock) audioSock.once('fppSyncPoint', handler);
-          setTimeout(() => {
-            if (!resolved) { resolved = true; resolve(fppStatus); }
-          }, 10000);
-        });
+        const syncPoint = await Promise.race([
+          syncPointPromise,
+          new Promise(resolve => setTimeout(() => resolve(pendingSyncPoint || fppStatus), 10000))
+        ]);
         if (playGeneration !== myGeneration) return;
 
         // If no syncPoint arrived, fall back to fppStatus or trackStartedAtMs

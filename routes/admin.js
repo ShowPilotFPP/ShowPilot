@@ -519,22 +519,18 @@ router.delete('/sequences/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// Helper: detach (set media_name = NULL) any audio_cache_files rows for
-// the given media_name. Called when a sequence is deleted so orphaned
-// cache rows can be cleaned by pruneOrphanedHashes(). We don't delete
-// the bytes immediately — prune handles that — keeping cleanup batched
-// and giving an admin a chance to re-create the sequence with the same
-// media_name without re-uploading.
+// Helper: detach audio_cache_files rows for the given media_name when a
+// sequence is deleted. Prior to v0.33.172 this set media_name = NULL so
+// pruneOrphanedHashes() could batch-clean the disk files later. After the
+// schema change to UNIQUE(media_name, language), setting multiple rows to
+// NULL violates the constraint (two NULLs with the same language). Instead
+// we delete the rows outright here; disk file cleanup still happens via
+// pruneOrphanedHashes() which checks for .bin files with no DB row.
 function detachCacheForMediaName(mediaName) {
   try {
-    db.prepare(`
-      UPDATE audio_cache_files SET media_name = NULL WHERE media_name = ?
-    `).run(mediaName);
+    db.prepare(`DELETE FROM audio_cache_files WHERE media_name = ?`).run(mediaName);
   } catch (err) {
-    // Cache table may not exist on very old installs that haven't
-    // migrated yet. Failing silently here is correct — the sequence
-    // delete itself succeeded, this is just bookkeeping.
-    console.warn('[admin] cache detach failed (table missing?):', err.message);
+    console.warn('[admin] cache detach failed:', err.message);
   }
 }
 

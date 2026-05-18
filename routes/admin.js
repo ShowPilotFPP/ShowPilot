@@ -508,10 +508,13 @@ function updateSequence(req, res) {
 
 router.delete('/sequences/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
-  // Capture the media_name BEFORE delete so we can detach any cached
-  // audio bytes pointing at it. Without this, deleting a sequence
-  // leaves orphan rows in audio_cache_files and orphan files on disk.
+  // Capture the media_name BEFORE delete so we can clean up cached audio.
   const seq = db.prepare(`SELECT media_name FROM sequences WHERE id = ?`).get(id);
+  // Delete dependent rows first — jukebox_queue and votes have FK references
+  // to sequences(id). SQLite enforces these with PRAGMA foreign_keys=ON;
+  // deleting the sequence without clearing dependents throws a FK constraint error.
+  db.prepare(`DELETE FROM jukebox_queue WHERE sequence_id = ?`).run(id);
+  db.prepare(`DELETE FROM votes WHERE sequence_id = ?`).run(id);
   db.prepare(`DELETE FROM sequences WHERE id = ?`).run(id);
   if (seq && seq.media_name) {
     detachCacheForMediaName(seq.media_name);

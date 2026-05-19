@@ -1099,6 +1099,13 @@ router.post(
     const claimedHash = String(req.query.hash || '').toLowerCase();
     const mediaName = String(req.query.mediaName || '');
     const mimeType = req.query.mimeType ? String(req.query.mimeType) : (req.headers['content-type'] || 'audio/mpeg');
+    // Allowlist to prevent storing a non-audio MIME that the browser would
+    // render as markup when the audio-stream endpoint serves it back.
+    const ALLOWED_MIME_TYPES = [
+      'audio/mpeg', 'audio/aac', 'audio/mp4', 'audio/ogg',
+      'audio/flac', 'audio/wav', 'audio/webm', 'audio/x-m4a',
+    ];
+    const safeMimeType = ALLOWED_MIME_TYPES.includes(mimeType) ? mimeType : 'audio/mpeg';
 
     if (!audioCache.isValidHash(claimedHash)) {
       return res.status(400).json({ error: 'Invalid hash format' });
@@ -1111,7 +1118,7 @@ router.post(
     }
 
     try {
-      audioCache.storeUploadedFile(req.body, claimedHash, mediaName, mimeType);
+      audioCache.storeUploadedFile(req.body, claimedHash, mediaName, safeMimeType);
       // Also stamp the hash onto every sequence row whose media_name
       // matches. This is the v0.24.3+ many-to-one fix: cache lookup
       // now goes sequence → audio_hash → cache row, so a sequence

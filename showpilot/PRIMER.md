@@ -1,6 +1,6 @@
 # ShowPilot Project Primer
 
-This document gives you (Claude, in a future conversation) the context you need to help Will work on ShowPilot effectively. Read this first before any other project files.
+This document gives you (Claude, in a future conversation) the context you need to help the operator work on ShowPilot effectively. Read this first before any other project files.
 
 ---
 
@@ -19,7 +19,7 @@ Key things it does:
 
 ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs inside FPP. The plugin syncs sequence metadata, reports playback state, and pushes interaction events.
 
-**Branding/domain context:** Will runs his show as "the show" at <show-domain>. ShowPilot is the underlying software (formerly "OpenFalcon" — references to that name still appear in some config defaults).
+**Branding/domain context:** the operator runs his show as "<SHOW-NAME>" at <SHOW-DOMAIN>. ShowPilot is the underlying software (formerly "OpenFalcon" — references to that name still appear in some config defaults).
 
 ---
 
@@ -69,28 +69,28 @@ ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs ins
 
 ## Deployment topology
 
-Will runs **three** ShowPilot environments. Don't conflate them.
+the operator runs **three** ShowPilot environments. Don't conflate them.
 
 ### 1. Production LXC (Proxmox)
-- Host: `<prod-lxc-ip>`, hostname still says `OpenFalcon` (cosmetic, not renamed yet)
+- Host: `<PROD-LXC-IP>`, hostname still says `OpenFalcon` (cosmetic, not renamed yet)
 - Path: `/opt/showpilot/`
 - Process manager: **PM2** (process name: `showpilot`)
-- Public URL: `<show-domain>` / `lights.<show-domain>` (via Cloudflare DNS-only mode + Nginx Proxy Manager)
+- Public URL: `<SHOW-DOMAIN>` / `lights.<SHOW-DOMAIN>` (via Cloudflare DNS-only mode + Nginx Proxy Manager)
 - Restart: `pm2 restart showpilot`
 - Logs: `pm2 logs showpilot`
-- Show token: `<show-token>`
+- Show token: `<SHOW-TOKEN>`
 
-### 2. Docker test container (Will's Windows PC)
+### 2. Docker test container (the operator's dev machine)
 - Image: `ghcr.io/showpilotfpp/showpilot:latest`
 - Container name: `sp-beta`
 - Port: host `3101` → container `3100`
-- Bind mount: `C:\Users\Will\sp-beta-data` → `/app/data`
+- Bind mount: `C:\Users\<USER>\sp-beta-data` → `/app/data`
 - Auto-update: Watchtower watches and pulls new `:latest` images
 - Restart policy: `unless-stopped`
 - Used for: testing fresh installs, restore round-trips, anything risky before prod
 
 ### 3. FPP-Main plugin (the Falcon Player itself)
-- Host: `<fpp-host-ip>`
+- Host: `<FPP-HOST-IP>`
 - Software: FPP v10.x-master-219-g2d311770
 - Plugin path: `/home/fpp/media/plugins/showpilot/`
 - Logs: `/home/fpp/media/logs/showpilot-listener.log`
@@ -117,7 +117,7 @@ Will runs **three** ShowPilot environments. Don't conflate them.
 Standard release process:
 
 ```powershell
-# On Will's dev machine (Windows, PowerShell)
+# On the operator's dev machine (Windows, PowerShell)
 cd C:\dev\ShowPilot
 git pull origin main
 tar -xzf "$env:USERPROFILE\Downloads\showpilot-vX.Y.Z.tar.gz" --strip-components=1
@@ -130,7 +130,7 @@ git push origin vX.Y.Z
 
 ```bash
 # Deploy to prod LXC
-ssh root@<prod-lxc-ip>
+ssh root@<PROD-LXC-IP>
 cd /opt/showpilot && git pull origin main
 pm2 restart showpilot
 pm2 logs showpilot
@@ -140,13 +140,13 @@ For Docker test, watchtower auto-pulls. To force a fresh test:
 
 ```powershell
 docker stop sp-beta
-Remove-Item -Recurse -Force C:\Users\Will\sp-beta-data
+Remove-Item -Recurse -Force C:\Users\<USER>\sp-beta-data
 docker pull ghcr.io/showpilotfpp/showpilot:latest
-New-Item -ItemType Directory -Path C:\Users\Will\sp-beta-data | Out-Null
-docker run -d --name sp-beta -p 3101:3100 -v C:\Users\Will\sp-beta-data:/app/data --restart unless-stopped ghcr.io/showpilotfpp/showpilot:latest
+New-Item -ItemType Directory -Path C:\Users\<USER>\sp-beta-data | Out-Null
+docker run -d --name sp-beta -p 3101:3100 -v C:\Users\<USER>\sp-beta-data:/app/data --restart unless-stopped ghcr.io/showpilotfpp/showpilot:latest
 ```
 
-When you ship code, package it as a tarball at `/mnt/user-data/outputs/showpilot-vX.Y.Z.tar.gz`. Will downloads, extracts over his dev clone, commits, pushes.
+When you ship code, package it as a tarball at `/mnt/user-data/outputs/showpilot-vX.Y.Z.tar.gz`. The operator downloads, extracts over his dev clone, commits, pushes.
 
 ### Standard tarball packaging commands (CRITICAL — never exclude .github)
 
@@ -172,27 +172,25 @@ node --check /home/claude/showpilot-plugin/showpilot_audio.js && echo "Daemon OK
 
 ### ShipPilot
 
-Will uses ShipPilot (his own tool, separate LXC) to push releases to GitHub. Each release needs a `.release.json` in the repo root:
+ShipPilot is used (his own tool, separate LXC) to push releases to GitHub. Each release needs a `.release.json` in the repo root:
 
 ```json
 {
   "repo": "showpilot",
-  "version": "0.33.148",
-  "commit_message": "v0.33.148 — description",
-  "tag": "v0.33.148"
+  "version": "0.33.135",
+  "commit_message": "v0.33.135 — description",
+  "tag": "v0.33.135"
 }
 ```
-
-**Important:** `.release.json` is in `.gitignore` and is NOT committed to the repo. A fresh `git clone` won't have one. Claude must create it with `create_file` each session before packaging the tarball.
 
 ### Testing on LXC only (no GitHub)
 
 When testing locally without pushing to GitHub, use a test tarball:
 ```powershell
-scp "$env:USERPROFILE\Downloads\showpilot-test.tar.gz" root@<prod-lxc-ip>:/tmp/
+scp "$env:USERPROFILE\Downloads\showpilot-test.tar.gz" root@<PROD-LXC-IP>:/tmp/
 ```
 ```bash
-ssh root@<prod-lxc-ip>
+ssh root@<PROD-LXC-IP>
 cd /opt/showpilot && tar -xzf /tmp/showpilot-test.tar.gz --strip-components=1 && pm2 restart showpilot
 ```
 Only bump the rf-compat.js cache buster (`v=NN` in `lib/viewer-renderer.js`) for test builds — don't bump the package.json version until ready to ship.
@@ -213,7 +211,7 @@ Viewers open the ShowPilot viewer page and tap "Listen on Phone." Audio plays fr
 FPP hardware speakers
     ↑
 FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
-                                    ↓ WebSocket (ws://<fpp-host-ip>:8090)
+                                    ↓ WebSocket (ws://<FPP-HOST-IP>:8090)
                             audio-position-relay.js (on ShowPilot LXC)
                                     ↓ Socket.io (fppPosition, fppSyncPoint events)
                             rf-compat.js (viewer browser)
@@ -235,7 +233,7 @@ FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
 - The HTTP poll must NOT set `lastSyncPointAt` — only the FIFO handler controls syncPoint suppression
 
 **`audio-position-relay.js`** (ShowPilot LXC):
-- Connects to daemon WebSocket at `ws://<fpp-host-ip>:8090`
+- Connects to daemon WebSocket at `ws://<FPP-HOST-IP>:8090`
 - Translates `position` → `io.emit('fppPosition', ...)` and `syncPoint` → `io.emit('fppSyncPoint', ...)`
 - 500ms reconnect on disconnect
 - Ping handler responds to server pings for keepalive
@@ -364,13 +362,8 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.133 | Remove noisy one-way clockOffset update from fppSyncPoint handler. High-jitter burst rejection: new burst rejected if best RTT > `bestRttEverMs * 3`. |
 | 0.33.134 | Replace PLL with PulseMesh-style crossfade correction (50ms fade, 50ms threshold, 10s cooldown). Device-clock-free drift measurement using `snapAnchorCtxTime`/`snapAnchorPosSec` — eliminates inter-device OS clock differences from sync calculation. `snapPendingUntilMs` blocks periodic crossfade during snap+follow-up window. Crossfade only fires with fresh fppStatus (< 200ms stale). |
 | 0.33.135 | Fast 5-sample calibration: measures `audioPos - fppPos` 3s after follow-up crossfade, stores median as `sp_device_offset`. Recalibrates every song. Automatically corrects speaker offset without manual `audioSyncOffsetMs` tuning. |
-| 0.33.146 | Baseline next-song tracking. Adds `baseline_next_sequence_name` to `now_playing`. At vote/jukebox handoff, saves FPP's current "next" as the baseline. `getNextUp` returns the baseline (tier 3) while the interrupting song plays instead of FPP's live report (which points into the voting playlist). Cleared when FPP starts the song matching the baseline. Fixes "Up Next" showing the wrong title during interruptions. |
-| 0.33.147 | Expire stale un-handed jukebox queue entries. `popNextQueuedRequest` now skips entries older than 2 hours. `cleanupStaleRequests(120)` runs every 60s alongside existing handoff cleanup. Fixes requests from earlier sessions (or made during a plugin restart) silently jumping the queue. |
-| 0.33.148 | Descriptive helper text on jukebox and voting setting checkboxes. Muted explanation lines added under each checkbox. "Hide sequence from list after played" renamed to "Hide song from the request list after it plays." "Block votes for the song that's already winning" renamed to "Block votes for the song that's already leading." Also: PRIMER.md added to repo. |
-| 0.33.149 | Emit `nextScheduled` socket event immediately after a successful jukebox request so "Up Next" updates instantly for all connected viewers instead of waiting for the next poll cycle. (`routes/viewer.js` jukebox/add handler.) |
-| 0.33.151 | Viewer QR code generator on the Dashboard. `GET /api/admin/qr-code` returns a server-generated PNG (via `qrcode` npm package) of the viewer URL. Card shows URL text, Copy URL button, and Download PNG button. Hidden with a prompt card when `public_base_url` isn't configured. New dependency: `qrcode ^1.5.4` — run `npm install` after pulling. |
-| 0.33.154 | Fix audio relay reconnect loop. `audio-position-relay.js` was calling `ws.close()` on a CONNECTING socket, triggering an immediate close event that rescheduled `connect()` every 500ms forever. Fix: skip `ws.close()` when `readyState === 0`, clear `reconnectTimer` at connect entry, guard close/error handlers against scheduling a second reconnect when one is already pending. |
-| 0.33.152 | FPP playlist cooldown suppression. When a sequence with `cooldown_minutes > 0` plays, `/api/plugin/state` now includes a `playlistPatches` array telling the plugin to set `"enabled": 0` on that entry in FPP's playlist JSON. FPP skips disabled entries in normal rotation. The plugin (v0.13.40) applies patches on each state fetch and persists re-enable timestamps to `/home/fpp/media/config/showpilot-cooldowns.json` so they survive plugin restarts. Re-enables fire promptly on each loop iteration and on startup. |
+| 0.33.136 – 0.33.174 | Multiple feature/fix releases not enumerated here. Search git log or past chat history for specific provenance. |
+| 0.33.175 | Security: remove CORS `credentials:true` wildcard from Socket.io init and HTTP middleware (plugin uses Bearer tokens, not cookies — credentials were never needed cross-origin and allowed CSRF against admin sessions). Allowlist audio MIME types on upload endpoints (`routes/admin.js` language upload and `routes/plugin.js` main upload) — arbitrary mimeType from query string was stored in DB and served as Content-Type, allowing text/html or SVG to be served as audio. Fix `getClientIp()` in `routes/viewer.js` to use `req.ip` instead of reading `x-forwarded-for` directly — direct-exposure operators could have their IP block list bypassed by header spoofing. |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -378,12 +371,10 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.13.37 | Reduce syncPoint suppression: MediaSyncStart 2000→1000ms, MediaSyncPacket song-change 1500→800ms, setTimeout 3100→1500ms. First syncPoint now arrives at ~3s instead of ~4s. |
 | 0.13.38 | Further reduce: broadcast interval gate 2000→1000ms, setTimeout 1500→1000ms. First syncPoint at ~2s. |
 | 0.13.39 | PID file (`/tmp/showpilot-audio.pid`) written on startup, cleaned on exit. `postStart.sh` kills via PID file first. `scripts/restart-daemon.sh` helper for post-update restarts without full fppd cycle. |
-| 0.13.40 | FPP playlist cooldown suppression. Handles `playlistPatches` from `/state`: patches playlist JSON on disk to disable cooled-down sequences, persists re-enable timestamps to `showpilot-cooldowns.json`. |
-| 0.13.41 | Fix fatal PHP crash in `applyPlaylistPatches`: patches from `ofHttp` are stdClass objects, not arrays — `$patch['key']` throws `Error` in PHP 8. Fixed to use `$patch->key` object syntax throughout. |
 
 **Current versions (as of May 2026):**
-- ShowPilot: v0.33.154
-- FPP Plugin / Audio Daemon: v0.13.41
+- ShowPilot: v0.33.175
+- FPP Plugin / Audio Daemon: v0.13.39
 - rf-compat.js cache buster: v=70
 
 ---
@@ -410,25 +401,12 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 
 ---
 
-## Open items / tech debt
+## Operator context
 
-These are known but deferred. Don't fix unprompted unless they're blocking the current task.
-
-- **Cooldown suppression in voting mode** — `cooldown_minutes` currently hides sequences from the jukebox request UI during cooldown, but cooled-down sequences still appear on the voting ballot. The FPP playlist patch (v0.33.152) suppresses them in rotation regardless of mode, but the viewer-side voting UI needs the same treatment. Deferred — needs thought on UX (hide entirely vs show grayed-out with timer).
-- **`selectTemplate` draft-state bug** — `selectTemplate` in the admin UI unconditionally sets `hasDraft = false` when loading a template that has an uncommitted `draft_html`. Fix: set `hasDraft = !!tpl.draft_html` on load.
-- **Drive-In flex layout regression (v0.32.13)** — the inner wrapper `<div>` added for RFPB compatibility breaks direct-child flex assumptions in built-in canonical templates like Drive-In.
-- **Audio cache backup** — not included in backups. Decision: out of scope, audio resync is one click in the FPP plugin.
-- **LXC hostname** — still `OpenFalcon`, not renamed.
-- **GitHub Actions Node 20 deprecation** — will hit June 2 2026.
-
----
-
-## Will's context
-
-- Non-coder. Runs commands, doesn't write code himself. Give him paste-able scripts.
-- Self-hosted synchronized light show (Halloween season).
-- Show season: October. Off-season testing with FPP running playlists in test mode.
-- Other projects: HG Cellular (device refurb), NWAobits.com (obituaries), countdown calendar PWA, C:\PokePricing (TCG pricing), Amazon intelligence dashboard.
+- Non-coder. Runs commands, doesn't write code. Give paste-able scripts.
+- Halloween/Christmas light show at <SHOW-ADDRESS> (Lights on Drake)
+- Show season: fall/winter. Off-season testing with FPP running playlists in test mode.
+, <redacted> (obituaries), cal.<SHOW-DOMAIN> (countdown calendar), C:\PokePricing (TCG pricing), pokedex.<redacted> (Amazon dashboard).
 - Prefers iterative testing — risky changes on Docker first, then prod.
 - Uses ShipPilot for all GitHub releases.
 
@@ -436,7 +414,7 @@ These are known but deferred. Don't fix unprompted unless they're blocking the c
 
 ## Starting a new conversation
 
-1. Read this primer (it ships with the repo at `PRIMER.md`).
+1. Read this primer.
 2. Don't assume workspace has latest code. Clone fresh: `git clone https://github.com/ShowPilotFPP/ShowPilot.git /home/claude/showpilot`
 3. Check `package.json` version to confirm starting point.
 4. For continuity on a specific issue, search conversation history.

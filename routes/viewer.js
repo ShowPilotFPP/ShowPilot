@@ -33,7 +33,11 @@ function hashIp(ip) {
 }
 
 function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+  // Use req.ip, which Express derives correctly based on the trustProxy
+  // setting in config.js. Reading x-forwarded-for directly here would let
+  // any viewer spoof their IP on a direct-exposure deployment (where
+  // trustProxy is false), bypassing the admin IP block list.
+  return req.ip;
 }
 
 // True if the client is on the same private LAN as FPP. Used to decide

@@ -1050,6 +1050,15 @@ router.post(
       ? String(req.query.mimeType)
       : (req.headers['content-type'] || 'audio/mpeg');
 
+    // Allowlist MIME types to prevent a bad actor (or buggy client) from
+    // storing text/html or image/svg+xml, which the browser would render
+    // as markup when the audio-stream endpoint serves it back.
+    const ALLOWED_MIME_TYPES = [
+      'audio/mpeg', 'audio/aac', 'audio/mp4', 'audio/ogg',
+      'audio/flac', 'audio/wav', 'audio/webm', 'audio/x-m4a',
+    ];
+    const safeMimeType = ALLOWED_MIME_TYPES.includes(mimeType) ? mimeType : 'audio/mpeg';
+
     if (!lang || lang === 'default') {
       return res.status(400).json({ error: 'lang query param required and must not be "default"' });
     }
@@ -1071,7 +1080,7 @@ router.post(
     }
 
     try {
-      audioCache.storeLanguageFile(req.body, claimedHash, seq.media_name, lang, mimeType);
+      audioCache.storeLanguageFile(req.body, claimedHash, seq.media_name, lang, safeMimeType);
       console.log(`[admin/language-upload] stored ${lang} variant for "${seqName}" (${req.body.length} bytes)`);
       res.json({ ok: true, sequenceName: seqName, lang, hash: claimedHash, sizeBytes: req.body.length });
     } catch (err) {

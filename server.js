@@ -14,7 +14,12 @@ const { cleanupStaleViewers } = require('./lib/db');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: true, credentials: true },
+  // credentials:false — Socket.io viewers connect from the same origin;
+  // cross-origin socket clients (none currently) use Bearer tokens, not
+  // cookies. Reflecting any Origin with credentials:true would let any
+  // website make authenticated socket connections on behalf of a logged-in
+  // admin.
+  cors: { origin: true, credentials: false },
   // Tune for low-latency position updates
   pingInterval: 5000,
   pingTimeout: 10000,
@@ -55,12 +60,16 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-// CORS — allow the FPP plugin UI (on its own origin) to call our API
+// CORS — allow the FPP plugin UI (on its own origin) to call our API.
+// The plugin authenticates via Authorization: Bearer <showToken>, not cookies,
+// so credentials:true is not needed and would be a security risk (it would
+// allow any website to make authenticated cross-origin requests on behalf of
+// a logged-in admin whose session cookie the browser holds).
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
     res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
+    // credentials header intentionally omitted — plugin uses Bearer tokens
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     // Custom response headers we want visible to cross-origin JS (the

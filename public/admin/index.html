@@ -1825,7 +1825,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.199</span>
+        <span class="app-version">v0.33.200</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2018,6 +2018,7 @@
             <span style="flex: 1;"></span>
             <button class="secondary" onclick="bulkSetField('visible', 1)">Show</button>
             <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
+            <select id="seqBulkCategory" onchange="bulkSetCategory(this)" title="Set the category of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
             <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
             <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
             <button class="secondary" onclick="clearSeqSelection()">Clear</button>
@@ -2035,6 +2036,7 @@
                   <th>Display Name</th>
                   <th style="width: 200px;">FPP Name</th>
                   <th>Artist</th>
+                  <th style="width: 150px;" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
                   <th style="width: 70px;">Visible</th>
                   <th style="width: 70px;">Vote</th>
                   <th style="width: 70px;">Jukebox</th>
@@ -2053,6 +2055,35 @@
             <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
             <button onclick="addSequence()">Add</button>
           </div>
+        </div>
+
+        <!-- Sequence categories -->
+        <div class="card">
+          <h2 style="margin-top: 0;">Categories</h2>
+          <p class="muted" style="font-size: 0.85rem; margin-top: 0;">
+            Group sequences under headings on the viewer page. Turning a category <strong>off</strong> hides all of its
+            sequences from viewers and blocks votes/requests for them — it does not change what FPP plays on its own schedule.
+            Assign a category with the Category column above. Sequences with no category are always shown.
+          </p>
+          <div id="categoriesList"></div>
+          <div class="row" style="margin-top: 0.75rem;">
+            <input type="text" id="newCategoryName" placeholder="New category name" maxlength="60" style="flex:1;" onkeydown="if(event.key==='Enter')addCategory()" />
+            <button onclick="addCategory()">Add Category</button>
+          </div>
+          <div class="row" style="margin-top: 1rem; gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <input type="checkbox" id="cfgViewerShowCategories" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
+              Show category headings on the viewer page
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Heading for uncategorized sequences
+              <input type="text" id="cfgUncategorizedLabel" maxlength="60" style="width: 160px;" onchange="saveCategoryDisplayOptions()" />
+            </label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem;">
+            With headings off, categories still control visibility but the viewer list keeps its normal order.
+            Templates can restyle headings with the <code>.sequence-category-header</code> CSS class.
+          </p>
         </div>
 
         <div class="card">
@@ -6460,7 +6491,167 @@
     // The functions that mutate this set are still defined further down.
     const _seqSelection = new Set();
 
+    // ======= Sequence categories =======
+    let categoriesCache = [];
+    const CATEGORY_NEW = '__sp_new_category__';
+
+    function fillCategorySelect(sel, current, noneLabel) {
+      sel.innerHTML = '';
+      const add = (value, text) => {
+        const o = document.createElement('option');
+        o.value = value; o.textContent = text;
+        sel.appendChild(o);
+        return o;
+      };
+      add('', noneLabel);
+      const cur = String(current || '').trim().toLowerCase();
+      let matched = !cur;
+      categoriesCache.forEach(c => {
+        const o = add(c.name, c.enabled ? c.name : c.name + ' (off)');
+        if (c.name.toLowerCase() === cur) { o.selected = true; matched = true; }
+      });
+      if (!matched) add(current, current).selected = true;
+      add(CATEGORY_NEW, '+ New category…');
+    }
+
+    async function loadCategories() {
+      const r = await api('/categories');
+      if (!r.ok) return;
+      categoriesCache = r.data || [];
+      renderCategoriesList();
+      const bulkSel = document.getElementById('seqBulkCategory');
+      if (bulkSel) fillCategorySelect(bulkSel, '', 'Set category…');
+    }
+
+    function renderCategoriesList() {
+      const host = document.getElementById('categoriesList');
+      if (!host) return;
+      host.innerHTML = '';
+      if (categoriesCache.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.fontSize = '0.85rem';
+        p.textContent = 'No categories yet. Add one below, or pick “+ New category…” on any sequence.';
+        host.appendChild(p);
+        return;
+      }
+      categoriesCache.forEach((c, idx) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.cssText = 'align-items:center; gap:0.6rem; margin:0; padding:0.35rem 0; border-bottom:1px solid var(--border);';
+
+        const tog = document.createElement('label');
+        tog.className = 'toggle';
+        tog.style.transform = 'scale(0.7)';
+        tog.title = c.enabled ? 'Enabled — click to hide this category from viewers' : 'Disabled — click to show this category to viewers';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = !!c.enabled;
+        cb.addEventListener('change', () => categoryAction('/categories/enabled', { name: c.name, enabled: cb.checked }));
+        const sl = document.createElement('span'); sl.className = 'slider';
+        tog.appendChild(cb); tog.appendChild(sl);
+
+        const name = document.createElement('span');
+        name.style.cssText = 'flex:1; font-weight:600;' + (c.enabled ? '' : ' opacity:0.55; text-decoration: line-through;');
+        name.textContent = c.name;
+
+        const count = document.createElement('span');
+        count.className = 'muted';
+        count.style.fontSize = '0.85rem';
+        count.textContent = c.sequence_count + (c.sequence_count === 1 ? ' sequence' : ' sequences');
+
+        const mkBtn = (text, title, fn, cls, disabled) => {
+          const b = document.createElement('button');
+          b.className = cls || 'secondary'; b.textContent = text; b.title = title;
+          b.disabled = !!disabled;
+          b.addEventListener('click', fn);
+          return b;
+        };
+        const up = mkBtn('↑', 'Move up (viewer page order)', () => moveCategory(idx, -1), 'secondary', idx === 0);
+        const down = mkBtn('↓', 'Move down (viewer page order)', () => moveCategory(idx, 1), 'secondary', idx === categoriesCache.length - 1);
+        const ren = mkBtn('Rename', 'Rename this category', async () => {
+          const nn = await showPrompt('Rename category', c.name);
+          if (nn && nn.trim() && nn.trim() !== c.name) categoryAction('/categories/rename', { name: c.name, new_name: nn.trim() });
+        });
+        const del = mkBtn('Delete', 'Delete this category (its sequences become uncategorized)', async () => {
+          const ok = await showConfirm(`Delete category “${c.name}”?\n\nIts ${c.sequence_count} sequence(s) are NOT deleted — they just become uncategorized.`, { danger: true, okLabel: 'Delete' });
+          if (ok) categoryAction('/categories/delete', { name: c.name });
+        }, 'danger');
+
+        [tog, name, count, up, down, ren, del].forEach(el => row.appendChild(el));
+        host.appendChild(row);
+      });
+    }
+
+    async function categoryAction(path, body) {
+      const r = await api(path, { method: 'POST', body: JSON.stringify(body) });
+      if (!r.ok) showAlert('Category update failed — the name may be empty or already in use.');
+      await loadSequences(); // also reloads categories
+    }
+
+    function moveCategory(idx, delta) {
+      const names = categoriesCache.map(c => c.name);
+      const j = idx + delta;
+      if (j < 0 || j >= names.length) return;
+      [names[idx], names[j]] = [names[j], names[idx]];
+      categoryAction('/categories/reorder', { names });
+    }
+
+    function addCategory() {
+      const input = document.getElementById('newCategoryName');
+      const name = input.value.trim();
+      if (!name) return;
+      input.value = '';
+      categoryAction('/categories', { name });
+    }
+
+    // Resolves a category <select> to a name; handles the "+ New category…" option.
+    // Returns undefined if the user cancelled.
+    async function resolveCategoryChoice(sel) {
+      if (sel.value !== CATEGORY_NEW) return sel.value;
+      const nn = await showPrompt('New category name', '');
+      if (!nn || !nn.trim()) return undefined;
+      return nn.trim();
+    }
+
+    async function onSeqCategoryChange(id, sel) {
+      const value = await resolveCategoryChoice(sel);
+      if (value === undefined) { loadSequences(); return; }
+      await updateSeqField(id, 'category', value);
+      loadSequences(); // refresh counts + pick up canonical spelling / new category
+    }
+
+    async function bulkSetCategory(sel) {
+      if (_seqSelection.size === 0) { sel.value = ''; return; }
+      const value = await resolveCategoryChoice(sel);
+      if (value === undefined) { sel.value = ''; return; }
+      await api('/sequences/bulk-category', { method: 'POST', body: JSON.stringify({ ids: Array.from(_seqSelection), category: value }) });
+      clearSeqSelection();
+      loadSequences();
+    }
+
+    async function loadCategoryDisplayOptions() {
+      const r = await api('/config');
+      if (!r.ok) return;
+      const cb = document.getElementById('cfgViewerShowCategories');
+      const lbl = document.getElementById('cfgUncategorizedLabel');
+      if (cb) cb.checked = r.data.viewer_show_categories !== 0;
+      if (lbl) lbl.value = r.data.uncategorized_label || 'Other';
+    }
+
+    async function saveCategoryDisplayOptions() {
+      const label = document.getElementById('cfgUncategorizedLabel').value.trim() || 'Other';
+      await api('/config', { method: 'PUT', body: JSON.stringify({
+        viewer_show_categories: document.getElementById('cfgViewerShowCategories').checked ? 1 : 0,
+        uncategorized_label: label,
+      }) });
+    }
+
+    let _categoryOptionsLoaded = false;
+
     async function loadSequences() {
+      // Categories first — each row's Category dropdown is built from the cache.
+      await loadCategories();
+      if (!_categoryOptionsLoaded) { _categoryOptionsLoaded = true; loadCategoryDisplayOptions(); }
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
@@ -6509,6 +6700,7 @@
         <td><code>${escapeHtml(seq.name)}</code></td>
         <td><span class="editable" contenteditable="true"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
+        <td><select class="seq-category-select" style="width: 140px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -6524,6 +6716,13 @@
           <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
         </td>
       `;
+
+      // Category select — built with DOM APIs so names with quotes are safe.
+      const catSel = tr.querySelector('.seq-category-select');
+      if (catSel) {
+        fillCategorySelect(catSel, seq.category || '', '— none —');
+        catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
+      }
 
       // Language variants button — wired here to avoid inline onclick quoting issues
       const langBtn = tr.querySelector('.sp-lang-btn');

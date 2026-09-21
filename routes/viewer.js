@@ -11,6 +11,7 @@ const config = require('../lib/config-loader');
 const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp,
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
+const categories = require('../lib/categories');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -207,8 +208,10 @@ router.get('/state', (req, res) => {
   // state to anonymous users. last_played_at and plays_since_hidden
   // were already exposed to viewers pre-v0.29.2 and we keep them for
   // backward compat with custom templates.
+  //   3. disabled categories — applyCategoryView drops them and
+  //      groups the remainder into category order for header rendering.
   const sequences = bustSequenceCovers(
-    allSequences
+    categories.applyCategoryView(allSequences, cfg)
       .filter(s => !isSequenceHidden(s, cfg))
       .filter(s => !sequenceCooldownUntil(s))
       .map(({ cooldown_minutes, ...rest }) => rest)
@@ -265,6 +268,10 @@ router.get('/state', (req, res) => {
     nextScheduled: nextUp,
     activeViewers,
     sequences,
+    // Category headers: rf-compat emits a header row whenever
+    // `category` changes between consecutive sequences (list arrives pre-grouped).
+    categoryHeaders: categories.headersEnabled(cfg),
+    uncategorizedLabel: categories.uncategorizedLabel(cfg),
     voteCounts,
     queue,
     requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
@@ -330,6 +337,9 @@ router.post('/vote', (req, res) => {
   const seq = getSequenceByName(sequenceName);
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
   if (!seq.votable || seq.is_psa) return res.status(400).json({ error: 'Sequence is not votable' });
+  if (categories.isCategoryDisabled(seq.category, cfg)) {
+    return res.status(400).json({ error: 'That sequence is not available right now.' });
+  }
   if (isSequenceHidden(seq, cfg)) {
     return res.status(400).json({ error: 'That sequence was recently played. Try another.' });
   }
@@ -585,6 +595,9 @@ router.post('/race/tap', (req, res) => {
 
   const seq = getSequenceByName(sequenceName);
   if (!seq || !seq.visible) return res.status(404).json({ error: 'Sequence not found' });
+  if (categories.isCategoryDisabled(seq.category, cfg)) {
+    return res.status(404).json({ error: 'Sequence not found' });
+  }
 
   const viewerToken = ensureViewerToken(req, res);
   addRaceTap(sequenceName, viewerToken);
@@ -629,6 +642,9 @@ router.post('/jukebox/add', (req, res) => {
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
   if (!seq.jukeboxable || seq.is_psa) {
     return res.status(400).json({ error: 'Sequence is not available via jukebox' });
+  }
+  if (categories.isCategoryDisabled(seq.category, cfg)) {
+    return res.status(400).json({ error: 'That sequence is not available right now.' });
   }
   if (isSequenceHidden(seq, cfg)) {
     return res.status(400).json({ error: 'That sequence was recently played. Try another.' });

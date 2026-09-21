@@ -223,6 +223,10 @@ router.put('/config', requireAdmin, (req, res) => {
     'race_instructions_text',
     'race_font_size',
     'race_use_template_css',
+    // Sequence categories — display options only. The category list itself
+    // (config.sequence_categories) is managed via /api/admin/categories.
+    'viewer_show_categories',
+    'uncategorized_label',
     // race_active, race_started_at, race_ends_at, race_winner are
     // server-managed runtime state — NOT whitelisted here.
     // Misc
@@ -478,12 +482,14 @@ router.post('/sequences', requireAdmin, (req, res) => {
   } = req.body || {};
 
   if (!name || !display_name) return res.status(400).json({ error: 'name and display_name required' });
+  // Register the category (if any) and use its canonical spelling.
+  const categoryCanon = category ? require('../lib/categories').ensureCategory(category) : null;
 
   try {
     const info = db.prepare(`
       INSERT INTO sequences (name, display_name, artist, category, duration_seconds, visible, votable, jukeboxable, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, display_name, artist || null, category || null, duration_seconds || null, visible, votable, jukeboxable, sort_order);
+    `).run(name, display_name, artist || null, categoryCanon || null, duration_seconds || null, visible, votable, jukeboxable, sort_order);
     res.json({ ok: true, id: info.lastInsertRowid });
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
@@ -507,11 +513,61 @@ function updateSequence(req, res) {
     if (k in req.body) updates[k] = req.body[k];
   }
   if (Object.keys(updates).length === 0) return res.json({ ok: true });
+  if ('category' in updates) {
+    // Empty → uncategorized. Otherwise register + canonicalize spelling.
+    updates.category = updates.category
+      ? require('../lib/categories').ensureCategory(updates.category)
+      : null;
+  }
 
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE sequences SET ${setClause} WHERE id = @id`).run({ ...updates, id });
   res.json({ ok: true });
 }
+
+// ---- Sequence categories (see lib/categories.js) ----
+// Category is addressed by NAME in the JSON body (names may contain
+// characters that are awkward in a URL path).
+function notifyCategoriesChanged(req) {
+  const io = req.app.get('io');
+  // Reuse the existing event: admin tabs reload the sequence list, and
+  // viewers pick up the new grouping/visibility on their next state poll.
+  if (io) io.emit('sequencesReordered');
+}
+function categoryResult(req, res, result) {
+  if (result.error) return res.status(400).json(result);
+  notifyCategoriesChanged(req);
+  res.json(result);
+}
+router.get('/categories', requireAdmin, (req, res) => {
+  res.json(require('../lib/categories').listCategoriesWithCounts());
+});
+router.post('/categories', requireAdmin, (req, res) => {
+  categoryResult(req, res, require('../lib/categories').addCategory((req.body || {}).name));
+});
+router.post('/categories/enabled', requireAdmin, (req, res) => {
+  const { name, enabled } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').setCategoryEnabled(name, !!enabled));
+});
+router.post('/categories/rename', requireAdmin, (req, res) => {
+  const { name, new_name } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').renameCategory(name, new_name));
+});
+router.post('/categories/delete', requireAdmin, (req, res) => {
+  categoryResult(req, res, require('../lib/categories').deleteCategory((req.body || {}).name));
+});
+router.post('/categories/reorder', requireAdmin, (req, res) => {
+  categoryResult(req, res, require('../lib/categories').reorderCategories((req.body || {}).names));
+});
+router.post('/sequences/bulk-category', requireAdmin, (req, res) => {
+  const { ids, category } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+  const canon = category ? require('../lib/categories').ensureCategory(category) : null;
+  const stmt = db.prepare(`UPDATE sequences SET category = ? WHERE id = ?`);
+  db.transaction(() => { for (const id of ids) stmt.run(canon, Number(id)); })();
+  notifyCategoriesChanged(req);
+  res.json({ ok: true, category: canon });
+});
 
 router.delete('/sequences/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);

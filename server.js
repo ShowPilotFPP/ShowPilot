@@ -10,6 +10,8 @@ const helmet = require('helmet');
 const { Server } = require('socket.io');
 const config = require('./lib/config-loader');
 const { cleanupStaleViewers } = require('./lib/db');
+// Register any pre-existing sequences.category text as categories (idempotent).
+try { require('./lib/categories').seedFromSequences(); } catch (e) { console.warn('[categories] seed failed:', e.message); }
 
 const app = express();
 const server = http.createServer(app);
@@ -426,7 +428,8 @@ app.get('/', async (req, res) => {
     `).all();
 
     const { bustSequenceCovers } = require('./lib/cover-art');
-    const sequencesBusted = bustSequenceCovers(sequences);
+    // Category view: drop disabled categories, group into category order.
+    const sequencesBusted = bustSequenceCovers(require('./lib/categories').applyCategoryView(sequences, cfg));
 
     const voteCounts = db.prepare(`
       SELECT sequence_name, COUNT(*) AS count FROM votes

@@ -11,7 +11,7 @@ const rateLimit = require('express-rate-limit');
 const QRCode = require('qrcode');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, updateConfig,
+const { db, getConfig, updateConfig, getNextUpInfo,
         listSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, renameSnapshot } = require('../lib/db');
 
 // ============================================================
@@ -774,30 +774,11 @@ router.get('/stats', requireAdmin, (req, res) => {
   const nowPlaying = db.prepare(`SELECT * FROM now_playing WHERE id = 1`).get() || {};
   const nowPlayingName = nowPlaying.sequence_name || null;
 
-  // "Next up" priority order:
-  //   1. JUKEBOX mode + queue has entries (after now-playing) → first queued
-  //   2. VOTING mode + votes cast → highest-voted song
-  //   3. Otherwise → schedule's next song (from FPP plugin)
-  let nextUp = nowPlaying.next_sequence_name || null;
-  if (cfg.viewer_control_mode === 'JUKEBOX') {
-    // Skip the currently-playing entry — it's still in the queue with
-    // played=0 (handed off but not confirmed-played yet).
-    const firstQueued = db.prepare(`
-      SELECT sequence_name FROM jukebox_queue
-      WHERE played = 0 AND sequence_name != COALESCE(?, '')
-      ORDER BY requested_at ASC LIMIT 1
-    `).get(nowPlayingName);
-    if (firstQueued) nextUp = firstQueued.sequence_name;
-  } else if (cfg.viewer_control_mode === 'VOTING') {
-    const top = db.prepare(`
-      SELECT sequence_name, COUNT(*) AS n FROM votes
-      WHERE round_id = ?
-      GROUP BY sequence_name
-      ORDER BY n DESC
-      LIMIT 1
-    `).get(cfg.current_voting_round);
-    if (top) nextUp = top.sequence_name;
-  }
+  // Same "Up Next" the viewer page shows. This used to be a separate copy of
+  // only the queue/vote/plugin-next tiers, so it showed "—" whenever the
+  // plugin reports no next — e.g. while the Remote Playlist itself plays, or
+  // while a vote winner plays (the viewer shows the return point then).
+  const { name: nextUp, source: nextUpSource } = getNextUpInfo(cfg, nowPlayingName);
 
   res.json({
     totalViewers,
@@ -809,6 +790,7 @@ router.get('/stats', requireAdmin, (req, res) => {
     currentRound: cfg.current_voting_round,
     nowPlaying: nowPlayingName,
     nextUp,
+    nextUpSource,
   });
 });
 

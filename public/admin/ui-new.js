@@ -42,6 +42,7 @@
   let currentTab = 'dashboard';
   let currentSub = null;
   let applied = false;
+  let urlSync = false;    // off during setup so an incoming ?section= link isn't erased
 
   // ---------- Rail ----------
   function readSections() {
@@ -98,6 +99,15 @@
     pin.addEventListener('click', () => setPinned(!document.body.classList.contains('rail-pinned')));
     foot.appendChild(pin);
     rail.appendChild(foot);
+    // A mouse click leaves the clicked button focused; release it so the rail
+    // collapses as soon as the pointer leaves. Keyboard activation (detail 0)
+    // keeps focus, so keyboard users stay in the menu.
+    rail.addEventListener('click', (e) => {
+      if (e.detail > 0) {
+        const b = e.target.closest('button');
+        if (b) b.blur();
+      }
+    });
     document.body.appendChild(rail);
   }
 
@@ -168,6 +178,14 @@
       title.textContent = s ? s.label : sec.label;
       crumb.textContent = s ? sec.label : '';
     }
+    // Keep the address bar on the current section so a refresh stays here
+    // (replaceState: no navigation, no history entries).
+    if (urlSync) try {
+      const url = new URL(location.href);
+      if (currentTab === 'dashboard') url.searchParams.delete('section');
+      else url.searchParams.set('section', currentTab);
+      if (url.href !== location.href) history.replaceState(history.state, '', url.href);
+    } catch (_) {}
     if (currentTab === 'dashboard') refreshDash();
   }
   function wrapNavigation() {
@@ -372,6 +390,9 @@
       }
       syncRail();
       refreshDash();
+      // index.html opens any ?section= tab right after apply(); start
+      // mirroring navigation into the address bar only after that.
+      setTimeout(() => { urlSync = true; }, 0);
     },
   };
 })();

@@ -31,12 +31,17 @@ body.ui-new .spn-rail {
   transition: width .18s ease, box-shadow .18s ease;
 }
 body.ui-new .spn-rail:hover,
-body.ui-new .spn-rail:focus-within,
 body.ui-new.rail-pinned .spn-rail { width: var(--rail-expanded); overflow-y: auto; }
-body.ui-new:not(.rail-pinned) .spn-rail:hover,
-body.ui-new:not(.rail-pinned) .spn-rail:focus-within { box-shadow: 8px 0 32px rgba(0,0,0,.35); }
+body.ui-new:not(.rail-pinned) .spn-rail:hover { box-shadow: 8px 0 32px rgba(0,0,0,.35); }
+/* Keyboard users: expand while focus is in the rail — but only KEYBOARD
+   focus (:focus-visible). Plain :focus-within kept the rail open after a
+   mouse click until you clicked elsewhere. Separate rules on purpose: a
+   browser without :has() drops only these, not the hover rules above. */
+body.ui-new .spn-rail:has(:focus-visible) { width: var(--rail-expanded); overflow-y: auto; }
+body.ui-new:not(.rail-pinned) .spn-rail:has(:focus-visible) { box-shadow: 8px 0 32px rgba(0,0,0,.35); }
 .spn-rail .spn-label { white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
-.spn-rail:hover .spn-label, .spn-rail:focus-within .spn-label, body.rail-pinned .spn-rail .spn-label { opacity: 1; }
+.spn-rail:hover .spn-label, body.rail-pinned .spn-rail .spn-label { opacity: 1; }
+.spn-rail:has(:focus-visible) .spn-label { opacity: 1; }
 
 .spn-brand { display: flex; align-items: center; gap: 12px; padding: 0 6px; min-height: 40px; }
 .spn-mark { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; width: 34px; height: 34px; flex: 0 0 34px; }
@@ -63,7 +68,8 @@ body.ui-new:not(.rail-pinned) .spn-rail:focus-within { box-shadow: 8px 0 32px rg
 .spn-sub { display: none; flex-direction: column; gap: 1px; margin: 2px 0 6px; }
 .spn-sub.open { display: flex; }
 /* Sub-pages only show while the rail is expanded; the collapsed rail stays icons-only. */
-body.ui-new:not(.rail-pinned) .spn-rail:not(:hover):not(:focus-within) .spn-sub { display: none; }
+body.ui-new:not(.rail-pinned) .spn-rail:not(:hover) .spn-sub { display: none; }
+body.ui-new:not(.rail-pinned) .spn-rail:has(:focus-visible) .spn-sub.open { display: flex; }
 .spn-subitem {
   display: flex; align-items: center; width: 100%; min-height: 36px; padding: 0 12px 0 47px;
   border: 0; border-radius: 8px; background: transparent; text-align: left; white-space: nowrap;
@@ -80,7 +86,8 @@ body.ui-new:not(.rail-pinned) .spn-rail:not(:hover):not(:focus-within) .spn-sub 
 
 /* ---------- Top bar ---------- */
 .spn-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 18px 28px 6px; }
-.spn-top h1 { margin: 0; font: 700 26px/1.15 var(--font-display); letter-spacing: -0.02em; }
+.spn-top h1 { display: block; visibility: visible; opacity: 1; margin: 0; color: var(--text); font: 700 26px/1.15 var(--font-display); letter-spacing: -0.02em; white-space: nowrap; }
+.spn-top > div:first-child { min-width: 160px; }
 .spn-top .spn-crumb { color: var(--text-muted); font-size: 14px; }
 .spn-top .spn-spacer { flex: 1; }
 .spn-top #themeSelect { min-height: 40px; }
@@ -91,17 +98,20 @@ body.ui-new:not(.rail-pinned) .spn-rail:not(:hover):not(:focus-within) .spn-sub 
 .spn-notice p { margin: 0; flex: 1 1 360px; }
 
 /* ---------- Restyle of the existing admin content ---------- */
-body.ui-new main { padding: 12px 28px 48px; max-width: 1480px; }
+/* Full width beside the rail (the classic 1600px centered cap made wide
+   tables like Sequences overflow once the rail took its share). */
+body.ui-new main { padding: 12px 28px 48px; max-width: none; margin: 0; }
 body.ui-new h2 { font-family: var(--font-display); letter-spacing: -0.01em; }
 body.ui-new h3 { font-family: var(--font-display); }
-body.ui-new .card { border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow-card); }
+/* overflow-x: wide tables scroll inside their card instead of being cut off. */
+body.ui-new .card { border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow-card); overflow-x: auto; }
 body.ui-new button:not(.spn-item):not(.spn-subitem):not(.toggle-thumb) { border-radius: 10px; min-height: 40px; font-family: var(--font-body); font-weight: 600; }
 body.ui-new input[type="text"], body.ui-new input[type="number"], body.ui-new input[type="password"],
 body.ui-new input[type="url"], body.ui-new input[type="email"], body.ui-new select, body.ui-new textarea {
   border-radius: 9px; min-height: 40px; font-family: var(--font-body);
 }
 body.ui-new textarea { min-height: 80px; }
-body.ui-new table { border-radius: 12px; overflow: hidden; }
+/* No overflow:hidden on tables: it clipped columns (e.g. Sequences' delete button). */
 body.ui-new .stat-value, body.ui-new .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 body.ui-new :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 

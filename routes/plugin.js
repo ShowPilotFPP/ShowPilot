@@ -526,6 +526,13 @@ router.post('/playing', (req, res) => {
     }
   }
 
+  // FPP stopped (the plugin reports an empty sequence when idle). Nothing is
+  // going to resume, so the return point is meaningless; left in place it
+  // pins "Up Next" to that song indefinitely.
+  if (!name) {
+    setBaselineNext(null);
+  }
+
   // If the plugin reported a playback position, backdate started_at so the
   // audio player knows the song has been playing for that long. This handles
   // the "interrupt-then-resume" case: when FPP plays a request and then comes
@@ -572,15 +579,14 @@ router.post('/playing', (req, res) => {
     const cfgForRound = getConfig();
     console.log(`[playing] seq="${name}" source=${source} mode=${cfgForRound.viewer_control_mode} isChange=${isSequenceChange}`);
 
-    // Belt-and-suspenders: also clear on a schedule song if queue is drained
-    // and the baseline doesn't match what started (catches cases where the
-    // /api/plugin/next call hasn't fired yet to update next_sequence_name).
-    if (
-      isSequenceChange &&
-      source === 'schedule' &&
-      cfgForRound.viewer_control_mode === 'JUKEBOX'
-    ) {
-      const queueEmpty = db.prepare(
+    // A schedule song starting means the interruption is over, so the
+    // baseline has served its purpose even if FPP didn't resume exactly on it
+    // (manual jump/restart, cooldown skip, schedule change, playlist end).
+    // Without this, Voting/Race modes only cleared the baseline when that
+    // exact song started, so one missed return pinned "Up Next" to it for
+    // good. Jukebox additionally waits for its queue to drain.
+    if (isSequenceChange && source === 'schedule') {
+      const queueEmpty = cfgForRound.viewer_control_mode !== 'JUKEBOX' || db.prepare(
         `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`
       ).get().n === 0;
       if (queueEmpty) {

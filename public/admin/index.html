@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.216</span>
+        <span class="app-version">v0.33.217</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2561,6 +2561,18 @@
             <input type="checkbox" id="cfg_player_decoration_animated" onchange="saveSetting('player_decoration_animated', this.checked ? 1 : 0)" />
             <label for="cfg_player_decoration_animated" style="margin: 0;">Enable animations (twinkle, fall, drift)</label>
           </div>
+          <!-- v0.33.216: player layout option, next to the player decoration settings. -->
+          <div style="margin-top: 0.75rem;"></div>
+          <div class="row">
+            <input type="checkbox" id="cfg_player_tall_layout"
+                   onchange="saveSetting('player_tall_layout', this.checked ? 1 : 0)" />
+            <label for="cfg_player_tall_layout" style="margin: 0;">Larger two-row player on phones</label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+            On phones, the player uses two rows: the full song title and artist on top, and bigger,
+            spread-out controls below. It covers a little more of the page. Tablets and computers keep the
+            single row. Takes effect on page reload.
+          </p>
 
           <h3 style="margin-top: 1.25rem;">Page-wide effects</h3>
           <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
@@ -3061,16 +3073,6 @@
 
             <!-- v0.33.216: listener-facing player options (were under Debug). -->
             <h3 style="margin-top: 1.25rem;">Listen-on-Phone player</h3>
-            <div class="row">
-              <input type="checkbox" id="cfg_player_tall_layout"
-                     onchange="saveSetting('player_tall_layout', this.checked ? 1 : 0)" />
-              <label for="cfg_player_tall_layout" style="margin: 0;">Larger two-row player on phones</label>
-            </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
-              On phones, the player uses two rows: the full song title and artist on top, and bigger,
-              spread-out controls below. It covers a little more of the page. Tablets and computers keep the
-              single row. Takes effect on page reload.
-            </p>
             <div class="row">
               <input type="checkbox" id="cfg_listener_timing_enabled"
                      onchange="saveSetting('listener_timing_enabled', this.checked ? 1 : 0)" />

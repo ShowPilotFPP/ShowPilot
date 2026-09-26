@@ -210,15 +210,27 @@
       if (tEl && tEl.textContent !== text) tEl.textContent = text;
       bar.setAttribute('aria-valuenow', frac === null ? '0' : String(Math.round(frac * 100)));
     });
+    if (typeof placeProgressBar === 'function') placeProgressBar();
   }
 
-  // ======= Song progress bar (v0.33.206+) =======
-  // Admin setting: a slim bar with time left, pinned to the top or bottom of
-  // every viewer page regardless of template. Templates can instead place
-  // {NOW_PLAYING_PROGRESS} themselves; both share paintTimer() and the CSS
-  // below (overridable: .sp-progress, .sp-progress-track, .sp-progress-fill,
-  // .sp-progress-time; color via --sp-progress-color).
+  // ======= Song progress bar (v0.33.206+, placement v0.33.207+) =======
+  // Admin setting: a slim bar with time left on every viewer page regardless
+  // of template. Placement:
+  //   'player' (default) — sits on the top edge of the Listen-on-Phone player
+  //       while it's open; when the player is closed/minimized (or the build
+  //       has no player, e.g. ShowPilot-Lite) it sits on the bottom edge of
+  //       the screen instead.
+  //   'top' — a strip across the top of the screen (stored 'screen-top').
+  // Color: the admin override if set, else the player's theme accent
+  // (--of-border of an of-theme-* decoration), else a light default. Custom
+  // player colors only change the background (--of-border stays a faint
+  // default), so they fall through to the light default.
+  // Templates can instead place {NOW_PLAYING_PROGRESS}; both share
+  // paintTimer() and the CSS below (overridable: .sp-progress,
+  // .sp-progress-track, .sp-progress-fill, .sp-progress-time,
+  // --sp-progress-color).
   let lastProgressCfgKey = null;
+  let progressCfg = null;
   function ensureProgressStyles() {
     if (document.getElementById('sp-progress-styles')) return;
     const st = document.createElement('style');
@@ -231,36 +243,87 @@
       '.sp-progress--idle{opacity:0}' +
       '.sp-progress--inline{width:100%;color:inherit}' +
       '.sp-progress--inline .sp-progress-track{background:rgba(127,127,127,.3)}' +
+      // Top-of-screen strip
       '.sp-progress--fixed{position:fixed;left:0;right:0;z-index:9990;padding:8px 14px;pointer-events:none;' +
         'background:rgba(10,10,14,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}' +
       '.sp-progress--top{top:0;padding-top:calc(8px + env(safe-area-inset-top,0px))}' +
-      '.sp-progress--bottom{bottom:0;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}' +
-      '.sp-progress--no-time .sp-progress-time{display:none}' +
       '.sp-progress--fixed.sp-progress--no-time{padding-top:0;padding-bottom:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}' +
       '.sp-progress--fixed.sp-progress--no-time .sp-progress-track{height:4px;border-radius:0;background:rgba(127,127,127,.25)}' +
       '.sp-progress--fixed.sp-progress--no-time .sp-progress-fill{border-radius:0}' +
+      // Edge bar: on the player's top edge, or the screen's bottom edge
+      '.sp-progress--edge{left:0;right:0;height:4px;padding:0;pointer-events:none;display:block}' +
+      '.sp-progress--edge .sp-progress-track{height:4px;border-radius:0;background:rgba(127,127,127,.28)}' +
+      '.sp-progress--edge .sp-progress-fill{border-radius:0}' +
+      '.sp-progress--edge .sp-progress-time{position:absolute;bottom:calc(100% + 6px);padding:4px 9px;border-radius:999px;' +
+        'font-size:12px;background:rgba(10,10,14,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}' +
+      '.sp-progress--onplayer{position:absolute;top:0;z-index:3}' +
+      '.sp-progress--onplayer .sp-progress-time{right:12px}' +
+      '.sp-progress--screenbottom{position:fixed;bottom:env(safe-area-inset-bottom,0px);z-index:9990}' +
+      '.sp-progress--screenbottom .sp-progress-time{left:10px}' +
+      '.sp-progress--no-time .sp-progress-time{display:none}' +
       '@media (prefers-reduced-motion:reduce){.sp-progress-fill{transition:none}}';
     document.head.appendChild(st);
   }
+  // The player's theme accent, or '' when no decoration theme is active.
+  function playerThemeColor() {
+    const panel = document.getElementById('of-listen-panel');
+    if (!panel || !/(^|\s)of-theme-/.test(panel.className)) return '';
+    try { return (getComputedStyle(panel).getPropertyValue('--of-border') || '').trim(); } catch (_) { return ''; }
+  }
+  function playerIsOpen() {
+    const panel = document.getElementById('of-listen-panel');
+    return !!(panel && panel.style.display !== 'none' && panel.style.transform !== 'translateY(100%)');
+  }
+  // Put the bar in the right place and color. Cheap; runs every paint tick
+  // and on player open/close/theme events.
+  function placeProgressBar() {
+    const cfg = progressCfg;
+    const bar = document.getElementById('sp-progress-fixed');
+    const color = (cfg && cfg.color) || playerThemeColor();
+    document.querySelectorAll('[data-showpilot-progress]').forEach(el => {
+      if (color) {
+        if (el.style.getPropertyValue('--sp-progress-color') !== color) el.style.setProperty('--sp-progress-color', color);
+      } else if (el.style.getPropertyValue('--sp-progress-color')) {
+        el.style.removeProperty('--sp-progress-color');
+      }
+    });
+    if (!bar || !cfg) return;
+    const idle = bar.classList.contains('sp-progress--idle') ? ' sp-progress--idle' : '';
+    const noTime = cfg.showTime ? '' : ' sp-progress--no-time';
+    let placement, parent;
+    if (cfg.position === 'top') {
+      placement = 'sp-progress--fixed sp-progress--top';
+      parent = document.body;
+    } else if (playerIsOpen()) {
+      placement = 'sp-progress--edge sp-progress--onplayer';
+      parent = document.getElementById('of-listen-panel');
+    } else {
+      placement = 'sp-progress--edge sp-progress--screenbottom';
+      parent = document.body;
+    }
+    if (bar.parentNode !== parent) parent.appendChild(bar);
+    const cls = 'sp-progress ' + placement + noTime + idle;
+    if (bar.className !== cls) bar.className = cls;
+  }
+  window.addEventListener('showpilot:player-mode', () => placeProgressBar());
+  window.addEventListener('showpilot:player-theme', () => placeProgressBar());
   function applyProgressBarConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     const key = JSON.stringify(cfg);
     if (key === lastProgressCfgKey) return;
     lastProgressCfgKey = key;
+    progressCfg = cfg;
     ensureProgressStyles();
-    // Inline {NOW_PLAYING_PROGRESS} bars pick up the admin color too.
-    document.querySelectorAll('.sp-progress--inline').forEach(el => {
-      if (cfg.color) el.style.setProperty('--sp-progress-color', cfg.color);
-      else el.style.removeProperty('--sp-progress-color');
-    });
     let bar = document.getElementById('sp-progress-fixed');
     if (!cfg.enabled) {
       if (bar) bar.remove();
+      placeProgressBar(); // still colors inline {NOW_PLAYING_PROGRESS} bars
       return;
     }
     if (!bar) {
       bar = document.createElement('div');
       bar.id = 'sp-progress-fixed';
+      bar.className = 'sp-progress sp-progress--idle';
       bar.setAttribute('data-showpilot-progress', '');
       bar.setAttribute('role', 'progressbar');
       bar.setAttribute('aria-label', 'Song progress');
@@ -270,10 +333,7 @@
         '<span class="sp-progress-time" data-showpilot-progress-time>--:--</span>';
       document.body.appendChild(bar);
     }
-    bar.className = 'sp-progress sp-progress--fixed sp-progress--' + (cfg.position === 'bottom' ? 'bottom' : 'top') +
-      (cfg.showTime ? '' : ' sp-progress--no-time') + ' sp-progress--idle';
-    if (cfg.color) bar.style.setProperty('--sp-progress-color', cfg.color);
-    else bar.style.removeProperty('--sp-progress-color');
+    placeProgressBar();
     if (timerInterval === null) timerInterval = setInterval(paintTimer, 1000);
     paintTimer();
   }
@@ -3612,6 +3672,8 @@
         minimizedPill.style.display = 'flex';
         // Audio keeps playing
       }
+      // v0.33.207: lets the song progress bar move onto / off the player.
+      try { window.dispatchEvent(new CustomEvent('showpilot:player-mode', { detail: { mode } })); } catch {}
     }
 
     // ---- Initialization (when panel first opens) ----
@@ -5177,6 +5239,8 @@
         }
       }
       // (else: leave defaults, base CSS rule applies)
+      // v0.33.207: lets the song progress bar pick up the new theme color.
+      try { window.dispatchEvent(new CustomEvent('showpilot:player-theme', { detail: { theme } })); } catch {}
 
       // Create overlay layer if missing.
       // Lives INSIDE the player bar (top:0, left:0, full width/height) so the

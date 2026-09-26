@@ -1825,7 +1825,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.206</span>
+        <span class="app-version">v0.33.207</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2602,9 +2602,10 @@
 
           <h3 style="margin-top: 1.25rem;">Song progress bar</h3>
           <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-            A slim bar on every viewer page showing how far into the current song the show is, and how much
-            time is left. It hides between songs and for sequences with no known length. Changes reach open
-            viewer pages within a few seconds. Template authors can instead place
+            A slim bar showing how far into the current song the show is, and how much time is left. By default
+            it sits on the top edge of the Listen-on-Phone player in the player theme's color, and on the bottom
+            edge of the screen while the player is closed. It hides between songs and for sequences with no known
+            length. Changes reach open viewer pages within a few seconds. Template authors can instead place
             <code>{NOW_PLAYING_PROGRESS}</code> anywhere in a template.
           </p>
           <div class="row">
@@ -2615,8 +2616,8 @@
             <div>
               <label for="cfg_viewer_progress_bar_position">Position</label>
               <select id="cfg_viewer_progress_bar_position" onchange="saveSetting('viewer_progress_bar_position', this.value)">
-                <option value="top">Top of the screen</option>
-                <option value="bottom">Bottom of the screen</option>
+                <option value="player">On the player (bottom of the screen when it's closed)</option>
+                <option value="screen-top">Top of the screen</option>
               </select>
             </div>
             <div>
@@ -2625,7 +2626,7 @@
                 <input type="color" id="cfg_viewer_progress_bar_color"
                        onchange="saveSetting('viewer_progress_bar_color', this.value)"
                        style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
-                <button type="button" class="secondary" onclick="resetProgressBarColor()" style="font-size: 0.85rem;">Use default</button>
+                <button type="button" class="secondary" onclick="resetProgressBarColor()" style="font-size: 0.85rem;">Match player theme</button>
               </div>
             </div>
           </div>
@@ -5457,7 +5458,7 @@
       setVal('cfg_page_effect_color', c.page_effect_color || '');
       // Song progress bar (v0.33.206+)
       setChk('cfg_viewer_progress_bar', c.viewer_progress_bar);
-      setVal('cfg_viewer_progress_bar_position', c.viewer_progress_bar_position === 'bottom' ? 'bottom' : 'top');
+      setVal('cfg_viewer_progress_bar_position', c.viewer_progress_bar_position === 'screen-top' ? 'screen-top' : 'player');
       setChk('cfg_viewer_progress_bar_show_time', c.viewer_progress_bar_show_time !== 0);
       setVal('cfg_viewer_progress_bar_color', /^#[0-9a-f]{6}$/i.test(c.viewer_progress_bar_color || '') ? c.viewer_progress_bar_color : '#f5f5f5');
       setVal('cfg_page_effect_intensity', c.page_effect_intensity || 'medium');
@@ -6066,7 +6067,7 @@
       }
     }
 
-    // Song progress bar color: '' means the built-in default (v0.33.206+).
+    // Song progress bar color: '' means match the player theme (v0.33.207+).
     function resetProgressBarColor() {
       const el = document.getElementById('cfg_viewer_progress_bar_color');
       if (el) el.value = '#f5f5f5';

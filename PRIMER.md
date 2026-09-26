@@ -252,13 +252,13 @@ FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
 
 This is the core of multi-phone sync. Every song change goes through these steps in order:
 
-1. **Fast-start** — audio begins playing immediately from current `fppStatus` position. No waiting. Phones may be slightly out of sync at this point.
+1. **Start in the right place** (v0.33.204+) — if there are no FPP readings for the new song yet, wait up to 2.5s for them (they arrive every ~0.5s; status shows "Syncing…"), then start from `estimateFppPosNow()`. Mid-song joiners already have readings and start immediately. Falls back to the old rough position if no readings arrive.
 
-2. **SyncPoint snap** (~2s after song change) — `handleTrackChange` awaits the first `fppSyncPoint` for this song. FPP's position is estimated with `estimateFppPosNow()` (the most advanced of that syncPoint and recent readings — see below), and the snap starts a new `AudioBufferSourceNode` 20ms from now at that position + 20ms + output latency. Hard cut (~20ms gap). If no syncPoint arrives within 8s the snap is skipped (the continuous loop still corrects once readings arrive).
+2. **SyncPoint check** (~2s after song change) — `handleTrackChange` awaits the first `fppSyncPoint` for this song and compares the best estimate to where the audio is. Under `JUMP_THRESHOLD_MS` (150ms): no cut, the speed loop closes it. Over: equal-power crossfade (`crossfadeTo`). v0.33.203 and earlier did a hard stop/restart here, which caused the audible pause/skip.
 
-3. **Follow-up crossfade** (500ms after snap) — one 50ms crossfade using the same estimator.
+3. **Follow-up check** (500ms later) — same rule: speed loop under 150ms, crossfade over.
 
-4. **Continuous correction** (v0.33.202+) — every 250ms tick, drift = what the listener hears (`htmlAudio.currentTime − outputLatency`) minus FPP's estimated position (show offset applied). Smoothed (EMA α=0.6). Crossfades when |smoothed drift| > 50ms, 10s cooldown, only with ≥3 readings of the current track in the window and the newest < 1.5s old. This is the loop that keeps phones on the show; before v0.33.202 it was effectively dead (see below).
+4. **Continuous correction** — every 250ms tick, drift = what the listener hears (`htmlAudio.currentTime − outputLatency`) minus FPP's estimated position (show offset applied), EMA-smoothed (α=0.6). Two tiers (v0.33.204+): |drift| > 150ms → crossfade jump (10s cooldown); otherwise a proportional **speed nudge**: rate = 1 − drift_s × 0.1, capped ±0.5% (~9 cents, inaudible), back to exactly 1.0 inside an 8ms deadband. Needs ≥3 readings of the current track, newest < 1.5s; without them the rate returns to 1.0. Simulated with realistic measurement noise: 140ms closes in ~30s with no overshoot; steady state within ~8ms.
 
 5. **No auto-calibration** (removed v0.33.202). The old 5-sample `sp_device_offset` calibration stored each measurement as the new offset, but each measurement already included the previous offset, so any constant error was added again every song (runaway, capped only by a ±1s sanity check). `deviceOffset` is now always 0 and the old localStorage key is cleared on load. Fixed per-show speaker delay is the admin's `audioSyncOffsetMs`.
 
@@ -269,6 +269,10 @@ This is the core of multi-phone sync. Every song change goes through these steps
 **Estimator (`estimateFppPosNow()`):** `recordFppSample()` keeps recent `fppPosition` and `fppSyncPoint` readings (`{p, ts, file}`, reset on file change). The estimate is the **upper envelope**: the maximum of `p + (serverNow − ts)` over the last 5s, current track only (`currentTrackMediaName` = the track's raw `mediaName`). Why maximum, not latest: the daemon stamps each reading when it *sends*, 0–100ms after FPP reported it (it polls the FIFO every 100ms), and the first syncPoint after a song change re-sends a position up to ~500ms old with a fresh stamp. Both errors only make readings look older, never newer. Simulated with those delays: mean −3ms, worst −23ms at the 5s window (a 2.5s window reached −70ms, too close to the 50ms threshold). If readings for the same file jump backwards by >1.5s (FPP restart/seek), older ones are dropped.
 
 **Output latency (`getOutputLatencySec()`):** `outputLatency || baseLatency`, clamped to 0–0.4s (a latency API once reported 2000ms+). Sources start a short lead from now at FPP position + lead + output latency, so the sample is *heard* when FPP is at that position. Before v0.33.202 the start time was delayed by the latency without advancing the position, landing lead + 2× latency behind.
+
+**Variable-rate position tracking (v0.33.204+):** rendered position = `trackScheduledAtPositionSec + (ctx.now − trackScheduledAtAudioCtx) × currentRate` (`renderedPosAt()`, used by the `htmlAudio.currentTime` shim). `setSourceRate()` re-anchors before every rate change; every new source (fast-start, `crossfadeTo`, legacy `scheduleStart`, `stopAudio`) resets `currentRate` to 1. Verified against a real Web Audio implementation (`node-web-audio-api`, OfflineAudioContext with a position-encoding test signal): max position error 0.08ms across two rate changes, a 300ms crossfade and a return to 1.0.
+
+**Crossfades** go through `crossfadeTo(targetPos)` only: 80ms equal-power curves (`setValueCurveAtTime`, linear-ramp fallback), new source scheduled 10ms ahead so the whole fade is pre-scheduled. The old per-site crossfade copies were removed.
 
 ### Clock sync (Socket.io NTP-style)
 
@@ -311,6 +315,10 @@ While the current song plays, `rf-compat.js` prefetches and decodes the next sch
 8. **Corrections need ≥3 fresh readings of the current track** (`loopEst.n >= 3`, newest < 1.5s). Don't go back to acting on a single reading.
 
 9. **Bump the `rf-compat.js?v=N` cache-buster in `lib/viewer-renderer.js`** whenever `rf-compat.js` changes, or browsers keep the old file.
+
+10. **Never create or restart a source without resetting `currentRate` to 1, and never change `playbackRate` except through `setSourceRate()`** — otherwise the position shim is wrong by (rate − 1) × elapsed.
+
+11. **No hard cuts.** Position corrections are speed nudges or `crossfadeTo`, never stop-then-start.
 
 ### Track-change recovery (v0.33.203+)
 
@@ -408,6 +416,7 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.201 | Removed a stale nested copy of the whole repo at `showpilot/` (committed by accident in v0.33.191, pinned at that version). Nothing referenced it, but it shipped inside every Docker image (`COPY . .`) and confused searches. Repo housekeeping only; no app behavior change, so no ShowPilot-Lite or Demo change. |
 | 0.33.202 | **Audio sync fixes (phones were steadily late; "refresh doesn't help").** (1) The post-snap drift check compared the audio position to anchors set from the same values, so it was always 0 and nothing ever corrected a bad snap — replaced with real continuous correction against FPP's position (50ms threshold, 10s cooldown, ≥3 fresh readings). (2) New `estimateFppPosNow()` upper-envelope estimator absorbs the daemon's 0–100ms send-time stamping and stale first syncPoints. (3) Relay now corrects FPP-host clock differences into server time (min receive gap minus half min ping RTT). (4) `fppPosition` handler no longer drags `clockOffset`. (5) Output latency now advances the start position instead of delaying the start (was lead + 2× latency late); clamped 0–0.4s. (6) Runaway `sp_device_offset` auto-calibration removed and the stored value cleared. (7) Periodic crossfade no longer lands 50ms ahead. Cache-buster `rf-compat.js?v=79`. Operators who tuned `audioSyncOffsetMs` to compensate for the old lag may need to reduce it. Audio-only: ShowPilot main only. |
 | 0.33.203 | **Next song not starting until page refresh (seen on Android over Bluetooth / Android Auto).** `handleTrackChange()` marked the new song current before loading it, so a failed or stalled load (or a device-paused `AudioContext`) left it silent forever. Added a per-call token (late loads can't play over newer ones), a 20s download timeout, retry-with-backoff on failure, a 15s "nothing playing" watchdog in `syncOnce()`, resume of a non-running `AudioContext` before starting a track (with "Tap to resume audio" + resume-on-next-tap fallback), and logging of context `statechange` events. Primer: new "Track-change recovery" and "Bluetooth / car audio latency" sections. Cache-buster `rf-compat.js?v=80`. Audio-only: ShowPilot main only. |
+| 0.33.204 | **Smooth sync corrections (no more audible pause/skip).** The syncPoint snap was a hard stop/restart and every correction was a jump. Now: start waits briefly for FPP's first readings of a new song so it starts in the right place; errors under 150ms are closed by a proportional playback-speed nudge (±0.5% max, inaudible) with variable-rate position tracking (`currentRate`, `renderedPosAt`, `setSourceRate`); errors over 150ms use a single `crossfadeTo()` with 80ms equal-power curves. Loop simulated (no overshoot) and position math verified against a real Web Audio engine (0.08ms max error). Debug overlay shows current speed. Cache-buster `rf-compat.js?v=81`. Audio-only: ShowPilot main only. |
 
 **Plugin version history (this session):**
 | Version | Change |

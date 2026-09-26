@@ -2904,6 +2904,50 @@
     // Incremented on every stopAudio/teardown/track-change so in-flight async
     // operations (scheduled play, clock fetch) can detect they're stale and bail.
     let playGeneration = 0;
+    // v0.33.203: track-change recovery. Each handleTrackChange() call gets a
+    // token so a stalled load that finishes late can't start playing over a
+    // newer one; failures and silent stalls are retried instead of leaving
+    // the track marked "current" with nothing playing until a page refresh.
+    let trackChangeToken = 0;
+    let trackChangeAt = 0;        // when the current track's load started (0 = none pending)
+    let trackRetryNotBefore = 0;  // backoff after a failed load
+    let resumeOnTapArmed = false;
+
+    // Some devices (Android audio-route/focus changes, e.g. Bluetooth car
+    // audio) pause the AudioContext on their own. Resuming may need a user
+    // gesture, so on failure the next tap anywhere on the page resumes it.
+    function armResumeOnTap() {
+      if (resumeOnTapArmed) return;
+      resumeOnTapArmed = true;
+      const onTap = () => {
+        resumeOnTapArmed = false;
+        document.removeEventListener('pointerdown', onTap, true);
+        if (audioCtx && audioCtx.state !== 'running') {
+          audioCtx.resume().then(() => {
+            console.log('[ShowPilot] audio context resumed by tap');
+            trackRetryNotBefore = 0;
+          }).catch(() => {});
+        }
+      };
+      document.addEventListener('pointerdown', onTap, true);
+    }
+
+    // fetch() + arrayBuffer() with a hard timeout, so a stalled request
+    // fails (and gets retried) instead of hanging the track forever.
+    async function fetchAudioWithTimeout(url, ms) {
+      const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), ms) : null;
+      try {
+        const resp = await fetch(url, ctl ? { signal: ctl.signal } : undefined);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.arrayBuffer();
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw new Error('audio download timed out');
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
 
     // Multi-language audio: the viewer's chosen language code, persisted to
     // localStorage as 'sp_audio_lang'. 'default' means play the primary track.
@@ -3329,6 +3373,18 @@
         gainNode = audioCtx.createGain();
         gainNode.gain.value = isMuted ? 0 : 1;
         gainNode.connect(audioCtx.destination);
+        // v0.33.203: log device-driven state changes (e.g. Android pausing
+        // audio on a Bluetooth route/focus change) and try to recover.
+        try {
+          const ctxForState = audioCtx;
+          ctxForState.addEventListener('statechange', () => {
+            if (ctxForState !== audioCtx) return;
+            console.log('[ShowPilot] audio context state:', ctxForState.state);
+            if (ctxForState.state !== 'running' && ctxForState.state !== 'closed' && pollTimer) {
+              ctxForState.resume().catch(() => armResumeOnTap());
+            }
+          });
+        } catch (_) {}
         statusEl.textContent = 'Loading…';
 
         // Hardware latency measurement removed — getOutputTimestamp() was
@@ -3841,6 +3897,18 @@
 
         // Track changed?
         if (data.sequenceName !== currentSequence) {
+          if (Date.now() >= trackRetryNotBefore) handleTrackChange(data);
+        } else if (!currentSource && trackChangeAt && audioCtx &&
+                   (!htmlAudio || htmlAudio._isWebAudio) &&
+                   Date.now() - trackChangeAt > 15000) {
+          // v0.33.203 watchdog: the server says this song is playing, we
+          // started loading it 15s+ ago, and nothing is playing (stalled
+          // load, paused context, or a silent failure). Retry instead of
+          // waiting for a page refresh. Only runs while the listener has
+          // audio on: this poll stops when the player is closed, and the
+          // location gate returns before reaching here.
+          console.warn('[ShowPilot] nothing playing 15s after track start — retrying', data.sequenceName);
+          trackChangeAt = 0;
           handleTrackChange(data);
         } else {
           // Same track — prefetch CURRENT song's audio if not already cached
@@ -3957,6 +4025,8 @@
       setPlayIcon(false);
 
       stopAudio();
+      const myTrackToken = ++trackChangeToken;
+      trackChangeAt = Date.now();
 
       // ---- Web Audio API BufferSource playback ----
       // Fetch the full audio file as ArrayBuffer, decode to PCM, then play
@@ -4000,13 +4070,30 @@
         if (audioBuffer) {
           console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
-          const fetchResp = await fetch(chosenUrl);
-          if (!fetchResp.ok) throw new Error('HTTP ' + fetchResp.status);
-          const arrayBuf = await fetchResp.arrayBuffer();
+          const arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          if (myTrackToken !== trackChangeToken) return; // a newer track change took over
           audioBuffer = await new Promise((resolve, reject) => {
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
           });
         }
+        if (myTrackToken !== trackChangeToken) return; // a newer track change took over
+
+        // v0.33.203: the device may have paused the AudioContext between
+        // songs (seen on Android with Bluetooth/Android Auto). Sources
+        // scheduled on a paused context never make a sound.
+        if (audioCtx && audioCtx.state !== 'running') {
+          console.warn('[ShowPilot] audio context is ' + audioCtx.state + ' at track start — resuming');
+          try { await Promise.race([audioCtx.resume(), new Promise(r => setTimeout(r, 1500))]); } catch (_) {}
+          if (myTrackToken !== trackChangeToken) return;
+          if (audioCtx.state !== 'running') {
+            armResumeOnTap();
+            const e = new Error('audio paused by the device (' + audioCtx.state + ')');
+            e.spSuspended = true;
+            throw e;
+          }
+          console.log('[ShowPilot] audio context resumed');
+        }
+
         currentBuffer = audioBuffer;
         console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
 
@@ -4277,8 +4364,18 @@
           'ctx sec, position', fastStartPos.toFixed(3) + 's');
 
       } catch (err) {
-        statusEl.textContent = 'Load failed: ' + (err.message || err);
+        const suspended = !!(err && err.spSuspended);
+        statusEl.textContent = suspended
+          ? _pt('Tap to resume audio')
+          : 'Load failed: ' + (err.message || err);
         console.warn('[ShowPilot] WebAudio load failed:', err);
+        // v0.33.203: forget the track so the next poll retries it (after a
+        // short backoff) instead of staying silent until a page refresh.
+        if (myTrackToken === trackChangeToken && currentSequence === data.sequenceName) {
+          currentSequence = null;
+          trackChangeAt = 0;
+          trackRetryNotBefore = Date.now() + (suspended ? 1000 : 5000);
+        }
       }
     }
 

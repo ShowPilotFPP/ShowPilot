@@ -1,6 +1,6 @@
 {
   "name": "showpilot",
-  "version": "0.33.209",
+  "version": "0.33.210",
   "description": "Self-hosted light show viewer control server. Falcon Player (FPP) plugin compatible. Replaces Remote Falcon for self-hosters.",
   "main": "server.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.3.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.21.1",

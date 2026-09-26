@@ -4,20 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShowPilot Admin</title>
-  <script>
-    // v0.33.208: the redesigned admin (/admin/new.html) is the default layout.
-    // If this browser already knows the signed-in user prefers it, go there
-    // before this page paints. ?section= (opened from the new layout's menu),
-    // ?classic and ?login stay here. Unknown preference (first visit, signed
-    // out) also stays: checkAuth() decides after sign-in.
-    (function () {
-      try {
-        var p = new URLSearchParams(location.search);
-        if (p.has('section') || p.has('classic') || p.has('login')) return;
-        if (localStorage.getItem('sp_admin_layout') === 'new') location.replace('/admin/new.html');
-      } catch (e) {}
-    })();
-  </script>
+  <!-- v0.33.209: new admin layout = this page restyled (ui-new.css) and
+       reorganized (ui-new.js), applied after sign-in unless the user chose
+       the classic layout. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/admin/ui-new.css">
+  <script src="/admin/ui-new.js"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -1839,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.208</span>
+        <span class="app-version">v0.33.209</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -5244,32 +5237,23 @@
     // delete-self button, header shows username).
     window._ofCurrentUser = null;
 
-    // v0.33.208: switch this user to the redesigned admin layout.
+    // v0.33.209: switch this user to the new admin layout (same page, restyled).
     async function useNewAdminLayout() {
       await api('/me/layout', { method: 'PUT', body: JSON.stringify({ layout: 'new' }) });
-      try { localStorage.setItem('sp_admin_layout', 'new'); } catch (_) {}
-      location.href = '/admin/new.html';
+      location.reload();
     }
 
     async function checkAuth() {
       const r = await api('/me');
       if (r.ok) {
         window._ofCurrentUser = r.data;
-        // v0.33.208: layout preference ('new' is the default).
-        try { localStorage.setItem('sp_admin_layout', r.data.adminLayout || 'new'); } catch (_) {}
-        {
-          const qp = new URLSearchParams(location.search);
-          if ((r.data.adminLayout || 'new') === 'new' && !r.data.mustChangePassword &&
-              !qp.has('section') && !qp.has('classic')) {
-            location.replace('/admin/new.html');
-            return;
-          }
-        }
         syncThemeWithServer(r.data);
         renderHeaderUser();
         hide('loginView'); show('appView');
         await loadAll();
-        // v0.33.208: /admin/?section=<tab> opens that tab (links from the new layout).
+        // v0.33.209: new layout (default) unless the user chose classic.
+        if (window.SPNew) window.SPNew.apply(r.data);
+        // /admin/?section=<tab> opens that tab.
         {
           const sec = (new URLSearchParams(location.search).get('section') || '').replace(/[^a-z-]/g, '');
           if (sec && document.querySelector('.tab-btn[data-tab="' + sec + '"]')) switchMainTab(sec);
@@ -5360,20 +5344,13 @@
         const me = await api('/me');
         if (me.ok) {
           window._ofCurrentUser = me.data;
-          // v0.33.208: go to the user's preferred layout ('new' is the default),
-          // unless a password change is required (handled here) or ?section/?classic.
-          try { localStorage.setItem('sp_admin_layout', me.data.adminLayout || 'new'); } catch (_) {}
-          const qp = new URLSearchParams(location.search);
-          if ((me.data.adminLayout || 'new') === 'new' && !me.data.mustChangePassword &&
-              !qp.has('section') && !qp.has('classic')) {
-            location.replace('/admin/new.html');
-            return;
-          }
           syncThemeWithServer(me.data);
         }
         renderHeaderUser();
         hide('loginView'); show('appView');
         await loadAll();
+        // v0.33.209: new layout (default) unless the user chose classic.
+        if (me.ok && window.SPNew) window.SPNew.apply(me.data);
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
         // Clear sensitive fields
         document.getElementById('loginPassword').value = '';

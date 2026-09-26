@@ -1,4 +1,4 @@
-/* ShowPilot admin themes — shared by the new admin layout (new.html) and
+/* ShowPilot admin themes — shared by the new admin layout (ui-new.css) and
    Cockpit (cockpit.html). Extracted from the classic admin (index.html),
    which keeps its own inline copy. When adding or changing a theme, update
    BOTH this file and index.html's <style> (and ALLOWED_THEMES in

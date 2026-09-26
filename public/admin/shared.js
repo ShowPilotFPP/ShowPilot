@@ -1,4 +1,4 @@
-// ShowPilot admin — shared helpers for the new layout (new.html) and
+// ShowPilot admin — shared helpers for
 // Cockpit (cockpit.html), v0.33.208+. The classic admin (index.html) is
 // self-contained and does not use this file.
 //
@@ -76,28 +76,21 @@
   SP.requireLogin = async function () {
     const r = await SP.api('/me');
     if (!r.ok || !r.data) {
-      location.replace('/admin/?login=1');
+      location.href = '/admin/?login=1';
       return new Promise(() => {});
     }
     if (r.data.mustChangePassword) {
-      location.replace('/admin/?classic=1');
+      location.href = '/admin/?classic=1';
       return new Promise(() => {});
     }
     SP.me = r.data;
-    try { localStorage.setItem('sp_admin_layout', r.data.adminLayout || 'new'); } catch (_) {}
     if (r.data.theme) SP.applyTheme(r.data.theme);
     return r.data;
   };
 
-  SP.useClassicLayout = async function () {
-    await SP.put('/me/layout', { layout: 'classic' });
-    try { localStorage.setItem('sp_admin_layout', 'classic'); } catch (_) {}
-    location.href = '/admin/?classic=1';
-  };
 
   SP.logout = async function () {
     await SP.post('/logout');
-    try { localStorage.removeItem('sp_admin_layout'); } catch (_) {}
     location.href = '/admin/?login=1';
   };
 
@@ -125,18 +118,15 @@
   };
 
   // ---- Live updates (the same socket events the classic page listens to) ----
+  // The page loads /socket.io/socket.io.js with a plain <script> tag.
   SP.onLive = function (handler) {
     const events = ['viewerModeChanged', 'voteUpdate', 'voteReset', 'queueUpdated',
       'nowPlaying', 'pluginStatus', 'sequencesSynced', 'raceUpdate', 'raceReset'];
-    const s = document.createElement('script');
-    s.src = '/socket.io/socket.io.js';
-    s.onload = () => {
-      try {
-        const socket = window.io();
-        events.forEach(ev => socket.on(ev, () => handler(ev)));
-      } catch (_) {}
-    };
-    document.head.appendChild(s);
+    if (typeof window.io !== 'function') return;
+    try {
+      const socket = window.io();
+      events.forEach(ev => socket.on(ev, () => handler(ev)));
+    } catch (_) {}
   };
 
   // Small non-blocking toast for action feedback.

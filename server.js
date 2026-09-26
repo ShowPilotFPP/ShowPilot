@@ -701,6 +701,9 @@ app.use('/covers', express.static(path.join(__dirname, 'data', 'covers'), {
 }));
 
 // Admin static files (under /admin)
+// v0.33.208 briefly shipped the new layout as a separate /admin/new.html; it
+// is now the same admin page restyled (v0.33.209), so old links land there.
+app.get('/admin/new.html', (req, res) => res.redirect(301, '/admin/'));
 app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
 
 // SPA fallback for admin

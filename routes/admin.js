@@ -227,6 +227,10 @@ router.put('/config', requireAdmin, (req, res) => {
     // (config.sequence_categories) is managed via /api/admin/categories.
     'viewer_show_categories',
     'uncategorized_label',
+    'viewer_progress_bar',
+    'viewer_progress_bar_position',
+    'viewer_progress_bar_show_time',
+    'viewer_progress_bar_color',
     // race_active, race_started_at, race_ends_at, race_winner are
     // server-managed runtime state — NOT whitelisted here.
     // Misc

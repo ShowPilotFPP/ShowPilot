@@ -12,6 +12,7 @@ const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, c
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
+const { progressBarConfig } = require('../lib/progress-bar');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -265,6 +266,11 @@ router.get('/state', (req, res) => {
     nowPlaying: nowPlaying.sequence_name || null,
     nowPlayingStartedAtIso,
     nowPlayingDurationSeconds,
+    // v0.33.206: server clock (for the viewer page's clock-offset estimate,
+    // used by {NOW_PLAYING_TIMER} and the progress bar) and the progress
+    // bar settings, so admin changes reach open pages without a reload.
+    serverNowMs: Date.now(),
+    progressBar: progressBarConfig(cfg),
     nextScheduled: nextUp,
     activeViewers,
     sequences,

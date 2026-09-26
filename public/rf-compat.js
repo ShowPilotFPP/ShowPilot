@@ -56,6 +56,28 @@
   let timerStartedAtMs = null;     // ms epoch when the song started (server's clock)
   let timerDurationSec = null;     // seconds, total length
   let timerInterval = null;        // setInterval handle
+  // v0.33.206: estimated (server clock − this device's clock), from the
+  // serverNowMs in /api/state responses. Keeps {NOW_PLAYING_TIMER} and the
+  // progress bar right on phones whose clock is off. Lowest-round-trip
+  // sample of the last few polls wins (least network asymmetry).
+  let viewerClockOffsetMs = 0;
+  let clockSamples = [];           // [{ rtt, offset }]
+  function serverNowMs() { return Date.now() + viewerClockOffsetMs; }
+  // Rough seed from the page's bootstrap (off by however long the page took
+  // to arrive); the first /api/state poll replaces it with a timed sample.
+  if (typeof boot.serverNowMs === 'number' && isFinite(boot.serverNowMs)) {
+    viewerClockOffsetMs = boot.serverNowMs - Date.now();
+  }
+  function noteServerTime(serverMs, sentAt, receivedAt) {
+    if (typeof serverMs !== 'number' || !isFinite(serverMs)) return;
+    const rtt = receivedAt - sentAt;
+    if (!(rtt >= 0) || rtt > 10000) return;
+    clockSamples.push({ rtt, offset: serverMs - (sentAt + receivedAt) / 2 });
+    if (clockSamples.length > 8) clockSamples.shift();
+    let best = clockSamples[0];
+    for (const c of clockSamples) if (c.rtt < best.rtt) best = c;
+    viewerClockOffsetMs = best.offset;
+  }
 
   // ======= Error/success message helpers =======
   // RF templates include divs with these IDs; we show the appropriate one.
@@ -167,15 +189,93 @@
   // tick is up to a second away from firing). Idempotent.
   function paintTimer() {
     const els = document.querySelectorAll('[data-showpilot-timer]');
-    if (!els.length) return; // template doesn't include the placeholder; skip
+    const bars = document.querySelectorAll('[data-showpilot-progress]');
+    if (!els.length && !bars.length) return; // nothing on the page to update
     let text;
+    let frac = null;
     if (timerStartedAtMs === null || timerDurationSec === null) {
       text = '--:--';
     } else {
-      const elapsedSec = (Date.now() - timerStartedAtMs) / 1000;
+      const elapsedSec = (serverNowMs() - timerStartedAtMs) / 1000;
       text = formatTimerText(timerDurationSec - elapsedSec);
+      frac = Math.min(1, Math.max(0, elapsedSec / timerDurationSec));
     }
     els.forEach(el => { if (el.textContent !== text) el.textContent = text; });
+    // Progress bars (v0.33.206+): fixed bar and {NOW_PLAYING_PROGRESS}.
+    bars.forEach(bar => {
+      bar.classList.toggle('sp-progress--idle', frac === null);
+      const fill = bar.querySelector('.sp-progress-fill');
+      if (fill) fill.style.width = (frac === null ? 0 : Math.round(frac * 1000) / 10) + '%';
+      const tEl = bar.querySelector('[data-showpilot-progress-time]');
+      if (tEl && tEl.textContent !== text) tEl.textContent = text;
+      bar.setAttribute('aria-valuenow', frac === null ? '0' : String(Math.round(frac * 100)));
+    });
+  }
+
+  // ======= Song progress bar (v0.33.206+) =======
+  // Admin setting: a slim bar with time left, pinned to the top or bottom of
+  // every viewer page regardless of template. Templates can instead place
+  // {NOW_PLAYING_PROGRESS} themselves; both share paintTimer() and the CSS
+  // below (overridable: .sp-progress, .sp-progress-track, .sp-progress-fill,
+  // .sp-progress-time; color via --sp-progress-color).
+  let lastProgressCfgKey = null;
+  function ensureProgressStyles() {
+    if (document.getElementById('sp-progress-styles')) return;
+    const st = document.createElement('style');
+    st.id = 'sp-progress-styles';
+    st.textContent =
+      '.sp-progress{--sp-progress-color:#f5f5f5;display:flex;align-items:center;gap:10px;box-sizing:border-box;' +
+        'font:600 13px/1 system-ui,-apple-system,sans-serif;font-variant-numeric:tabular-nums;color:#fff;transition:opacity .3s}' +
+      '.sp-progress-track{flex:1;height:6px;border-radius:999px;background:rgba(255,255,255,.22);overflow:hidden}' +
+      '.sp-progress-fill{height:100%;width:0;border-radius:999px;background:var(--sp-progress-color);transition:width 1s linear}' +
+      '.sp-progress--idle{opacity:0}' +
+      '.sp-progress--inline{width:100%;color:inherit}' +
+      '.sp-progress--inline .sp-progress-track{background:rgba(127,127,127,.3)}' +
+      '.sp-progress--fixed{position:fixed;left:0;right:0;z-index:9990;padding:8px 14px;pointer-events:none;' +
+        'background:rgba(10,10,14,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}' +
+      '.sp-progress--top{top:0;padding-top:calc(8px + env(safe-area-inset-top,0px))}' +
+      '.sp-progress--bottom{bottom:0;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}' +
+      '.sp-progress--no-time .sp-progress-time{display:none}' +
+      '.sp-progress--fixed.sp-progress--no-time{padding-top:0;padding-bottom:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}' +
+      '.sp-progress--fixed.sp-progress--no-time .sp-progress-track{height:4px;border-radius:0;background:rgba(127,127,127,.25)}' +
+      '.sp-progress--fixed.sp-progress--no-time .sp-progress-fill{border-radius:0}' +
+      '@media (prefers-reduced-motion:reduce){.sp-progress-fill{transition:none}}';
+    document.head.appendChild(st);
+  }
+  function applyProgressBarConfig(cfg) {
+    if (!cfg || typeof cfg !== 'object') return;
+    const key = JSON.stringify(cfg);
+    if (key === lastProgressCfgKey) return;
+    lastProgressCfgKey = key;
+    ensureProgressStyles();
+    // Inline {NOW_PLAYING_PROGRESS} bars pick up the admin color too.
+    document.querySelectorAll('.sp-progress--inline').forEach(el => {
+      if (cfg.color) el.style.setProperty('--sp-progress-color', cfg.color);
+      else el.style.removeProperty('--sp-progress-color');
+    });
+    let bar = document.getElementById('sp-progress-fixed');
+    if (!cfg.enabled) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'sp-progress-fixed';
+      bar.setAttribute('data-showpilot-progress', '');
+      bar.setAttribute('role', 'progressbar');
+      bar.setAttribute('aria-label', 'Song progress');
+      bar.setAttribute('aria-valuemin', '0');
+      bar.setAttribute('aria-valuemax', '100');
+      bar.innerHTML = '<div class="sp-progress-track"><div class="sp-progress-fill"></div></div>' +
+        '<span class="sp-progress-time" data-showpilot-progress-time>--:--</span>';
+      document.body.appendChild(bar);
+    }
+    bar.className = 'sp-progress sp-progress--fixed sp-progress--' + (cfg.position === 'bottom' ? 'bottom' : 'top') +
+      (cfg.showTime ? '' : ' sp-progress--no-time') + ' sp-progress--idle';
+    if (cfg.color) bar.style.setProperty('--sp-progress-color', cfg.color);
+    else bar.style.removeProperty('--sp-progress-color');
+    if (timerInterval === null) timerInterval = setInterval(paintTimer, 1000);
+    paintTimer();
   }
 
   // Update the anchor values from a /api/state response (or bootstrap).
@@ -198,7 +298,7 @@
     // Lazy-start the interval. Once running, it stays running for the
     // page lifetime — there's no benefit to stopping it (it does nothing
     // when there's no [data-showpilot-timer] on the page anyway).
-    if (timerInterval === null && document.querySelector('[data-showpilot-timer]')) {
+    if (timerInterval === null && document.querySelector('[data-showpilot-timer], [data-showpilot-progress]')) {
       timerInterval = setInterval(paintTimer, 1000);
     }
   }
@@ -207,6 +307,12 @@
   // viewer-renderer.js when a song is currently playing.
   if (boot.nowPlayingStartedAtIso || boot.nowPlayingDurationSeconds) {
     updateTimerFromState(boot.nowPlayingStartedAtIso, boot.nowPlayingDurationSeconds);
+  }
+  // Inline {NOW_PLAYING_PROGRESS} needs the styles even with the setting off.
+  if (document.querySelector('[data-showpilot-progress]')) ensureProgressStyles();
+  if (boot.progressBar) {
+    if (document.body) applyProgressBarConfig(boot.progressBar);
+    else document.addEventListener('DOMContentLoaded', () => applyProgressBarConfig(boot.progressBar));
   }
 
   // ======= GPS =======
@@ -433,9 +539,12 @@
   // ======= Live state refresh =======
   async function refreshState() {
     try {
+      const sentAt = Date.now();
       const res = await fetch('/api/state', { credentials: 'include' });
+      const receivedAt = Date.now(); // headers in; before parsing the body
       if (!res.ok) return;
       const data = await res.json();
+      noteServerTime(data.serverNowMs, sentAt, receivedAt);
       applyStateUpdate(data);
     } catch {}
   }
@@ -517,6 +626,7 @@
     // The server sends started_at + duration on every state poll. Pass
     // both (even if null — that's how we know to render --:--).
     updateTimerFromState(data.nowPlayingStartedAtIso || null, data.nowPlayingDurationSeconds || null);
+    if (data.progressBar) applyProgressBarConfig(data.progressBar);
 
     if (typeof data.currentVotingRound === 'number') {
       if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {

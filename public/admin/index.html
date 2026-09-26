@@ -1825,7 +1825,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.205</span>
+        <span class="app-version">v0.33.206</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2599,6 +2599,40 @@
             Each effect has a sensible default color (snow=white, leaves=orange, hearts=pink, etc).
             Leave the color blank or click "Use default" to use it; otherwise pick any CSS color.
           </p>
+
+          <h3 style="margin-top: 1.25rem;">Song progress bar</h3>
+          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+            A slim bar on every viewer page showing how far into the current song the show is, and how much
+            time is left. It hides between songs and for sequences with no known length. Changes reach open
+            viewer pages within a few seconds. Template authors can instead place
+            <code>{NOW_PLAYING_PROGRESS}</code> anywhere in a template.
+          </p>
+          <div class="row">
+            <input type="checkbox" id="cfg_viewer_progress_bar" onchange="saveSetting('viewer_progress_bar', this.checked ? 1 : 0)" />
+            <label for="cfg_viewer_progress_bar" style="margin: 0;">Show song progress bar on the viewer page</label>
+          </div>
+          <div class="grid-2" style="margin: 0.75rem 0;">
+            <div>
+              <label for="cfg_viewer_progress_bar_position">Position</label>
+              <select id="cfg_viewer_progress_bar_position" onchange="saveSetting('viewer_progress_bar_position', this.value)">
+                <option value="top">Top of the screen</option>
+                <option value="bottom">Bottom of the screen</option>
+              </select>
+            </div>
+            <div>
+              <label for="cfg_viewer_progress_bar_color">Bar color</label>
+              <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
+                <input type="color" id="cfg_viewer_progress_bar_color"
+                       onchange="saveSetting('viewer_progress_bar_color', this.value)"
+                       style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                <button type="button" class="secondary" onclick="resetProgressBarColor()" style="font-size: 0.85rem;">Use default</button>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <input type="checkbox" id="cfg_viewer_progress_bar_show_time" onchange="saveSetting('viewer_progress_bar_show_time', this.checked ? 1 : 0)" />
+            <label for="cfg_viewer_progress_bar_show_time" style="margin: 0;">Show time left next to the bar</label>
+          </div>
         </div>
 
         <div class="card">
@@ -5421,6 +5455,11 @@
         : (c.page_snow_enabled ? 'snow' : 'none');
       setVal('cfg_page_effect', effectName);
       setVal('cfg_page_effect_color', c.page_effect_color || '');
+      // Song progress bar (v0.33.206+)
+      setChk('cfg_viewer_progress_bar', c.viewer_progress_bar);
+      setVal('cfg_viewer_progress_bar_position', c.viewer_progress_bar_position === 'bottom' ? 'bottom' : 'top');
+      setChk('cfg_viewer_progress_bar_show_time', c.viewer_progress_bar_show_time !== 0);
+      setVal('cfg_viewer_progress_bar_color', /^#[0-9a-f]{6}$/i.test(c.viewer_progress_bar_color || '') ? c.viewer_progress_bar_color : '#f5f5f5');
       setVal('cfg_page_effect_intensity', c.page_effect_intensity || 'medium');
       syncPageEffectColorPicker();
       updatePageEffectColorPlaceholder();
@@ -6025,6 +6064,13 @@
         refreshUpdateStatus({ force: false });
         updatesLoadedOnce = true;
       }
+    }
+
+    // Song progress bar color: '' means the built-in default (v0.33.206+).
+    function resetProgressBarColor() {
+      const el = document.getElementById('cfg_viewer_progress_bar_color');
+      if (el) el.value = '#f5f5f5';
+      saveSetting('viewer_progress_bar_color', '');
     }
 
     async function saveSetting(key, value) {

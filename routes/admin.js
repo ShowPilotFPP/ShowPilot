@@ -140,6 +140,8 @@ router.get('/me', requireAdmin, (req, res) => {
     // layout notice has been dismissed.
     adminLayout: req.user.admin_layout === 'classic' ? 'classic' : 'new',
     layoutNoticeSeen: req.user.layout_notice_seen === 1,
+    // Cockpit tile layout; null = use the built-in default.
+    cockpitLayout: (() => { try { const l = JSON.parse(req.user.cockpit_layout || 'null'); return Array.isArray(l) ? l : null; } catch (_) { return null; } })(),
   });
 });
 
@@ -163,6 +165,36 @@ router.put('/me/layout', requireAdmin, (req, res) => {
   }
   require('../lib/db').setUserAdminLayout(req.user.id, layout);
   res.json({ ok: true, layout });
+});
+
+// Cockpit tile layout, per user. The server checks the shape only (ids
+// are the catalog in public/admin/cockpit-tiles.js, plus 'cat:<name>' for
+// song categories); Cockpit skips ids it doesn't recognize. layout: null
+// resets to the default.
+router.put('/me/cockpit-layout', requireAdmin, (req, res) => {
+  const { layout } = req.body || {};
+  if (layout === null) {
+    require('../lib/db').setUserCockpitLayout(req.user.id, null);
+    return res.json({ ok: true, layout: null });
+  }
+  if (!Array.isArray(layout) || layout.length > 40) {
+    return res.status(400).json({ error: 'Layout must be a list of up to 40 tiles' });
+  }
+  const seen = new Set();
+  const clean = [];
+  for (const t of layout) {
+    const id = t && typeof t.id === 'string' ? t.id : '';
+    const size = t && Number(t.size);
+    if (!/^[a-zA-Z][a-zA-Z0-9]{0,39}$/.test(id) && !/^cat:[^\u0000-\u001f]{1,80}$/.test(id)) {
+      return res.status(400).json({ error: 'Invalid tile id' });
+    }
+    if (![1, 2, 4].includes(size)) return res.status(400).json({ error: 'Invalid tile size' });
+    if (seen.has(id)) continue;
+    seen.add(id);
+    clean.push({ id, size });
+  }
+  require('../lib/db').setUserCockpitLayout(req.user.id, JSON.stringify(clean));
+  res.json({ ok: true, layout: clean });
 });
 
 router.put('/me/layout-notice-seen', requireAdmin, (req, res) => {

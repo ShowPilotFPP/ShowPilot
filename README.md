@@ -65,7 +65,7 @@ You get an admin with a live dashboard, a tablet show-remote mode (Cockpit), sta
 ### Admin & operations
 
 - **Redesigned admin** — every section and settings page in a collapsible sidebar, a live dashboard with an On Air panel, and a slide-out menu on phones and tablets. Each admin can switch back to the classic layout anytime
-- **Cockpit (tablet mode)** — a big-button show remote for a tablet at the booth: viewer control, modes, reset/purge, a countdown to the next song, the live vote/queue, hiding songs and quick switches for the location check and song categories
+- **Cockpit (tablet mode)** — a big-button show remote for a tablet at the booth that you lay out yourself: drag in the tiles you want (viewer control, modes, reset/purge, safeguard switches, song categories, page effect and template, status readouts, the now-playing countdown, live vote/queue and song lists), resize and reorder them. Each admin's layout is saved to their account
 - **Multi-user authentication** — username + password, bcrypt hashed, JWT session cookies. Per-user "remember me" (30-day cookie or session-only). Force-password-change flag for new accounts
 - **User management** — add/edit/disable/delete users. Self-protection: can't disable yourself, can't delete the last user
 - **Themes** — Stage·Dark and Stage·Light core themes for the admin UI, plus seasonal variants (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's) you can switch between

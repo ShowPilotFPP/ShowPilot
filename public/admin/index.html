@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.213</span>
+        <span class="app-version">v0.33.214</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2827,11 +2827,30 @@
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
             <div class="sub-tab" data-subtab="public-access" onclick="switchTab('public-access')">Public Access</div>
             <div class="sub-tab" data-subtab="backup" onclick="switchTab('backup')">Backup &amp; Restore</div>
+            <div class="sub-tab" data-subtab="cockpit" onclick="switchTab('cockpit')">Cockpit</div>
             <div class="sub-tab" data-subtab="updates" onclick="switchTab('updates')">Updates</div>
             <div class="sub-tab" data-subtab="debug" onclick="switchTab('debug')">Debug</div>
           </div>
 
           <!-- GENERAL SETTINGS — applies to all templates -->
+          <!-- Cockpit (main v0.33.214 / Lite v0.5.61): the tablet show remote.
+               Its tile layout is per user and edited on the Cockpit itself. -->
+          <div class="sub-tab-pane" data-subtab="cockpit">
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
+              Cockpit is a big-button show remote for a tablet at the booth. Choose exactly which controls it
+              shows: switches, modes, actions, song categories, status readouts and live panels. Drag tiles
+              onto it, reorder and resize them, or remove the ones you don't need. Your layout is saved to your
+              account, so it follows you to any tablet you sign in on.
+            </p>
+            <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+              <a href="/admin/cockpit.html?edit=1" style="text-decoration: none;"><button type="button">Customize Cockpit</button></a>
+              <a href="/admin/cockpit.html" style="text-decoration: none;"><button type="button" class="secondary">Open Cockpit</button></a>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.75rem 0 0;">
+              Tip: on the tablet, add Cockpit to the home screen for a full-screen remote.
+            </p>
+          </div>
+
           <div class="sub-tab-pane active" data-subtab="general">
             <div>
               <label for="cfg_show_name">Show name</label>

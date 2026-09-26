@@ -39,6 +39,24 @@
   const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
 
   let sections = [];      // [{ tab, label, subs: [{ id, label }] }]
+
+  // Phones and touch-only devices (v0.33.212+): no hover, so the rail is a
+  // slide-out menu instead. Must match the media query in ui-new.css.
+  const DRAWER_QUERY = '(max-width: 760px), (hover: none)';
+  const isDrawerMode = () => { try { return window.matchMedia(DRAWER_QUERY).matches; } catch (_) { return false; } };
+  function openDrawer() {
+    document.body.classList.add('spn-drawer-open');
+    const b = document.getElementById('spnMenuBtn');
+    if (b) b.setAttribute('aria-expanded', 'true');
+    const first = document.querySelector('.spn-rail .spn-item');
+    if (first) first.focus({ preventScroll: true });
+  }
+  function closeDrawer(returnFocus) {
+    if (!document.body.classList.contains('spn-drawer-open')) return;
+    document.body.classList.remove('spn-drawer-open');
+    const b = document.getElementById('spnMenuBtn');
+    if (b) { b.setAttribute('aria-expanded', 'false'); if (returnFocus) b.focus({ preventScroll: true }); }
+  }
   let currentTab = 'dashboard';
   let currentSub = null;
   let applied = false;
@@ -56,7 +74,7 @@
 
   function buildRail() {
     const version = (document.querySelector('.app-version') || {}).textContent || '';
-    const rail = el('<aside class="spn-rail" aria-label="Main"></aside>');
+    const rail = el('<aside class="spn-rail" id="spnRail" aria-label="Main"></aside>');
     rail.appendChild(el('<div class="spn-brand"><div class="spn-mark" aria-hidden="true">' + '<span></span>'.repeat(9) + '</div>' +
       '<div class="spn-label"><div class="spn-brand-name">' + esc(document.querySelector('.app-brand-text') ? document.querySelector('.app-brand-text').textContent : 'ShowPilot') + '</div>' +
       '<div class="spn-brand-version">' + esc(version) + '</div></div></div>'));
@@ -67,7 +85,18 @@
         (sec.subs.length ? '<svg class="spn-chev spn-label" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' : '') +
         '</button>');
       if (sec.subs.length) item.setAttribute('aria-expanded', 'false');
-      item.addEventListener('click', () => go(sec.tab, sec.subs.length ? (currentTab === sec.tab ? currentSub : sec.subs[0].id) : null));
+      item.addEventListener('click', () => {
+        // In the slide-out menu, a section with sub-pages expands/collapses
+        // instead of navigating, so its pages can be reached by touch.
+        if (isDrawerMode() && sec.subs.length) {
+          const list = document.querySelector('.spn-sub[data-parent="' + sec.tab + '"]');
+          const open = !list.classList.contains('open');
+          list.classList.toggle('open', open);
+          item.setAttribute('aria-expanded', open ? 'true' : 'false');
+          return;
+        }
+        go(sec.tab, sec.subs.length ? (currentTab === sec.tab ? currentSub : sec.subs[0].id) : null);
+      });
       nav.appendChild(item);
       if (sec.subs.length) {
         const sub = el('<div class="spn-sub" data-parent="' + esc(sec.tab) + '"></div>');
@@ -127,6 +156,15 @@
     const main = document.querySelector('main');
     if (!main) return;
     const top = el('<div class="spn-top"><div><h1 id="spnTitle">Dashboard</h1><div class="spn-crumb" id="spnCrumb"></div></div><span class="spn-spacer"></span></div>');
+    // Menu button (shown only on phones/touch devices by ui-new.css)
+    const menuBtn = el('<button type="button" class="spn-menu-btn" id="spnMenuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="spnRail">' +
+      '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>');
+    menuBtn.addEventListener('click', () => (document.body.classList.contains('spn-drawer-open') ? closeDrawer(true) : openDrawer()));
+    top.insertBefore(menuBtn, top.firstChild);
+    const backdrop = el('<div class="spn-backdrop" aria-hidden="true"></div>');
+    backdrop.addEventListener('click', () => closeDrawer(true));
+    document.body.appendChild(backdrop);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(true); });
     const count = document.getElementById('headerViewerCount');
     if (count) { const chip = el('<span class="spn-chip"></span>'); chip.appendChild(count); top.appendChild(chip); }
     const show = document.querySelector('.app-header .header-show-btn[href]');
@@ -158,6 +196,7 @@
   function go(tab, sub) {
     window.switchMainTab(tab);
     if (sub) window.switchTab(sub);
+    if (isDrawerMode()) closeDrawer(false);
   }
   function syncRail() {
     const sec = sections.find(s => s.tab === currentTab);

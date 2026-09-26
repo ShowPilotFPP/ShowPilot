@@ -183,3 +183,63 @@ body:not(.ui-new) #spnDash { display: none; }
   .spn-rail, .spn-rail .spn-label, .spn-fill { transition: none !important; }
   .spn-tally i { animation: none; }
 }
+
+/* ---------- Phones and touch-only devices (v0.33.212+) ----------
+   No hover here, so the hover-expand rail can't work (and its Settings
+   sub-pages were unreachable). The rail becomes a slide-out menu opened
+   from a button in the top bar; the page gets the full width. Desktop with
+   a mouse is unchanged. Same query as isDrawerMode() in ui-new.js. */
+.spn-menu-btn, .spn-backdrop { display: none; }
+@media (max-width: 760px), (hover: none) {
+  body.ui-new, body.ui-new.rail-pinned { padding-left: 0; }
+  body.ui-new .spn-rail,
+  body.ui-new.rail-pinned .spn-rail {
+    width: min(300px, 86vw);
+    transform: translateX(-105%);
+    transition: transform .22s ease;
+    box-shadow: none;
+    overflow-y: auto;
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  body.ui-new.spn-drawer-open .spn-rail { transform: none; box-shadow: 8px 0 32px rgba(0,0,0,.45); }
+  body.ui-new .spn-rail .spn-label { opacity: 1; }
+  body.ui-new .spn-rail .spn-sub { display: none; }
+  body.ui-new .spn-rail .spn-sub.open { display: flex !important; }
+  body.ui-new #spnPin { display: none; }
+  body.ui-new .spn-item, body.ui-new .spn-subitem { min-height: 48px; }
+  body.ui-new .spn-backdrop { position: fixed; inset: 0; z-index: 899; background: rgba(0,0,0,.45); }
+  body.ui-new:not(.spn-drawer-open) .spn-backdrop { display: none; }
+  body.ui-new.spn-drawer-open .spn-backdrop { display: block; }
+  body.ui-new.spn-drawer-open { overflow: hidden; }
+
+  body.ui-new .spn-menu-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; min-height: 44px !important; padding: 0 !important; flex: 0 0 44px;
+    border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text);
+  }
+  .spn-top { padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 4px; gap: 10px; }
+  .spn-top > div:first-of-type { min-width: 0; flex: 1 1 auto; }
+  .spn-top h1 { font-size: 22px; overflow: hidden; text-overflow: ellipsis; }
+  .spn-top .spn-spacer { display: none; }
+  .spn-top .spn-chip, .spn-top .header-show-btn, .spn-top #themeSelect { min-height: 40px; }
+  .spn-top #themeSelect { max-width: 46vw; }
+  body.ui-new main { padding: 8px 12px 40px; }
+  .spn-notice { margin: 8px 12px 0; }
+
+  /* Dashboard: stack the control strip, full-width mode buttons */
+  .spn-strip { flex-direction: column; align-items: stretch; gap: 14px; }
+  .spn-group { justify-content: space-between; flex-wrap: wrap; }
+  .spn-vsep { display: none; }
+  .spn-seg { flex: 1 1 100%; }
+  .spn-seg button { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+  .spn-actions { margin-left: 0; }
+  .spn-actions button { flex: 1 1 0; }
+  .spn-onair { padding: 20px; }
+  .spn-panel { padding: 18px; }
+  .spn-stat { padding: 14px; }
+  .spn-stat .v { font-size: 28px; }
+}
+@media (max-width: 760px), (hover: none) {
+  @media (prefers-reduced-motion: reduce) { body.ui-new .spn-rail { transition: none; } }
+}

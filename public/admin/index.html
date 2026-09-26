@@ -4,6 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShowPilot Admin</title>
+  <script>
+    // v0.33.208: the redesigned admin (/admin/new.html) is the default layout.
+    // If this browser already knows the signed-in user prefers it, go there
+    // before this page paints. ?section= (opened from the new layout's menu),
+    // ?classic and ?login stay here. Unknown preference (first visit, signed
+    // out) also stays: checkAuth() decides after sign-in.
+    (function () {
+      try {
+        var p = new URLSearchParams(location.search);
+        if (p.has('section') || p.has('classic') || p.has('login')) return;
+        if (localStorage.getItem('sp_admin_layout') === 'new') location.replace('/admin/new.html');
+      } catch (e) {}
+    })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -1825,7 +1839,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.207</span>
+        <span class="app-version">v0.33.208</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1852,6 +1866,9 @@
         <option value="independence">🎆 Independence Day</option>
         <option value="valentines">💝 Valentine's</option>
       </select>
+      <button type="button" class="header-show-btn" onclick="useNewAdminLayout()" title="Switch to the new admin layout">
+        <span class="header-show-btn-label">New layout</span>
+      </button>
       <span id="headerUserSlot"></span>
     </header>
 
@@ -5227,14 +5244,36 @@
     // delete-self button, header shows username).
     window._ofCurrentUser = null;
 
+    // v0.33.208: switch this user to the redesigned admin layout.
+    async function useNewAdminLayout() {
+      await api('/me/layout', { method: 'PUT', body: JSON.stringify({ layout: 'new' }) });
+      try { localStorage.setItem('sp_admin_layout', 'new'); } catch (_) {}
+      location.href = '/admin/new.html';
+    }
+
     async function checkAuth() {
       const r = await api('/me');
       if (r.ok) {
         window._ofCurrentUser = r.data;
+        // v0.33.208: layout preference ('new' is the default).
+        try { localStorage.setItem('sp_admin_layout', r.data.adminLayout || 'new'); } catch (_) {}
+        {
+          const qp = new URLSearchParams(location.search);
+          if ((r.data.adminLayout || 'new') === 'new' && !r.data.mustChangePassword &&
+              !qp.has('section') && !qp.has('classic')) {
+            location.replace('/admin/new.html');
+            return;
+          }
+        }
         syncThemeWithServer(r.data);
         renderHeaderUser();
         hide('loginView'); show('appView');
         await loadAll();
+        // v0.33.208: /admin/?section=<tab> opens that tab (links from the new layout).
+        {
+          const sec = (new URLSearchParams(location.search).get('section') || '').replace(/[^a-z-]/g, '');
+          if (sec && document.querySelector('.tab-btn[data-tab="' + sec + '"]')) switchMainTab(sec);
+        }
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
       } else {
         show('loginView'); hide('appView');
@@ -5321,6 +5360,15 @@
         const me = await api('/me');
         if (me.ok) {
           window._ofCurrentUser = me.data;
+          // v0.33.208: go to the user's preferred layout ('new' is the default),
+          // unless a password change is required (handled here) or ?section/?classic.
+          try { localStorage.setItem('sp_admin_layout', me.data.adminLayout || 'new'); } catch (_) {}
+          const qp = new URLSearchParams(location.search);
+          if ((me.data.adminLayout || 'new') === 'new' && !me.data.mustChangePassword &&
+              !qp.has('section') && !qp.has('classic')) {
+            location.replace('/admin/new.html');
+            return;
+          }
           syncThemeWithServer(me.data);
         }
         renderHeaderUser();

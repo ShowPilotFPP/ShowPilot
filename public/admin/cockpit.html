@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>ShowPilot Cockpit</title>
+  <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
+  <link rel="manifest" href="/admin-manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/admin/themes.css">
+  <style>
+    /* ShowPilot Cockpit — tablet show remote (v0.33.208+). Big touch targets,
+       readable at a distance. Colors come only from themes.css tokens. */
+    :root {
+      --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+      --font-body: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { background: var(--bg); color: var(--text); font: 16px/1.4 var(--font-body);
+      padding: calc(14px + env(safe-area-inset-top, 0px)) 18px calc(18px + env(safe-area-inset-bottom, 0px)); }
+    button, select { font: inherit; color: inherit; cursor: pointer; }
+    a { color: inherit; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .muted { color: var(--text-muted); }
+
+    .shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto minmax(0, 1fr); gap: 14px; height: 100%; min-height: 640px; }
+    header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .brand { font: 800 21px/1 var(--font-display); letter-spacing: -0.02em; margin-right: 6px; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--status-neutral); }
+    .dot.ok { background: var(--status-success); }
+    .dot.bad { background: var(--status-danger); }
+    .spacer { flex: 1; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--border-hover); background: transparent; font-weight: 600; text-decoration: none; }
+    .select-wrap { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 6px 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .select-wrap select { min-height: 38px; border: 0; border-radius: 8px; padding: 0 8px; background: var(--bg-input); font-weight: 600; }
+
+    .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+    .card { border-radius: 22px; border: 1px solid var(--border); background: var(--bg-elevated); }
+
+    .now { display: flex; align-items: center; gap: 28px; padding: 22px 28px; }
+    .ring { position: relative; flex: 0 0 160px; width: 160px; height: 160px; }
+    .ring svg { transform: rotate(-90deg); }
+    .ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .ring .left-time { font: 700 34px/1 var(--font-mono); }
+    .now-text { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .now-label { font: 700 13px/1 var(--font-mono); letter-spacing: .12em; color: var(--accent); }
+    .now-title { margin: 0; font: 800 clamp(36px, 5.2vw, 64px)/0.95 var(--font-display); letter-spacing: -0.04em; overflow-wrap: anywhere; }
+    .now-artist { font-size: 19px; color: var(--text-muted); }
+    .next { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 17px; }
+    .next b { font-weight: 700; }
+
+    .tabs-card { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 18px; flex: 1; min-height: 0; }
+    .tabs { display: flex; gap: 6px; }
+    .tabs button { min-height: 48px; padding: 0 18px; border: 0; border-radius: 12px; background: transparent; color: var(--text-muted); font-weight: 700; }
+    .tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--text); }
+    .tab-body { overflow-y: auto; min-height: 0; flex: 1; }
+    .bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
+    .bar-item { display: flex; flex-direction: column; gap: 10px; }
+    .bar-item .top { display: flex; align-items: baseline; gap: 8px; }
+    .bar-item .top b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-item .top .count { margin-left: auto; font: 700 26px/1 var(--font-mono); }
+    .bar { height: 14px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+    .bar > div { height: 100%; border-radius: 999px; background: var(--border-hover); }
+    .bar-item:first-child .bar > div { background: var(--accent); }
+    .list-row { display: flex; align-items: center; gap: 14px; min-height: 58px; border-bottom: 1px solid var(--border); }
+    .list-row:last-child { border-bottom: 0; }
+    .list-row .title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .list-row .end { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+    .empty { padding: 20px 4px; color: var(--text-muted); font-size: 17px; }
+
+    .switch { display: flex; align-items: center; width: 56px; height: 32px; padding: 4px; border: 0; border-radius: 999px; background: var(--status-neutral); justify-content: flex-start; flex: 0 0 56px; }
+    .switch span { width: 24px; height: 24px; border-radius: 50%; background: #fff; }
+    .switch[aria-pressed="true"] { background: var(--status-success); justify-content: flex-end; }
+
+    .controls { grid-row: 2; grid-column: 2; display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto; }
+    .vc { display: flex; align-items: center; gap: 14px; min-height: 72px; padding: 0 16px; border-radius: 18px; border: 2px solid var(--border); background: var(--bg); text-align: left; }
+    .vc[aria-pressed="true"] { border-color: var(--status-success); background: var(--status-success-soft); }
+    .vc .switch { pointer-events: none; }
+    .vc b { display: block; font-size: 17px; }
+    .section-label { padding: 6px 4px 0; font-weight: 700; color: var(--text-muted); font-size: 14px; }
+    .modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .modes button { min-height: 64px; border-radius: 16px; border: 2px solid var(--border); background: var(--bg); font: 700 20px/1 var(--font-display); }
+    .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    .qs { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 4px; }
+    .qs .txt { display: flex; flex-direction: column; min-width: 0; }
+    .qs .txt small { color: var(--text-muted); }
+    .qs .switch { margin-left: auto; }
+    .actions { margin-top: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 6px; }
+    .actions .btn { min-height: 56px; }
+
+    .sp-toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 100; padding: 14px 20px; border-radius: 14px; background: var(--bg-tertiary); border: 1px solid var(--border-hover); font-weight: 700; transition: opacity .2s, transform .2s; }
+    .sp-toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .sp-toast.error { border-color: var(--status-danger); }
+
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; height: auto; }
+      .controls { grid-row: auto; grid-column: auto; }
+      .now { flex-direction: column; align-items: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) { .sp-toast { transition: none; } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <span class="brand">ShowPilot Cockpit</span>
+    <span class="chip"><span class="dot" id="fppDot"></span><span id="fppText">Checking FPP…</span></span>
+    <span class="chip"><span class="num" id="watchCount" style="font-weight:700">0</span><span class="muted">watching</span></span>
+    <span class="spacer"></span>
+    <label class="select-wrap"><span class="muted">Theme</span><select id="themeSelect" aria-label="Theme"></select></label>
+    <a class="btn" href="/admin/new.html">Full admin</a>
+  </header>
+
+  <div class="left">
+    <section class="card now" aria-label="Now playing">
+      <div class="ring" role="img" id="ringWrap" aria-label="Time left in this song">
+        <svg width="160" height="160" viewBox="0 0 160 160" aria-hidden="true">
+          <circle cx="80" cy="80" r="70" fill="none" stroke="var(--bg-tertiary)" stroke-width="12"></circle>
+          <circle id="ringArc" cx="80" cy="80" r="70" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 440"></circle>
+        </svg>
+        <div class="center"><span class="left-time" id="timeLeft">--:--</span><span class="muted">left</span></div>
+      </div>
+      <div class="now-text">
+        <span class="now-label" id="nowLabel">NOW PLAYING</span>
+        <h1 class="now-title" id="nowTitle">Nothing playing</h1>
+        <span class="now-artist" id="nowArtist"></span>
+        <div class="next"><span class="muted">Next</span><b id="nextTitle">—</b><span class="muted" id="nextSource"></span></div>
+      </div>
+    </section>
+
+    <section class="card tabs-card">
+      <div class="tabs" role="tablist" aria-label="Panels" id="tabs"></div>
+      <div class="tab-body" id="tabBody" role="tabpanel"></div>
+    </section>
+  </div>
+
+  <section class="card controls" aria-label="Show control">
+    <button type="button" class="vc" id="vcBtn" aria-pressed="false">
+      <span class="switch" aria-hidden="true"><span></span></span>
+      <span><b>Viewer control</b><span class="muted" id="vcSub">Off — watch only</span></span>
+    </button>
+    <span class="section-label" id="modeLabel">Mode</span>
+    <div class="modes" role="group" aria-labelledby="modeLabel" id="modes"></div>
+    <span class="section-label">Quick switches</span>
+    <div id="switches"></div>
+    <div class="actions" id="actions"></div>
+  </section>
+</div>
+
+<script src="/admin/shared.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = SP.esc;
+  const MODES = [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race']];
+  let cfg = {}, stats = {}, vstate = null, queue = [], seqs = [];
+  let tab = 'live';
+
+  $('themeSelect').innerHTML = SP.THEMES.map(t => '<option value="' + t[0] + '">' + esc(t[1]) + '</option>').join('');
+  $('themeSelect').addEventListener('change', (e) => SP.setTheme(e.target.value));
+
+  function info(name) {
+    const s = seqs.find(x => x.name === name);
+    return { title: (s && s.display_name) || name || '', artist: (s && s.artist) || '' };
+  }
+  function categories() {
+    try { const c = JSON.parse(cfg.sequence_categories || '[]'); return Array.isArray(c) ? c : []; } catch (_) { return []; }
+  }
+
+  // ---------- Actions ----------
+  async function setMode(mode) {
+    const r = await SP.put('/config', { viewer_control_mode: mode });
+    if (!r.ok) SP.toast('Could not change the mode', true);
+    refresh();
+  }
+  $('vcBtn').addEventListener('click', () => {
+    if ((cfg.viewer_control_mode || 'OFF') !== 'OFF') return setMode('OFF');
+    setMode(cfg.last_active_mode && cfg.last_active_mode !== 'OFF' ? cfg.last_active_mode : 'VOTING');
+  });
+  const ACTIONS = {
+    resetVotes: ['Reset votes', 'Reset all votes for the current round?', '/reset-votes', 'Votes reset'],
+    purgeQueue: ['Purge queue', 'Delete all pending jukebox requests?', '/purge-queue', 'Queue purged'],
+    resetRace: ['Reset race', 'Reset the race and start a new round?', '/race/reset', 'Race reset'],
+  };
+  async function runAction(k) {
+    const a = ACTIONS[k];
+    if (!window.confirm(a[1])) return;
+    const r = await SP.post(a[2]);
+    SP.toast(r.ok ? a[3] : 'That did not work — try again', !r.ok);
+    refresh();
+  }
+  async function toggleLocationCheck() {
+    const on = cfg.check_viewer_present === 1;
+    const r = await SP.put('/config', { check_viewer_present: on ? 0 : 1 });
+    SP.toast(r.ok ? (on ? 'Location check off' : 'Location check on') : 'Could not change it', !r.ok);
+    refresh();
+  }
+  async function toggleCategory(name, enabled) {
+    const r = await SP.post('/categories/enabled', { name, enabled: !enabled });
+    SP.toast(r.ok ? (enabled ? name + ' hidden' : name + ' shown') : 'Could not change it', !r.ok);
+    refresh();
+  }
+  async function toggleSong(id, visible) {
+    const r = await SP.put('/sequences/' + encodeURIComponent(id), { visible: visible ? 0 : 1 });
+    if (!r.ok) SP.toast('Could not change it', true);
+    await loadSeqs(); refresh();
+  }
+  async function removeQueued(id, title) {
+    if (!window.confirm('Remove "' + title + '" from the queue?')) return;
+    const r = await SP.api('/queue/' + encodeURIComponent(id), { method: 'DELETE' });
+    SP.toast(r.ok ? 'Removed from the queue' : 'Could not remove it', !r.ok);
+    refresh();
+  }
+
+  // ---------- Render ----------
+  function renderControls() {
+    const mode = cfg.viewer_control_mode || 'OFF';
+    const on = mode !== 'OFF';
+    $('vcBtn').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('vcBtn').querySelector('.switch').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('vcSub').textContent = on ? 'On — visitors can interact' : 'Off — watch only';
+    $('modes').innerHTML = MODES.map(m => '<button type="button" data-mode="' + m[0] + '" aria-pressed="' + (m[0] === mode) + '">' + m[1] + '</button>').join('');
+    $('modes').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+    const sw = [];
+    sw.push('<div class="qs"><span class="txt"><b>Location check</b><small>Only nearby visitors can interact</small></span>' +
+      '<button type="button" class="switch" data-sw="gate" aria-pressed="' + (cfg.check_viewer_present === 1) + '" aria-label="Location check"><span></span></button></div>');
+    categories().forEach((c, i) => {
+      sw.push('<div class="qs"><span class="txt"><b>' + esc(c.name) + '</b><small>Song set on the viewer page</small></span>' +
+        '<button type="button" class="switch" data-cat="' + i + '" aria-pressed="' + (c.enabled !== false) + '" aria-label="' + esc(c.name) + ' song set"><span></span></button></div>');
+    });
+    $('switches').innerHTML = sw.join('');
+    $('switches').querySelectorAll('[data-sw="gate"]').forEach(b => b.addEventListener('click', toggleLocationCheck));
+    $('switches').querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => {
+      const c = categories()[Number(b.dataset.cat)];
+      if (c) toggleCategory(c.name, c.enabled !== false);
+    }));
+
+    const keys = mode === 'RACE' ? ['resetRace', 'purgeQueue'] : ['resetVotes', 'purgeQueue'];
+    $('actions').innerHTML = keys.map(k => '<button type="button" class="btn" data-action="' + k + '">' + ACTIONS[k][0] + '</button>').join('');
+    $('actions').querySelectorAll('button').forEach(b => b.addEventListener('click', () => runAction(b.dataset.action)));
+  }
+
+  function renderNow() {
+    const mode = cfg.viewer_control_mode || 'OFF';
+    if (stats.nowPlaying) {
+      const i = info(stats.nowPlaying);
+      $('nowTitle').textContent = i.title; $('nowArtist').textContent = i.artist; $('nowLabel').textContent = 'NOW PLAYING';
+    } else {
+      $('nowTitle').textContent = 'Nothing playing'; $('nowArtist').textContent = 'The show is idle.'; $('nowLabel').textContent = 'OFF AIR';
+    }
+    $('nextTitle').textContent = stats.nextUp ? info(stats.nextUp).title : '—';
+    $('nextSource').textContent = stats.nextUp ? (mode === 'VOTING' ? 'vote leader' : mode === 'JUKEBOX' ? 'from the queue' : mode === 'RACE' ? 'race leader' : 'scheduled') : '';
+    paintRing();
+  }
+
+  function paintRing() {
+    const circ = 2 * Math.PI * 70;
+    const start = vstate && vstate.nowPlayingStartedAtIso;
+    const dur = vstate && vstate.nowPlayingDurationSeconds;
+    if (!stats.nowPlaying || !start || !dur) {
+      $('ringArc').setAttribute('stroke-dasharray', '0 ' + circ.toFixed(1));
+      $('timeLeft').textContent = '--:--';
+      return;
+    }
+    const elapsed = Math.max(0, (SP.serverNow() - Date.parse(start)) / 1000);
+    const left = Math.max(0, dur - elapsed);
+    $('ringArc').setAttribute('stroke-dasharray', (circ * Math.min(1, left / dur)).toFixed(1) + ' ' + circ.toFixed(1));
+    $('timeLeft').textContent = SP.fmtTime(left);
+    $('ringWrap').setAttribute('aria-label', SP.fmtTime(left) + ' left in this song');
+  }
+
+  function barsHtml(rows) {
+    const max = Math.max(1, ...rows.map(r => r.count));
+    return '<div class="bars">' + rows.map(r => '<div class="bar-item"><div class="top"><b>' + esc(info(r.name).title) + '</b><span class="count">' + r.count + '</span></div>' +
+      '<div class="bar"><div style="width:' + Math.round(r.count / max * 100) + '%"></div></div></div>').join('') + '</div>';
+  }
+
+  function renderTabs() {
+    const pending = queue.filter(q => !q.handed_off_at);
+    const TABS = [['live', 'Live'], ['queue', 'Queue · ' + pending.length], ['songs', 'Songs']];
+    $('tabs').innerHTML = TABS.map(t => '<button type="button" role="tab" data-tab="' + t[0] + '" aria-selected="' + (t[0] === tab) + '">' + esc(t[1]) + '</button>').join('');
+    $('tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; renderTabs(); }));
+    const body = $('tabBody');
+    const mode = cfg.viewer_control_mode || 'OFF';
+
+    if (tab === 'live') {
+      if (mode === 'OFF') { body.innerHTML = '<div class="empty">Viewer control is off. Visitors can watch, but not vote or request.</div>'; return; }
+      let rows = [];
+      if (mode === 'VOTING') rows = ((vstate && vstate.voteCounts) || []).map(v => ({ name: v.sequence_name, count: v.count }));
+      if (mode === 'RACE') rows = (((vstate && vstate.race && vstate.race.tapCounts) || [])).map(v => ({ name: v.sequence_name, count: v.count }));
+      if (mode === 'JUKEBOX') {
+        body.innerHTML = pending.length ? pending.slice(0, 6).map((q, i) => '<div class="list-row"><span class="num muted">' + (i + 1) + '</span><span class="title">' + esc(q.display_name || q.sequence_name) + '</span></div>').join('')
+          : '<div class="empty">The request queue is empty.</div>';
+        return;
+      }
+      rows.sort((a, b) => b.count - a.count);
+      body.innerHTML = rows.length ? barsHtml(rows.slice(0, 6)) : '<div class="empty">' + (mode === 'RACE' ? 'No taps yet.' : 'No votes yet this round.') + '</div>';
+      return;
+    }
+    if (tab === 'queue') {
+      body.innerHTML = pending.length ? pending.map((q, i) => {
+        const title = q.display_name || q.sequence_name;
+        return '<div class="list-row"><span class="num muted">' + (i + 1) + '</span><span class="title">' + esc(title) + '</span>' +
+          '<span class="end"><button type="button" class="btn" data-id="' + esc(q.id) + '" data-title="' + esc(title) + '">Remove</button></span></div>';
+      }).join('') : '<div class="empty">The request queue is empty.</div>';
+      body.querySelectorAll('[data-id]').forEach(b => b.addEventListener('click', () => removeQueued(b.dataset.id, b.dataset.title)));
+      return;
+    }
+    // songs
+    const list = seqs.filter(s => !s.is_psa);
+    body.innerHTML = list.length ? list.map(s => {
+      const vis = s.visible !== 0 && s.visible !== false;
+      return '<div class="list-row"><span class="title"' + (vis ? '' : ' style="color:var(--text-muted)"') + '>' + esc(s.display_name || s.name) + '</span>' +
+        '<span class="end"><span class="muted" style="font-size:14px">' + (vis ? 'On the viewer page' : 'Hidden') + '</span>' +
+        '<button type="button" class="switch" data-seq="' + esc(s.id) + '" data-vis="' + (vis ? 1 : 0) + '" aria-pressed="' + vis + '" aria-label="' + esc((vis ? 'Hide ' : 'Show ') + (s.display_name || s.name)) + '"><span></span></button></span></div>';
+    }).join('') : '<div class="empty">No sequences yet. Sync them from FPP in the full admin.</div>';
+    body.querySelectorAll('[data-seq]').forEach(b => b.addEventListener('click', () => toggleSong(b.dataset.seq, b.dataset.vis === '1')));
+  }
+
+  async function renderPlugin() {
+    const r = await SP.api('/plugin-status');
+    const d = (r.ok && r.data) || {};
+    const seen = typeof d.lastSeen === 'number' ? d.lastSeen : Date.parse(d.lastSeen || '');
+    const online = isFinite(seen) && Date.now() - seen < 30000;
+    $('fppDot').className = 'dot ' + (online ? 'ok' : 'bad');
+    $('fppText').textContent = online ? 'FPP online' : 'FPP offline';
+  }
+
+  // ---------- Data ----------
+  async function loadSeqs() {
+    const r = await SP.api('/sequences');
+    if (r.ok && Array.isArray(r.data)) seqs = r.data;
+  }
+  let busy = false;
+  async function refresh() {
+    if (busy) return;
+    busy = true;
+    try {
+      const [c, s, v, q] = await Promise.all([SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue')]);
+      if (c.ok && c.data) cfg = c.data;
+      if (s.ok && s.data) stats = s.data;
+      if (v) vstate = v;
+      if (q.ok && q.data) queue = q.data.pending || [];
+      $('watchCount').textContent = stats.activeViewers ?? 0;
+      renderControls(); renderNow(); renderTabs();
+    } finally { busy = false; }
+  }
+
+  (async function start() {
+    const me = await SP.requireLogin();
+    $('themeSelect').value = me.theme || (() => { try { return localStorage.getItem('showpilot_theme'); } catch (_) { return null; } })() || 'stage-dark';
+    await loadSeqs();
+    await refresh();
+    renderPlugin();
+    SP.onLive((ev) => {
+      if (ev === 'pluginStatus') return renderPlugin();
+      if (ev === 'sequencesSynced') loadSeqs().then(refresh); else refresh();
+    });
+    setInterval(refresh, 5000);
+    setInterval(renderPlugin, 15000);
+    setInterval(paintRing, 1000);
+  })();
+})();
+</script>
+</body>
+</html>

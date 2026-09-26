@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShowPilot Admin</title>
+  <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
+  <link rel="manifest" href="/admin-manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/admin/themes.css">
+  <style>
+    /* ShowPilot admin — new layout (v0.33.208+). Colors come only from the
+       theme tokens in themes.css, so every theme applies unchanged. */
+    :root {
+      --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+      --font-body: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      --rail-collapsed: 72px;
+      --rail-expanded: 236px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: var(--bg); color: var(--text); font: 15px/1.45 var(--font-body); min-height: 100vh; }
+    a { color: inherit; }
+    button, select, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .muted { color: var(--text-muted); }
+
+    /* ---------- App frame ---------- */
+    .app { display: grid; grid-template-columns: var(--rail-collapsed) minmax(0, 1fr); min-height: 100vh; }
+    body.rail-pinned .app { grid-template-columns: var(--rail-expanded) minmax(0, 1fr); }
+
+    /* ---------- Rail: compact, expands on hover/focus, can be pinned ---------- */
+    .rail-slot { position: relative; }
+    .rail {
+      position: fixed; top: 0; bottom: 0; left: 0; z-index: 50;
+      width: var(--rail-collapsed); overflow: hidden;
+      display: flex; flex-direction: column; gap: 22px; padding: 18px 12px;
+      background: var(--bg-elevated); border-right: 1px solid var(--border);
+      transition: width .18s ease, box-shadow .18s ease;
+    }
+    .rail:hover, .rail:focus-within, body.rail-pinned .rail { width: var(--rail-expanded); }
+    body:not(.rail-pinned) .rail:hover, body:not(.rail-pinned) .rail:focus-within { box-shadow: 8px 0 32px rgba(0,0,0,.35); }
+    .rail .label { white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
+    .rail:hover .label, .rail:focus-within .label, body.rail-pinned .rail .label { opacity: 1; }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 6px; min-height: 40px; }
+    .brand-mark { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; width: 34px; height: 34px; flex: 0 0 34px; }
+    .brand-mark span { border-radius: 2px; background: var(--text-dim); }
+    .brand-mark span:nth-child(1) { background: var(--rgb-red); }
+    .brand-mark span:nth-child(3) { background: var(--rgb-green); }
+    .brand-mark span:nth-child(5) { background: var(--accent); }
+    .brand-mark span:nth-child(7) { background: var(--rgb-blue); }
+    .brand-mark span:nth-child(9) { background: var(--rgb-amber); }
+    .brand-name { font: 800 20px/1.1 var(--font-display); letter-spacing: -0.02em; }
+    .brand-version { font: 500 11px/1.2 var(--font-mono); color: var(--text-muted); }
+    .nav { display: flex; flex-direction: column; gap: 2px; }
+    .nav a {
+      display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 0 13px;
+      border-radius: 10px; text-decoration: none; font-weight: 600; color: var(--text-muted);
+    }
+    .nav a:hover { background: var(--bg-tertiary); color: var(--text); }
+    .nav a[aria-current="page"] { background: var(--accent-soft); color: var(--text); }
+    .nav svg { flex: 0 0 20px; }
+    .nav-sep { height: 1px; background: var(--border); margin: 8px 6px; }
+    .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+    .fpp-status { display: flex; align-items: center; gap: 12px; padding: 10px 13px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); min-height: 44px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; background: var(--status-neutral); }
+    .dot.ok { background: var(--status-success); }
+    .dot.bad { background: var(--status-danger); }
+    .fpp-status .label { display: flex; flex-direction: column; font-size: 13px; }
+    .fpp-status .label small { color: var(--text-muted); font-size: 12px; }
+    .pin-btn { display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 0 13px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); font-weight: 600; text-align: left; }
+    .pin-btn:hover { background: var(--bg-tertiary); color: var(--text); }
+
+    /* ---------- Main ---------- */
+    main { display: flex; flex-direction: column; gap: 20px; padding: 22px 32px 40px; min-width: 0; max-width: 1480px; }
+    .topbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .topbar h1 { margin: 0; font: 700 28px/1.1 var(--font-display); letter-spacing: -0.02em; }
+    .topbar .spacer { flex: 1; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); font-weight: 600; text-decoration: none; }
+    .btn:hover { border-color: var(--border-hover); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    .btn.primary:hover { background: var(--accent-hover); }
+    .btn.ghost { background: transparent; }
+    .select-wrap { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 6px 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .select-wrap select { min-height: 34px; border: 0; border-radius: 8px; padding: 0 8px; background: var(--bg-input); font-weight: 600; }
+    .account { position: relative; }
+    .account-btn { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-tertiary); font-weight: 700; }
+    .menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 60; min-width: 240px; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-elevated, 0 12px 32px rgba(0,0,0,.35)); }
+    .menu[hidden] { display: none; }
+    .menu .who { padding: 8px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; font-weight: 600; }
+    .menu button, .menu a { display: flex; width: 100%; align-items: center; min-height: 40px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; text-align: left; text-decoration: none; }
+    .menu button:hover, .menu a:hover { background: var(--bg-tertiary); }
+
+    .notice { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 18px; border-radius: 14px; border: 1px solid var(--accent); background: var(--accent-soft); }
+    .notice p { margin: 0; flex: 1 1 360px; }
+    .notice[hidden] { display: none; }
+
+    .panel { border-radius: 18px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-card); }
+    .control-strip { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; padding: 12px 16px; border-radius: 14px; }
+    .strip-group { display: flex; align-items: center; gap: 12px; }
+    .strip-group > span { font-weight: 600; }
+    .vsep { width: 1px; align-self: stretch; background: var(--border); }
+    .toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px 0 6px; border-radius: 999px; border: 1px solid var(--border); background: transparent; font-weight: 700; }
+    .toggle .track { display: flex; align-items: center; width: 44px; height: 26px; padding: 3px; border-radius: 999px; background: var(--status-neutral); justify-content: flex-start; transition: background .15s; }
+    .toggle .thumb { width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+    .toggle[aria-pressed="true"] { border-color: var(--status-success); background: var(--status-success-soft); }
+    .toggle[aria-pressed="true"] .track { background: var(--status-success); justify-content: flex-end; }
+    .segmented { display: flex; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-input); }
+    .segmented button { min-height: 36px; min-width: 88px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--text-muted); font-weight: 600; }
+    .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+    .strip-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .row-2 { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 20px; }
+
+    /* On Air — the one bold element */
+    .onair { display: flex; flex-direction: column; gap: 20px; padding: 26px 28px; }
+    .onair-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .tally { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; border-radius: 6px; background: var(--status-danger-soft); font: 700 12px/1 var(--font-mono); letter-spacing: .12em; }
+    .tally i { width: 8px; height: 8px; border-radius: 50%; background: var(--status-danger); animation: onair 1.6s ease-in-out infinite; }
+    .tally.off { background: var(--status-neutral-soft); }
+    .tally.off i { background: var(--status-neutral); animation: none; }
+    @keyframes onair { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    .song-title { margin: 0; font: 800 clamp(34px, 4.2vw, 56px)/1 var(--font-display); letter-spacing: -0.03em; overflow-wrap: anywhere; }
+    .song-artist { font-size: 18px; color: var(--text-muted); }
+    .progress { display: flex; flex-direction: column; gap: 8px; }
+    .progress-track { height: 8px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width 1s linear; }
+    .progress-times { display: flex; justify-content: space-between; font: 500 13px/1 var(--font-mono); color: var(--text-muted); }
+    .upnext { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--border); }
+    .upnext .title { font-weight: 600; font-size: 16px; }
+    .pill { padding: 4px 10px; border-radius: 999px; background: var(--status-neutral-soft); font-size: 12px; font-weight: 600; }
+    .upnext .pill { margin-left: auto; }
+
+    .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .stat { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .stat .value { font: 700 34px/1 var(--font-mono); letter-spacing: -0.02em; }
+    .stat small { color: var(--text-muted); font-size: 12px; }
+
+    .live { display: flex; flex-direction: column; gap: 14px; padding: 22px 24px; }
+    .panel-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .panel-head h2 { margin: 0; font: 700 20px/1.2 var(--font-display); }
+    .bars { display: flex; flex-direction: column; gap: 12px; }
+    .bar-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 56px; align-items: center; gap: 12px; }
+    .bar-row .rank { color: var(--text-muted); }
+    .bar-row .count { text-align: right; font-weight: 700; }
+    .bar-row .names { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+    .bar-row .names b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-row .names span { color: var(--text-muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bar { height: 6px; margin-top: 6px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+    .bar > div { height: 100%; border-radius: 999px; background: var(--border-hover); }
+    .bar-row:first-child .bar > div { background: var(--accent); }
+    .queue-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; min-height: 56px; border-bottom: 1px solid var(--border); }
+    .queue-row:last-child { border-bottom: 0; }
+    .icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); }
+    .icon-btn:hover { color: var(--text); border-color: var(--border-hover); }
+    .empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; border-radius: 12px; border: 1px dashed var(--border-hover); background: var(--bg); }
+    .empty strong { font-size: 16px; }
+
+    .side { display: flex; flex-direction: column; gap: 20px; }
+    .top-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+    .top-list li { display: flex; align-items: center; gap: 12px; min-height: 34px; }
+    .top-list .n { width: 22px; color: var(--text-muted); }
+    .top-list .plays { margin-left: auto; color: var(--text-muted); }
+    .qr { display: flex; gap: 18px; align-items: center; padding: 20px; }
+    .qr img { width: 112px; height: 112px; flex: 0 0 112px; border-radius: 10px; background: #fff; padding: 8px; }
+    .qr .url { color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+
+    .sp-toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 100; padding: 12px 18px; border-radius: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-hover); font-weight: 600; transition: opacity .2s, transform .2s; }
+    .sp-toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .sp-toast.error { border-color: var(--status-danger); }
+
+    @media (max-width: 1100px) {
+      .row-2 { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 720px) {
+      main { padding: 16px 14px 32px; }
+      .strip-actions { margin-left: 0; }
+      .vsep { display: none; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .qr { flex-direction: column; align-items: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .rail, .rail .label, .progress-fill, .sp-toast { transition: none; }
+      .tally i { animation: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="rail-slot">
+    <aside class="rail" aria-label="Main">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="label"><div class="brand-name">ShowPilot</div><div class="brand-version" id="appVersion"></div></div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="rail-foot">
+        <div class="fpp-status" id="fppStatus" title="FPP connection">
+          <span class="dot" id="fppDot"></span>
+          <span class="label"><span id="fppText">Checking FPP…</span><small id="fppSub"></small></span>
+        </div>
+        <button type="button" class="pin-btn" id="pinBtn" aria-pressed="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path id="pinIcon" d="M9 6l6 6-6 6"/></svg>
+          <span class="label" id="pinLabel">Keep menu open</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <h1>Dashboard</h1>
+        <div class="muted" id="showName"></div>
+      </div>
+      <span class="spacer"></span>
+      <span class="chip"><span class="dot ok" id="watchDot"></span><span class="num" id="watchCount">0</span><span class="muted">watching</span></span>
+      <a class="btn" href="/" target="_blank" rel="noopener">Viewer page</a>
+      <label class="select-wrap"><span class="muted">Theme</span><select id="themeSelect" aria-label="Theme"></select></label>
+      <div class="account">
+        <button type="button" class="account-btn" id="accountBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">?</button>
+        <div class="menu" id="accountMenu" role="menu" hidden>
+          <div class="who" id="accountName"></div>
+          <button type="button" role="menuitem" id="useClassicBtn">Switch to classic layout</button>
+          <a role="menuitem" href="/admin/cockpit.html">Open Cockpit (tablet mode)</a>
+          <button type="button" role="menuitem" id="logoutBtn">Sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice" id="layoutNotice" role="status" hidden>
+      <p><strong>This is the new ShowPilot admin.</strong> Prefer the original layout? Choose <em>Switch to classic layout</em> in the account menu at the top right. You can switch back and forth anytime.</p>
+      <button type="button" class="btn ghost" id="noticeClassicBtn">Switch to classic now</button>
+      <button type="button" class="btn primary" id="noticeOkBtn">Got it</button>
+    </div>
+
+    <section class="panel control-strip" aria-label="Show control">
+      <div class="strip-group">
+        <span>Viewer control</span>
+        <button type="button" class="toggle" id="vcToggle" aria-pressed="false">
+          <span class="track" aria-hidden="true"><span class="thumb"></span></span><span id="vcLabel">Off</span>
+        </button>
+      </div>
+      <span class="vsep" aria-hidden="true"></span>
+      <div class="strip-group">
+        <span id="modeLabel">Mode</span>
+        <div class="segmented" role="group" aria-labelledby="modeLabel" id="modeGroup"></div>
+      </div>
+      <div class="strip-actions" id="stripActions"></div>
+    </section>
+
+    <div class="row-2">
+      <section class="panel onair" aria-label="Now playing">
+        <div class="onair-head">
+          <span class="tally" id="tally"><i aria-hidden="true"></i><span id="tallyText">ON AIR</span></span>
+          <span class="muted" id="nowSource"></span>
+        </div>
+        <div>
+          <h2 class="song-title" id="nowTitle">Nothing playing</h2>
+          <div class="song-artist" id="nowArtist"></div>
+        </div>
+        <div class="progress" id="progressWrap" hidden>
+          <div class="progress-track" role="progressbar" aria-label="Song progress" aria-valuemin="0" aria-valuemax="100" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-times"><span id="elapsed">0:00</span><span id="remaining">−0:00</span></div>
+        </div>
+        <div class="upnext">
+          <span class="muted">Up next</span>
+          <span class="title" id="nextTitle">—</span>
+          <span class="pill" id="nextSource" hidden></span>
+        </div>
+      </section>
+      <section class="stats" aria-label="Show numbers">
+        <div class="stat"><span class="muted">Watching now</span><span class="value num" id="statViewers">0</span><small>on the viewer page</small></div>
+        <div class="stat"><span class="muted" id="stat2Label">Votes this round</span><span class="value num" id="stat2">0</span><small id="stat2Hint">for the next song</small></div>
+        <div class="stat"><span class="muted">Played by viewers</span><span class="value num" id="statPlayed">0</span><small>votes and requests, all time</small></div>
+        <div class="stat"><span class="muted">Sequences</span><span class="value num" id="statSeq">0</span><small>on the viewer page</small></div>
+      </section>
+    </div>
+
+    <div class="row-2">
+      <section class="panel live" aria-labelledby="liveTitle">
+        <div class="panel-head"><h2 id="liveTitle">Live vote</h2><span class="muted" id="liveSub"></span></div>
+        <div id="liveBody"></div>
+      </section>
+      <div class="side">
+        <section class="panel live" aria-labelledby="topTitle">
+          <div class="panel-head"><h2 id="topTitle">Top sequences</h2><span class="muted">all time</span></div>
+          <ol class="top-list" id="topList"></ol>
+        </section>
+        <section class="panel qr" aria-labelledby="qrTitle" id="qrCard">
+          <img id="qrImg" alt="QR code for the viewer page" hidden>
+          <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+            <h2 id="qrTitle" style="margin:0;font:700 18px/1.2 var(--font-display)">Viewer QR code</h2>
+            <span class="url" id="qrUrl"></span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap" id="qrActions"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/admin/shared.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = SP.esc;
+
+  // ---------- Navigation ----------
+  // Sections not yet redesigned open in the classic view (?section=), so
+  // nothing is missing from the new layout.
+  const ICON = {
+    dashboard: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
+    sequences: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+    queue: 'M4 6h16M4 12h10M4 18h7M17 15v6M14 18h6',
+    stats: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+    viewer: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
+    settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+    plugin: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4',
+    users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
+    cockpit: 'M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM8 12h8M12 8v8',
+  };
+  const NAV = [
+    ['dashboard', 'Dashboard', '#'],
+    ['sequences', 'Sequences', '/admin/?section=sequences'],
+    ['queue', 'Queue', '/admin/?section=queue'],
+    ['stats', 'Stats', '/admin/?section=stats'],
+    ['viewer', 'Viewer page', '/admin/?section=viewer'],
+    ['settings', 'Settings', '/admin/?section=settings'],
+    ['plugin', 'Plugin', '/admin/?section=plugin'],
+    ['users', 'Users', '/admin/?section=users'],
+    null,
+    ['cockpit', 'Cockpit (tablet)', '/admin/cockpit.html'],
+  ];
+  $('nav').innerHTML = NAV.map(n => n === null ? '<div class="nav-sep" aria-hidden="true"></div>' :
+    '<a href="' + n[2] + '"' + (n[0] === 'dashboard' ? ' aria-current="page"' : '') + ' title="' + esc(n[1]) + '">' +
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + ICON[n[0]] + '"/></svg>' +
+    '<span class="label">' + esc(n[1]) + '</span></a>').join('');
+
+  // Rail pin (remembered per browser)
+  function setPinned(on) {
+    document.body.classList.toggle('rail-pinned', on);
+    $('pinBtn').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('pinLabel').textContent = on ? 'Collapse menu' : 'Keep menu open';
+    $('pinIcon').setAttribute('d', on ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6');
+    try { localStorage.setItem('sp_rail_pinned', on ? '1' : '0'); } catch (_) {}
+  }
+  setPinned((() => { try { return localStorage.getItem('sp_rail_pinned') === '1'; } catch (_) { return false; } })());
+  $('pinBtn').addEventListener('click', () => setPinned(!document.body.classList.contains('rail-pinned')));
+
+  // Theme picker
+  $('themeSelect').innerHTML = SP.THEMES.map(t => '<option value="' + t[0] + '">' + esc(t[1]) + '</option>').join('');
+  $('themeSelect').addEventListener('change', (e) => SP.setTheme(e.target.value));
+
+  // Account menu
+  const menu = $('accountMenu');
+  $('accountBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    $('accountBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) { menu.hidden = true; $('accountBtn').setAttribute('aria-expanded', 'false'); } });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; $('accountBtn').focus(); } });
+  $('useClassicBtn').addEventListener('click', () => SP.useClassicLayout());
+  $('noticeClassicBtn').addEventListener('click', async () => { await SP.put('/me/layout-notice-seen'); SP.useClassicLayout(); });
+  $('logoutBtn').addEventListener('click', () => SP.logout());
+  $('noticeOkBtn').addEventListener('click', async () => {
+    $('layoutNotice').hidden = true;
+    await SP.put('/me/layout-notice-seen');
+  });
+
+  // ---------- State ----------
+  let cfg = {};
+  let stats = {};
+  let vstate = null;
+  let queue = [];
+  const MODES = [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race']];
+
+  // Display names come from the admin's full sequence list: the viewer
+  // state omits hidden and cooling-down songs, which can be playing.
+  let allSeqs = [];
+  async function loadSequences() {
+    const r = await SP.api('/sequences');
+    if (r.ok && Array.isArray(r.data)) allSeqs = r.data;
+    else if (r.ok && r.data && Array.isArray(r.data.sequences)) allSeqs = r.data.sequences;
+  }
+  function seqInfo(name) {
+    const s = allSeqs.find(x => x.name === name) || (((vstate && vstate.sequences) || []).find(x => x.name === name));
+    return { title: (s && (s.display_name || s.displayName)) || name || '', artist: (s && s.artist) || '' };
+  }
+
+  // ---------- Actions ----------
+  async function setMode(mode) {
+    const r = await SP.put('/config', { viewer_control_mode: mode });
+    if (!r.ok) return SP.toast('Could not change the mode', true);
+    await refreshAll();
+  }
+  $('vcToggle').addEventListener('click', async () => {
+    if ((cfg.viewer_control_mode || 'OFF') !== 'OFF') return setMode('OFF');
+    return setMode(cfg.last_active_mode && cfg.last_active_mode !== 'OFF' ? cfg.last_active_mode : 'VOTING');
+  });
+  const ACTIONS = {
+    resetVotes: ['Reset votes', 'Reset all votes for the current round?', '/reset-votes', 'Votes reset'],
+    purgeQueue: ['Purge queue', 'Delete all pending jukebox requests?', '/purge-queue', 'Queue purged'],
+    resetRace: ['Reset race', 'Reset the race and start a new round? All current taps are cleared.', '/race/reset', 'Race reset'],
+  };
+  async function runAction(key) {
+    const a = ACTIONS[key];
+    if (!window.confirm(a[1])) return;
+    const r = await SP.post(a[2]);
+    SP.toast(r.ok ? a[3] : 'That did not work — try again', !r.ok);
+    refreshAll();
+  }
+  async function removeQueued(id, title) {
+    if (!window.confirm('Remove "' + title + '" from the queue?')) return;
+    const r = await SP.api('/queue/' + encodeURIComponent(id), { method: 'DELETE' });
+    SP.toast(r.ok ? 'Removed from the queue' : 'Could not remove it', !r.ok);
+    refreshAll();
+  }
+
+  // ---------- Render ----------
+  function renderControls() {
+    const mode = cfg.viewer_control_mode || 'OFF';
+    const on = mode !== 'OFF';
+    $('vcToggle').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('vcLabel').textContent = on ? 'On' : 'Off';
+    $('modeGroup').innerHTML = MODES.map(m =>
+      '<button type="button" data-mode="' + m[0] + '" aria-pressed="' + (m[0] === mode) + '">' + m[1] + '</button>').join('');
+    $('modeGroup').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+    const keys = mode === 'RACE' ? ['resetRace'] : mode === 'JUKEBOX' ? ['purgeQueue'] : ['resetVotes', 'purgeQueue'];
+    $('stripActions').innerHTML = keys.map(k => '<button type="button" class="btn ghost" data-action="' + k + '">' + ACTIONS[k][0] + '</button>').join('');
+    $('stripActions').querySelectorAll('button').forEach(b => b.addEventListener('click', () => runAction(b.dataset.action)));
+  }
+
+  function renderNowPlaying() {
+    const mode = cfg.viewer_control_mode || 'OFF';
+    const now = stats.nowPlaying;
+    const tally = $('tally');
+    if (now) {
+      const info = seqInfo(now);
+      $('nowTitle').textContent = info.title;
+      $('nowArtist').textContent = info.artist;
+      tally.classList.remove('off'); $('tallyText').textContent = 'ON AIR';
+    } else {
+      $('nowTitle').textContent = 'Nothing playing';
+      $('nowArtist').textContent = 'The show is idle.';
+      tally.classList.add('off'); $('tallyText').textContent = 'OFF AIR';
+    }
+    $('nowSource').textContent = '';
+    const next = stats.nextUp;
+    $('nextTitle').textContent = next ? seqInfo(next).title : '—';
+    const src = mode === 'VOTING' ? 'Vote leader' : mode === 'JUKEBOX' ? 'From the queue' : mode === 'RACE' ? 'Race leader' : 'Scheduled';
+    $('nextSource').hidden = !next;
+    $('nextSource').textContent = src;
+    paintProgress();
+  }
+
+  function paintProgress() {
+    const st = vstate;
+    const startIso = st && st.nowPlayingStartedAtIso;
+    const dur = st && st.nowPlayingDurationSeconds;
+    if (!stats.nowPlaying || !startIso || !dur) { $('progressWrap').hidden = true; return; }
+    const elapsed = Math.max(0, (SP.serverNow() - Date.parse(startIso)) / 1000);
+    const frac = Math.min(1, elapsed / dur);
+    $('progressWrap').hidden = false;
+    $('progressFill').style.width = (frac * 100).toFixed(1) + '%';
+    $('progressBar').setAttribute('aria-valuenow', String(Math.round(frac * 100)));
+    $('elapsed').textContent = SP.fmtTime(Math.min(elapsed, dur));
+    $('remaining').textContent = '−' + SP.fmtTime(dur - elapsed);
+  }
+
+  function renderStats() {
+    const mode = cfg.viewer_control_mode || 'OFF';
+    $('statViewers').textContent = stats.activeViewers ?? 0;
+    $('watchCount').textContent = stats.activeViewers ?? 0;
+    if (mode === 'JUKEBOX') {
+      $('stat2Label').textContent = 'Requests waiting';
+      $('stat2').textContent = stats.queueLength ?? 0;
+      $('stat2Hint').textContent = 'in the jukebox queue';
+    } else {
+      $('stat2Label').textContent = 'Votes this round';
+      $('stat2').textContent = stats.totalVotes ?? 0;
+      $('stat2Hint').textContent = 'for the next song';
+    }
+    $('statPlayed').textContent = stats.totalPlays ?? 0;
+    $('statSeq').textContent = ((vstate && vstate.sequences) || []).length;
+    const top = stats.topSequences || [];
+    $('topList').innerHTML = top.length ? top.slice(0, 6).map((s, i) =>
+      '<li><span class="n num">' + (i + 1) + '</span><span>' + esc(seqInfo(s.sequence_name).title) + '</span><span class="plays num">' + s.plays + '</span></li>').join('')
+      : '<li class="muted">No songs played by viewers yet.</li>';
+  }
+
+  function barRows(rows) {
+    if (!rows.length) return '';
+    const max = Math.max(...rows.map(r => r.count), 1);
+    return '<div class="bars">' + rows.map((r, i) => {
+      const info = seqInfo(r.name);
+      return '<div class="bar-row"><span class="rank num">' + (i + 1) + '</span><div><div class="names"><b>' + esc(info.title) + '</b><span>' + esc(info.artist) + '</span></div>' +
+        '<div class="bar"><div style="width:' + Math.round(r.count / max * 100) + '%"></div></div></div><span class="count num">' + r.count + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  function renderLive() {
+    const mode = cfg.viewer_control_mode || 'OFF';
+    const body = $('liveBody');
+    if (mode === 'OFF') {
+      $('liveTitle').textContent = 'Viewer control is off';
+      $('liveSub').textContent = '';
+      body.innerHTML = '<div class="empty"><strong>Viewers can watch, but not vote or request.</strong>' +
+        '<span class="muted">Turn viewer control on to open voting, the jukebox or a race.</span>' +
+        '<button type="button" class="btn primary" id="liveTurnOn">Turn on viewer control</button></div>';
+      $('liveTurnOn').addEventListener('click', () => $('vcToggle').click());
+      return;
+    }
+    if (mode === 'VOTING') {
+      const rows = ((vstate && vstate.voteCounts) || []).map(v => ({ name: v.sequence_name, count: v.count }))
+        .sort((a, b) => b.count - a.count).slice(0, 8);
+      $('liveTitle').textContent = 'Live vote';
+      $('liveSub').textContent = rows.length ? 'Round closes when the current song ends' : '';
+      body.innerHTML = rows.length ? barRows(rows) :
+        '<div class="empty"><strong>No votes yet this round.</strong><span class="muted">Votes show up here the moment viewers cast them.</span></div>';
+      return;
+    }
+    if (mode === 'JUKEBOX') {
+      const pending = queue.filter(q => !q.handed_off_at);
+      $('liveTitle').textContent = 'Request queue';
+      $('liveSub').textContent = pending.length ? pending.length + ' waiting' : '';
+      body.innerHTML = pending.length ? pending.map((q, i) => {
+        const title = q.display_name || q.sequence_name;
+        return '<div class="queue-row"><span class="num muted">' + (i + 1) + '</span><div><div style="font-weight:600">' + esc(title) + '</div><div class="muted" style="font-size:13px">' + esc(q.artist || '') + '</div></div>' +
+          '<span class="muted" style="font-size:13px">' + esc(ago(q.requested_at)) + '</span>' +
+          '<button type="button" class="icon-btn" data-id="' + esc(q.id) + '" data-title="' + esc(title) + '" aria-label="Remove ' + esc(title) + ' from the queue">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>';
+      }).join('') : '<div class="empty"><strong>The queue is empty.</strong><span class="muted">Requests from viewers appear here in the order they will play.</span></div>';
+      body.querySelectorAll('.icon-btn').forEach(b => b.addEventListener('click', () => removeQueued(b.dataset.id, b.dataset.title)));
+      return;
+    }
+    // RACE
+    const race = vstate && vstate.race;
+    const counts = (race && race.tapCounts) || [];
+    const rows = (Array.isArray(counts) ? counts : Object.entries(counts).map(([k, v]) => ({ sequence_name: k, count: v })))
+      .map(r => ({ name: r.sequence_name || r.name, count: r.count ?? r.taps ?? 0 }))
+      .sort((a, b) => b.count - a.count).slice(0, 8);
+    $('liveTitle').textContent = 'Tap race';
+    $('liveSub').textContent = race && race.targetTaps ? 'First to ' + race.targetTaps + ' taps plays next' : '';
+    body.innerHTML = rows.length ? barRows(rows) :
+      '<div class="empty"><strong>No taps yet.</strong><span class="muted">Race standings show up here as viewers tap.</span></div>';
+  }
+
+  function ago(ts) {
+    if (!ts) return '';
+    const t = Date.parse(String(ts).replace(' ', 'T') + (String(ts).endsWith('Z') ? '' : 'Z'));
+    if (!isFinite(t)) return '';
+    const m = Math.round((Date.now() - t) / 60000);
+    return m <= 0 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago';
+  }
+
+  function renderQr() {
+    const url = (cfg.public_base_url || '').trim();
+    if (!url) {
+      $('qrImg').hidden = true;
+      $('qrUrl').textContent = 'Set your public base URL in Settings to get a QR code visitors can scan.';
+      $('qrActions').innerHTML = '<a class="btn" href="/admin/?section=settings">Open Settings</a>';
+      return;
+    }
+    $('qrUrl').textContent = url;
+    if ($('qrImg').dataset.url !== url) {
+      $('qrImg').src = '/api/admin/qr-code?cb=' + Date.now();
+      $('qrImg').dataset.url = url;
+    }
+    $('qrImg').hidden = false;
+    $('qrActions').innerHTML = '<button type="button" class="btn" id="qrCopy">Copy link</button>' +
+      '<a class="btn" href="/api/admin/qr-code" download="showpilot-viewer-qr.svg">Download</a>';
+    $('qrCopy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(url); SP.toast('Link copied'); } catch (_) { SP.toast('Copy failed — select the link instead', true); }
+    });
+  }
+
+  async function renderPlugin() {
+    const r = await SP.api('/plugin-status');
+    const d = (r.ok && r.data) || {};
+    const seen = typeof d.lastSeen === 'number' ? d.lastSeen : Date.parse(d.lastSeen || '');
+    const online = isFinite(seen) && Date.now() - seen < 30000;
+    $('fppDot').className = 'dot ' + (online ? 'ok' : 'bad');
+    $('fppText').textContent = online ? 'FPP connected' : 'FPP not connected';
+    $('fppSub').textContent = d.version ? 'ShowPilot Blackbox v' + d.version : 'No plugin check-in yet';
+  }
+
+  // ---------- Data ----------
+  let refreshing = false;
+  async function refreshAll() {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const [c, s, v, q] = await Promise.all([
+        SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue'),
+      ]);
+      if (c.ok && c.data) cfg = c.data;
+      if (s.ok && s.data) stats = s.data;
+      if (v) vstate = v;
+      if (q.ok && q.data) queue = q.data.pending || [];
+      $('showName').textContent = cfg.show_name || '';
+      renderControls(); renderNowPlaying(); renderStats(); renderLive(); renderQr();
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  (async function start() {
+    const me = await SP.requireLogin();
+    $('accountBtn').textContent = (me.username || '?').charAt(0).toUpperCase();
+    $('accountName').textContent = 'Signed in as ' + (me.username || '');
+    $('themeSelect').value = me.theme || (() => { try { return localStorage.getItem('showpilot_theme'); } catch (_) { return null; } })() || 'stage-dark';
+    if (!me.layoutNoticeSeen) $('layoutNotice').hidden = false;
+    try {
+      const h = await fetch('/health', { credentials: 'include' });
+      const hj = h.ok ? await h.json() : null;
+      if (hj && hj.version) $('appVersion').textContent = 'v' + hj.version;
+    } catch (_) {}
+    await loadSequences();
+    await refreshAll();
+    renderPlugin();
+    SP.onLive((ev) => {
+      if (ev === 'pluginStatus') return renderPlugin();
+      if (ev === 'sequencesSynced') loadSequences().then(refreshAll);
+      else refreshAll();
+    });
+    setInterval(loadSequences, 60000);
+    setInterval(refreshAll, 5000);
+    setInterval(renderPlugin, 15000);
+    setInterval(paintProgress, 1000);
+  })();
+})();
+</script>
+</body>
+</html>

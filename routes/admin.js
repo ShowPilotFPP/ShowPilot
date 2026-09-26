@@ -136,6 +136,10 @@ router.get('/me', requireAdmin, (req, res) => {
     rememberMe: !!req.user.remember_me,
     mustChangePassword: !!req.user.must_change_password,
     theme: req.user.theme || null,
+    // v0.33.208: 'new' (default) or 'classic', and whether the one-time
+    // layout notice has been dismissed.
+    adminLayout: req.user.admin_layout === 'classic' ? 'classic' : 'new',
+    layoutNoticeSeen: req.user.layout_notice_seen === 1,
   });
 });
 
@@ -151,6 +155,21 @@ const ALLOWED_THEMES = new Set([
   'christmas', 'halloween', 'easter',
   'stpatricks', 'independence', 'valentines',
 ]);
+// Admin layout preference (v0.33.208+), per user like the theme.
+router.put('/me/layout', requireAdmin, (req, res) => {
+  const { layout } = req.body || {};
+  if (layout !== 'new' && layout !== 'classic') {
+    return res.status(400).json({ error: 'Invalid layout' });
+  }
+  require('../lib/db').setUserAdminLayout(req.user.id, layout);
+  res.json({ ok: true, layout });
+});
+
+router.put('/me/layout-notice-seen', requireAdmin, (req, res) => {
+  require('../lib/db').setUserLayoutNoticeSeen(req.user.id);
+  res.json({ ok: true });
+});
+
 router.put('/me/theme', requireAdmin, (req, res) => {
   const { theme } = req.body || {};
   // null/empty clears the preference (falls back to default on next login)

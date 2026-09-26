@@ -2714,11 +2714,11 @@
       backdrop-filter: blur(8px);
     `;
     panel.innerHTML = `
-      <div style="max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: center; position: relative; z-index: 2;">
+      <div class="of-listen-row" style="max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: center; position: relative; z-index: 2;">
         <img id="of-listen-cover" src="" alt=""
              style="width: 48px; height: 48px; border-radius: 6px; object-fit: cover;
                     background: #333; flex-shrink: 0;" />
-        <div style="flex: 1; min-width: 0;">
+        <div class="of-listen-text" style="flex: 1; min-width: 0;">
           <div id="of-listen-title-wrap" style="overflow: hidden; white-space: nowrap;">
             <div id="of-listen-title" style="font-weight: 600; display: inline-block;
                  white-space: nowrap;">Loading…</div>
@@ -2732,6 +2732,10 @@
             <span id="of-listen-drift"></span>
           </div>
         </div>
+        <!-- v0.33.215: groups the controls. display:contents keeps the normal
+             single-row layout identical; the optional two-row phone layout
+             (.sp-player-tall) turns this into the second row. -->
+        <div class="of-listen-controls" style="display: contents;">
         <button id="of-listen-playpause" aria-label="Play/pause"
                 style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.1); color: #fff;
                        width: 40px; height: 40px; border-radius: 50%;
@@ -2771,6 +2775,7 @@
             <path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/>
           </svg>
         </button>
+        </div>
       </div>
       <div id="of-lang-row" style="display:none; max-width:800px; margin:6px auto 0;
            padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);
@@ -2826,6 +2831,45 @@
     // Settings → Debug. When off, set driftEl to null so all downstream writes are no-ops.
     const playerStatsEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerStatsEnabled);
     const driftEl = playerStatsEnabled ? panel.querySelector('#of-listen-drift') : null;
+
+    // ---- Larger two-row player on phones (v0.33.215+) ----
+    // Admin setting player_tall_layout (boot.playerTallLayout), off by default.
+    // On screens <= 600px wide the player becomes two rows: cover + full-width
+    // title/artist, then the controls spread across a second row with a larger
+    // play/pause. Pure CSS on the existing elements (same buttons, handlers and
+    // ids); tablets/desktop keep the single row. Same query as isTallPlayer().
+    const TALL_QUERY = '(max-width: 600px)';
+    const playerTallEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerTallLayout);
+    function isTallPlayer() {
+      if (!playerTallEnabled) return false;
+      try { return window.matchMedia(TALL_QUERY).matches; } catch (_) { return false; }
+    }
+    if (playerTallEnabled) {
+      panel.classList.add('sp-player-tall');
+      if (!document.getElementById('sp-player-tall-styles')) {
+        const st = document.createElement('style');
+        st.id = 'sp-player-tall-styles';
+        st.textContent =
+          '@media ' + TALL_QUERY + '{' +
+            '#of-listen-panel.sp-player-tall{padding-top:14px !important;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)) !important}' +
+            '#of-listen-panel.sp-player-tall .of-listen-row{display:grid !important;grid-template-columns:48px minmax(0,1fr);column-gap:12px;row-gap:10px}' +
+            '#of-listen-panel.sp-player-tall #of-listen-cover{grid-column:1;grid-row:1}' +
+            '#of-listen-panel.sp-player-tall .of-listen-text{grid-column:2;grid-row:1}' +
+            '#of-listen-panel.sp-player-tall #of-listen-title{font-size:16px}' +
+            '#of-listen-panel.sp-player-tall #of-listen-artist{font-size:13px !important}' +
+            '#of-listen-panel.sp-player-tall .of-listen-controls{display:flex !important;grid-column:1 / -1;grid-row:2;align-items:center;justify-content:space-between;padding:0 4px}' +
+            '#of-listen-panel.sp-player-tall .of-listen-controls > button{min-width:44px;min-height:44px}' +
+            '#of-listen-panel.sp-player-tall #sp-lt-btn{order:1}' +
+            '#of-listen-panel.sp-player-tall #of-listen-mute{order:2}' +
+            '#of-listen-panel.sp-player-tall #of-listen-playpause{order:3;width:52px !important;height:52px !important}' +
+            '#of-listen-panel.sp-player-tall #of-listen-min{order:4}' +
+            '#of-listen-panel.sp-player-tall #of-listen-close{order:5}' +
+            '#of-listen-panel.sp-player-tall #of-listen-not-playing{order:4;flex:1}' +
+            '#of-listen-panel.sp-player-tall.sp-not-playing .of-listen-row{row-gap:0}' +
+          '}';
+        document.head.appendChild(st);
+      }
+    }
 
     // ---- Listener audio timing (v0.33.213+) ----
     // Phones can't report Bluetooth / car-stereo delay to a web page, but
@@ -3106,6 +3150,10 @@
         playBtn.style.display = 'none';
         muteBtn.style.display = 'none';
         minBtn.style.display = 'none';
+        // v0.33.215: the timing button (v0.33.213) hides with the others, and
+        // the two-row layout drops its empty first row.
+        if (ltBtn) ltBtn.style.display = 'none';
+        panel.classList.add('sp-not-playing');
         notPlayingMsg.style.display = 'block';
       } else {
         notPlayingMsg.style.display = 'none';
@@ -3114,6 +3162,8 @@
         playBtn.style.display = '';
         muteBtn.style.display = '';
         minBtn.style.display = '';
+        if (ltBtn) ltBtn.style.display = '';
+        panel.classList.remove('sp-not-playing');
         // If the user has the panel open when the show resumes, get audio
         // going. If audioCtx already exists (panel was opened during a
         // prior playing window), a syncOnce() picks up the new track.
@@ -3793,7 +3843,8 @@
       panelMode = mode;
       // Sticky panel takes ~75px height — push body content up so sticky doesn't
       // cover footer content the user scrolls to. Restored when panel closes/minimizes.
-      document.body.style.paddingBottom = (mode === 'open') ? '88px' : '';
+      // v0.33.215: the optional two-row phone player is taller.
+      document.body.style.paddingBottom = (mode === 'open') ? (isTallPlayer() ? '150px' : '88px') : '';
       if (mode === 'closed') {
         panel.style.display = 'none';
         panel.style.transform = 'translateY(100%)';

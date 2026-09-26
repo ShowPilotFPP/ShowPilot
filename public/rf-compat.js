@@ -2826,6 +2826,153 @@
     // Settings → Debug. When off, set driftEl to null so all downstream writes are no-ops.
     const playerStatsEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerStatsEnabled);
     const driftEl = playerStatsEnabled ? panel.querySelector('#of-listen-drift') : null;
+
+    // ---- Listener audio timing (v0.33.213+) ----
+    // Phones can't report Bluetooth / car-stereo delay to a web page, but
+    // the listener can hear it. A per-phone offset (localStorage only, never
+    // sent anywhere) is added to getOutputLatencySec(), which every sync path
+    // already uses to play audio early by the device's output delay — so the
+    // start position, snap, follow-up and drift loop all honor it, and the
+    // existing speed-nudge / crossfade correction applies it smoothly.
+    // Positive = play earlier ("music is late"). Admin switch:
+    // listener_timing_enabled (boot.listenerTimingEnabled); off = no button
+    // and any saved offset ignored.
+    const listenerTimingEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.listenerTimingEnabled === false);
+    const LT_KEY = 'sp_listener_offset_ms';
+    const LT_MIN_MS = -500;   // "music is early" is rare and small
+    const LT_MAX_MS = 1000;
+    const LT_STEP_MS = 50;
+    const LT_PRESETS = [['Phone speaker', 0], ['Bluetooth headphones', 150], ['Car Bluetooth', 250]];
+    let listenerOffsetSec = 0;
+    const clampOffsetMs = (ms) => Math.max(LT_MIN_MS, Math.min(LT_MAX_MS, Math.round((Number(ms) || 0) / 10) * 10));
+    if (listenerTimingEnabled) {
+      try {
+        const saved = localStorage.getItem(LT_KEY);
+        if (saved !== null) listenerOffsetSec = clampOffsetMs(saved) / 1000;
+      } catch (_) {}
+    }
+    let ltBtn = null, ltSheet = null, ltBackdrop = null;
+    const ltAccent = () => {
+      try { return (getComputedStyle(panel).getPropertyValue('--of-border') || '').trim() || '#60a5fa'; } catch (_) { return '#60a5fa'; }
+    };
+    function ltUpdateUi() {
+      const ms = Math.round(listenerOffsetSec * 1000);
+      if (ltBtn) {
+        ltBtn.classList.toggle('sp-lt-active', ms !== 0);
+        ltBtn.style.setProperty('--sp-lt-accent', ltAccent());
+        ltBtn.setAttribute('aria-label', ms === 0 ? 'Audio timing' : 'Audio timing (adjusted ' + (ms > 0 ? '+' : '') + ms + ' ms)');
+      }
+      if (!ltSheet) return;
+      ltSheet.style.setProperty('--sp-lt-accent', ltAccent());
+      ltSheet.querySelector('.sp-lt-status').textContent = ms === 0 ? 'No adjustment' : ms > 0 ? 'Playing ' + ms + ' ms earlier' : 'Playing ' + (-ms) + ' ms later';
+      ltSheet.querySelector('.sp-lt-ms').textContent = (ms > 0 ? '+' : '') + ms + ' ms';
+      const range = ltSheet.querySelector('.sp-lt-range');
+      if (document.activeElement !== range) range.value = String(ms);
+      ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.setAttribute('aria-pressed', Number(b.dataset.ltPreset) === ms ? 'true' : 'false'));
+      const reset = ltSheet.querySelector('.sp-lt-reset');
+      reset.disabled = ms === 0;
+    }
+    function setListenerOffsetMs(ms) {
+      ms = clampOffsetMs(ms);
+      listenerOffsetSec = ms / 1000;
+      try { if (ms) localStorage.setItem(LT_KEY, String(ms)); else localStorage.removeItem(LT_KEY); } catch (_) {}
+      ltUpdateUi();
+      console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
+    }
+    function ltEnsureStyles() {
+      if (document.getElementById('sp-lt-styles')) return;
+      const st = document.createElement('style');
+      st.id = 'sp-lt-styles';
+      st.textContent =
+        '#sp-lt-btn{position:relative;background:transparent;border:0;color:rgba(255,255,255,.75);cursor:pointer;flex-shrink:0;padding:8px;line-height:0;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s}' +
+        '#sp-lt-btn:hover{background:rgba(255,255,255,.1);color:#fff}' +
+        '#sp-lt-btn.sp-lt-active::after{content:"";position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--sp-lt-accent,#60a5fa);box-shadow:0 0 0 2px rgba(0,0,0,.6)}' +
+        '#sp-lt-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.55)}' +
+        '#sp-lt-sheet{position:fixed;left:0;right:0;bottom:0;z-index:10001;box-sizing:border-box;max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px;' +
+          'padding:10px 18px calc(22px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0;background:#161c2b;color:#f3f5fa;border-top:2px solid var(--sp-lt-accent,#60a5fa);' +
+          'box-shadow:0 -10px 40px rgba(0,0,0,.5);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}' +
+        '#sp-lt-sheet .sp-lt-grab{align-self:center;width:40px;height:5px;border-radius:999px;background:rgba(255,255,255,.25)}' +
+        '#sp-lt-sheet .sp-lt-head{display:flex;align-items:center;gap:10px}' +
+        '#sp-lt-sheet h2{margin:0;font-size:20px;font-weight:700;flex:1}' +
+        '#sp-lt-sheet p{margin:0;color:#b6bdcc}' +
+        '#sp-lt-sheet button{font:inherit;color:#fff;cursor:pointer}' +
+        '#sp-lt-sheet .sp-lt-done{min-height:40px;padding:0 14px;border:0;border-radius:10px;background:rgba(255,255,255,.1);font-weight:700}' +
+        '#sp-lt-sheet .sp-lt-nudges{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}' +
+        '#sp-lt-sheet .sp-lt-nudge{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:76px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(255,255,255,.07)}' +
+        '#sp-lt-sheet .sp-lt-nudge b{font-size:16px}#sp-lt-sheet .sp-lt-nudge span{color:#9aa3b5;font-size:13px}' +
+        '#sp-lt-sheet .sp-lt-readout{display:flex;align-items:baseline;gap:8px}#sp-lt-sheet .sp-lt-status{font-weight:600;flex:1}' +
+        '#sp-lt-sheet .sp-lt-ms{font-family:ui-monospace,"SF Mono",Menlo,monospace;color:#9aa3b5;font-variant-numeric:tabular-nums}' +
+        '#sp-lt-sheet .sp-lt-range{width:100%;accent-color:var(--sp-lt-accent,#60a5fa);min-height:32px;margin:0}' +
+        '#sp-lt-sheet .sp-lt-scale{display:flex;justify-content:space-between;color:#7d8699;font-size:12px}' +
+        '#sp-lt-sheet .sp-lt-presets-label{font-weight:700;font-size:13px;color:#9aa3b5;margin-bottom:-8px}' +
+        '#sp-lt-sheet .sp-lt-presets{display:flex;flex-wrap:wrap;gap:8px}' +
+        '#sp-lt-sheet [data-lt-preset]{min-height:40px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:transparent;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-preset][aria-pressed="true"]{border-color:var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.18)}' +
+        '#sp-lt-sheet .sp-lt-foot{display:flex;align-items:center;gap:10px}#sp-lt-sheet .sp-lt-foot span{flex:1;color:#7d8699;font-size:13px}' +
+        '#sp-lt-sheet .sp-lt-reset{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:transparent;font-weight:600}' +
+        '#sp-lt-sheet .sp-lt-reset:disabled{color:#6b7385;cursor:default}' +
+        '#sp-lt-sheet :focus-visible,#sp-lt-btn:focus-visible{outline:2px solid var(--sp-lt-accent,#60a5fa);outline-offset:2px}';
+      document.head.appendChild(st);
+    }
+    function ltClose() {
+      if (!ltSheet) return;
+      ltSheet.remove(); ltBackdrop.remove(); ltSheet = null; ltBackdrop = null;
+      document.removeEventListener('keydown', ltOnKey);
+      if (ltBtn) ltBtn.focus();
+    }
+    function ltOnKey(e) { if (e.key === 'Escape') ltClose(); }
+    function ltOpen() {
+      if (ltSheet) return;
+      ltEnsureStyles();
+      ltBackdrop = document.createElement('div');
+      ltBackdrop.id = 'sp-lt-backdrop';
+      ltBackdrop.addEventListener('click', ltClose);
+      ltSheet = document.createElement('div');
+      ltSheet.id = 'sp-lt-sheet';
+      ltSheet.setAttribute('role', 'dialog');
+      ltSheet.setAttribute('aria-modal', 'true');
+      ltSheet.setAttribute('aria-labelledby', 'sp-lt-title');
+      ltSheet.innerHTML =
+        '<span class="sp-lt-grab" aria-hidden="true"></span>' +
+        '<div class="sp-lt-head"><h2 id="sp-lt-title">Audio timing</h2><button type="button" class="sp-lt-done">Done</button></div>' +
+        '<p>Watch the lights. Is the music behind them or ahead of them? Tap until they line up.</p>' +
+        '<div class="sp-lt-nudges">' +
+          '<button type="button" class="sp-lt-nudge" data-lt-nudge="-' + LT_STEP_MS + '"><b>Music is early</b><span>play it later</span></button>' +
+          '<button type="button" class="sp-lt-nudge" data-lt-nudge="' + LT_STEP_MS + '"><b>Music is late</b><span>play it earlier</span></button>' +
+        '</div>' +
+        '<div><div class="sp-lt-readout"><span class="sp-lt-status" aria-live="polite"></span><span class="sp-lt-ms"></span></div>' +
+          '<input class="sp-lt-range" type="range" min="' + LT_MIN_MS + '" max="' + LT_MAX_MS + '" step="10" aria-label="Fine adjust audio timing">' +
+          '<div class="sp-lt-scale"><span>music early</span><span>in sync</span><span>music late</span></div></div>' +
+        '<div class="sp-lt-presets-label">Presets</div>' +
+        '<div class="sp-lt-presets">' + LT_PRESETS.map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
+        '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
+      ltSheet.querySelector('.sp-lt-done').addEventListener('click', ltClose);
+      ltSheet.querySelectorAll('[data-lt-nudge]').forEach(b => b.addEventListener('click', () =>
+        setListenerOffsetMs(Math.round(listenerOffsetSec * 1000) + Number(b.dataset.ltNudge))));
+      ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.addEventListener('click', () => setListenerOffsetMs(Number(b.dataset.ltPreset))));
+      ltSheet.querySelector('.sp-lt-reset').addEventListener('click', () => setListenerOffsetMs(0));
+      ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
+      document.body.appendChild(ltBackdrop);
+      document.body.appendChild(ltSheet);
+      document.addEventListener('keydown', ltOnKey);
+      ltUpdateUi();
+      ltSheet.querySelector('.sp-lt-done').focus();
+    }
+    if (listenerTimingEnabled) {
+      ltEnsureStyles();
+      ltBtn = document.createElement('button');
+      ltBtn.type = 'button';
+      ltBtn.id = 'sp-lt-btn';
+      ltBtn.title = 'Audio timing';
+      ltBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+        '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>';
+      ltBtn.addEventListener('click', ltOpen);
+      const pp = panel.querySelector('#of-listen-playpause');
+      if (pp && pp.parentNode) pp.parentNode.insertBefore(ltBtn, pp);
+      ltUpdateUi();
+      // The dot takes the player theme's accent; refresh it when the theme changes.
+      window.addEventListener('showpilot:player-theme', () => ltUpdateUi());
+    }
     const playBtn = panel.querySelector('#of-listen-playpause');
     const muteBtn = panel.querySelector('#of-listen-mute');
     const minBtn = panel.querySelector('#of-listen-min');
@@ -3425,7 +3572,9 @@
 
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
-      return (l > 0 && l < 0.4) ? l : 0;
+      // + the listener's own timing offset (v0.33.213+), which covers the
+      // Bluetooth / car delay the browser can't see.
+      return ((l > 0 && l < 0.4) ? l : 0) + listenerOffsetSec;
     }
 
     // ---- Smooth correction (v0.33.204+) ----
@@ -4499,6 +4648,9 @@
         // advancing the position, landing 50ms + 2x latency behind.
         const fastStartCtxTime = audioCtx.currentTime + 0.05;
         fastStartPos += 0.05 + outputLatencySec;
+        // A negative listener offset ("music is early") can push this below
+        // the start of the song at song start; clamp (v0.33.213+).
+        if (fastStartPos < 0) fastStartPos = 0;
         if (fastStartPos >= audioBuffer.duration) {
           statusEl.textContent = 'Waiting for next track…';
           return;
@@ -4947,7 +5099,14 @@
           drift = heardPos - targetHeardPos;
           driftMs = Math.round(drift * 1000);
         } else {
-          drift = htmlAudio.currentTime - fppPositionNow;
+          // v0.33.213: measured like the primary path above (heard position,
+          // output latency incl. the listener's timing offset, deviceOffset
+          // with the same sign). It used to compare raw currentTime against
+          // fppPositionNow (which SUBTRACTS deviceOffset), so any offset read
+          // as drift here. Display only; corrections need loopEst.
+          const heardPos = htmlAudio.currentTime - loopLatencySec;
+          const fallbackPos = fppStatus.positionSec + (msSinceFppUpdate / 1000);
+          drift = heardPos - (fallbackPos - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000));
           driftMs = Math.round(drift * 1000);
         }
 
@@ -4980,7 +5139,10 @@
 
         // Smooth the drift measurement to prevent oscillation from 500ms
         // FIFO update jitter. α=0.6 responds quickly while filtering noise.
-        smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
+        // Only estimate-based readings feed the value corrections act on
+        // (v0.33.213): a fallback reading must not leak into the first
+        // correction after estimates return.
+        if (loopEst) smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
         const correctionDriftMs = Math.round(smoothedDriftMs);
 
         if (driftEl) {

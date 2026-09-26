@@ -916,17 +916,51 @@ router.get('/now-playing-audio', (req, res) => {
     audioGateBlocked,
     audioGateReason,
   };
-  if (!np || !np.sequence_name) {
+  // v0.33.205: real-time override from FPP's own live messages (via the
+  // position relay). The listener updates now_playing on a ~1s poll, so a
+  // song change or Stop/Next used to reach viewers 1-3s late, clipping the
+  // start of songs. While the live state is fresh (< 3s), trust it.
+  // Read-only: this changes only what this endpoint answers.
+  let liveOverride = null; // { seq, elapsedSec }
+  try {
+    const { getLiveFpp } = require('../lib/audio-position-relay');
+    const live = getLiveFpp && getLiveFpp();
+    if (live && Date.now() - live.receivedAt < 3000) {
+      if (!live.playing) {
+        return res.json({ playing: false, liveStopped: true, ...visualConfig });
+      }
+      if (live.filename) {
+        const npSeq = np && np.sequence_name ? getSequenceByName(np.sequence_name) : null;
+        if (!npSeq || (npSeq.media_name || '').toLowerCase() !== live.filename.toLowerCase()) {
+          const liveSeq = db.prepare(
+            'SELECT * FROM sequences WHERE media_name = ? COLLATE NOCASE LIMIT 1'
+          ).get(live.filename);
+          if (liveSeq) {
+            const ageSec = Math.max(0, (Date.now() - (live.serverTs || live.receivedAt)) / 1000);
+            liveOverride = { seq: liveSeq, elapsedSec: live.positionSec + Math.min(ageSec, 3) };
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // Relay unavailable — fall back to the listener-reported state.
+  }
+
+  if (!liveOverride && (!np || !np.sequence_name)) {
     return res.json({ playing: false, ...visualConfig });
   }
-  const seq = getSequenceByName(np.sequence_name);
+  const seq = liveOverride ? liveOverride.seq : getSequenceByName(np.sequence_name);
   if (!seq || !seq.media_name) {
-    return res.json({ playing: true, hasAudio: false, sequenceName: np.sequence_name, ...visualConfig });
+    return res.json({ playing: true, hasAudio: false, sequenceName: liveOverride ? seq.name : np.sequence_name, ...visualConfig });
   }
 
   // How long has this song been playing? Used to seek the listener forward.
-  const startedAtMs = np.started_at ? new Date(np.started_at.replace(' ', 'T') + 'Z').getTime() : null;
+  const startedAtMs = liveOverride
+    ? Date.now() - liveOverride.elapsedSec * 1000
+    : (np.started_at ? new Date(np.started_at.replace(' ', 'T') + 'Z').getTime() : null);
   const elapsedSec = startedAtMs ? Math.max(0, (Date.now() - startedAtMs) / 1000) : 0;
+  const npSequenceName = liveOverride ? seq.name : np.sequence_name;
+  const npStartedAt = liveOverride ? new Date(startedAtMs).toISOString().replace('T', ' ').slice(0, 19) : np.started_at;
 
   // Look up the cached audio's hash and append it to the stream URL as a
   // cache buster. Without this, the browser may serve stale bytes from
@@ -954,13 +988,13 @@ router.get('/now-playing-audio', (req, res) => {
   res.json({
     playing: true,
     hasAudio: true,
-    sequenceName: np.sequence_name,
-    displayName: seq.display_name || np.sequence_name,
+    sequenceName: npSequenceName,
+    displayName: seq.display_name || npSequenceName,
     artist: seq.artist || '',
     imageUrl: bustCoverUrl(seq.image_url) || null,
     durationSec: seq.duration_seconds || null,
     elapsedSec: Math.round(elapsedSec * 10) / 10,
-    startedAt: np.started_at,
+    startedAt: npStartedAt,
     // Timestamp-anchored sync — Web Audio API uses these for sample-precise scheduling
     trackStartedAtMs: startedAtMs,
     serverNowMs: Date.now(),
@@ -976,7 +1010,7 @@ router.get('/now-playing-audio', (req, res) => {
       try {
         const { getLivePosition } = require('./plugin');
         const lp = getLivePosition && getLivePosition();
-        if (lp && lp.sequence === np.sequence_name) {
+        if (lp && lp.sequence === npSequenceName) {
           return {
             position: lp.position,
             updatedAt: lp.updatedAt,

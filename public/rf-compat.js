@@ -3193,6 +3193,66 @@
     // OS-reported delay between scheduling a sample and hearing it. Clamped:
     // some devices have reported absurd values through latency APIs, and a
     // bad reading here would shift every phone by that amount.
+    // ---- Real-time song changes (v0.33.205+) ----
+    // FPP's own messages (fppPosition) reach the phone within milliseconds
+    // of a song change or Stop/Next. Instead of waiting for the next 1s
+    // poll, react to them: stop immediately on Stop, and on a new file ask
+    // the server right away, re-asking every 200ms (up to 3s) until it
+    // reports FPP's current file. The server's now-playing-audio uses the
+    // same live data (audio-position-relay getLiveFpp), so it usually
+    // agrees on the first ask.
+    let lastLiveFpp = null;        // latest fppPosition message, stops included
+    let fastSyncUntil = 0;
+    let fastSyncTimer = null;
+    let fastSyncInFlight = false;
+
+    function fastSyncDone() {
+      const live = lastLiveFpp;
+      if (!live) return true;
+      if (live.playing === false) return !currentSource;
+      return !!currentTrackMediaName && live.filename === currentTrackMediaName;
+    }
+
+    function startFastSync() {
+      fastSyncUntil = Date.now() + 3000;
+      if (fastSyncTimer || fastSyncInFlight) return;
+      const tick = async () => {
+        fastSyncTimer = null;
+        if (!pollTimer || Date.now() > fastSyncUntil) return;
+        fastSyncInFlight = true;
+        try { await syncOnce(); } catch (_) {} finally { fastSyncInFlight = false; }
+        if (!pollTimer || fastSyncDone() || Date.now() > fastSyncUntil) return;
+        fastSyncTimer = setTimeout(tick, 200);
+      };
+      tick();
+    }
+
+    function onFppLiveEvent(msg) {
+      if (!msg || typeof msg.playing !== 'boolean') return;
+      const prev = lastLiveFpp;
+      lastLiveFpp = msg;
+      if (!pollTimer) return; // player not open
+      // Only a CHANGE (stop/start or a different file) triggers fast syncing.
+      // Repeats — e.g. the daemon's fallback re-sending "stopped" 4x/second
+      // while FPP is idle, or a file ShowPilot doesn't know — must not keep
+      // re-arming it, or every phone would poll the server continuously.
+      const changed = !prev || prev.playing !== msg.playing || prev.filename !== msg.filename;
+      if (msg.playing === false) {
+        if (currentSource) {
+          console.log('[ShowPilot] FPP stopped — stopping audio');
+          stopAudio();
+          // Any restart, even of the same song, must count as a new track.
+          currentSequence = null;
+        }
+        if (changed) startFastSync();
+        return;
+      }
+      if (changed && msg.filename && msg.filename !== currentTrackMediaName) {
+        console.log('[ShowPilot] FPP switched to', msg.filename, '— syncing now');
+        startFastSync();
+      }
+    }
+
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
       return (l > 0 && l < 0.4) ? l : 0;
@@ -3573,6 +3633,7 @@
             // FPP live position from daemon WebSocket — use this for
             // playbackRate drift correction so phones track FPP's speakers.
             audioSock.on('fppPosition', (msg) => {
+              onFppLiveEvent(msg);
               if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
 
               // v0.33.202: no clockOffset update here. msg.serverTimestamp is a

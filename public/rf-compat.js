@@ -2925,8 +2925,11 @@
     let calibrationSamples = []; // collect drift samples for auto-calibration
     let deviceOffset = 0; // per-device learned offset stored in localStorage
 
-    // Load saved device offset
-    try {
+    // v0.33.202: auto-calibration removed (it fed its own correction back
+    // into the next measurement and ran away song after song). Clear any
+    // value an older version stored; deviceOffset stays 0.
+    try { localStorage.removeItem('sp_device_offset'); } catch (_) {}
+    if (false) try {
       const saved = localStorage.getItem('sp_device_offset');
       if (saved) {
         const val = parseFloat(saved) || 0;
@@ -3088,6 +3091,68 @@
     let snapPendingUntilMs = 0; // crossfade blocked until snap fires or times out
     let snapAnchorCtxTime = 0;  // audioCtx.currentTime when snap fired
     let snapAnchorPosSec = 0;   // audio position at snap — used for clock-free drift
+
+    // ---- FPP position estimator (v0.33.202+) ----
+    // Recent position readings from the daemon (fppPosition + fppSyncPoint),
+    // for the song currently playing. Each reading's timestamp is applied by
+    // the daemon when it SENDS, which is 0-100ms after FPP reported the
+    // position (the daemon polls its FIFO every 100ms), and the first
+    // syncPoint after a song change can re-send a position up to ~500ms old.
+    // Both errors only ever make a reading look OLDER than it is, so the
+    // best estimate of "where FPP is now" is the MOST ADVANCED reading
+    // (upper envelope) over a short window, not the latest one.
+    let fppSamples = [];              // { p, ts, file }
+    let currentTrackMediaName = null; // raw FPP media filename for the current track
+    const FPP_SAMPLE_WINDOW_MS = 5000;
+
+    function recordFppSample(msg) {
+      if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
+      if (typeof msg.positionSec !== 'number' || msg.positionSec < 0) return;
+      // New song (or a different file than we hold): start fresh.
+      if (fppSamples.length && fppSamples[fppSamples.length - 1].file !== msg.filename) {
+        fppSamples = [];
+      }
+      fppSamples.push({ p: msg.positionSec, ts: msg.serverTimestamp, file: msg.filename });
+      if (fppSamples.length > 20) fppSamples.shift();
+    }
+
+    // Returns { pos, n, newestAgeMs } — FPP's estimated position right now
+    // (server-clock based), from readings of the current track only — or
+    // null when there aren't usable readings.
+    function estimateFppPosNow() {
+      if (!fppSamples.length) return null;
+      const serverNow = Date.now() + clockOffset;
+      let best = -Infinity;
+      let n = 0;
+      let newestTs = 0;
+      for (const s of fppSamples) {
+        if (currentTrackMediaName && s.file !== currentTrackMediaName) continue;
+        const age = serverNow - s.ts;
+        if (age > FPP_SAMPLE_WINDOW_MS || age < -1000) continue;
+        const implied = s.p + Math.max(0, age) / 1000;
+        if (implied > best) best = implied;
+        if (s.ts > newestTs) newestTs = s.ts;
+        n++;
+      }
+      if (!n) return null;
+      // FPP restarted or seeked the same file backwards: newer readings sit
+      // far below older ones. Drop the stale ones and use the newest only.
+      const newest = fppSamples[fppSamples.length - 1];
+      const newestImplied = newest.p + Math.max(0, serverNow - newest.ts) / 1000;
+      if (best - newestImplied > 1.5) {
+        fppSamples = [newest];
+        return { pos: newestImplied, n: 1, newestAgeMs: serverNow - newest.ts };
+      }
+      return { pos: best, n, newestAgeMs: serverNow - newestTs };
+    }
+
+    // OS-reported delay between scheduling a sample and hearing it. Clamped:
+    // some devices have reported absurd values through latency APIs, and a
+    // bad reading here would shift every phone by that amount.
+    function getOutputLatencySec() {
+      const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
+      return (l > 0 && l < 0.4) ? l : 0;
+    }
     // Same idea but for HTML5 re-seek correction (in wall-clock ms).
     let lastReseekAtMs = 0;
 
@@ -3320,6 +3385,7 @@
             // clobber each other.
             audioSock.on('fppSyncPoint', (msg) => {
               if (!msg || !msg.playing) return;
+              recordFppSample(msg);
               // Do NOT update clockOffset here — msg.serverTimestamp is a one-way
               // timestamp with no RTT correction. Updating clockOffset from it
               // corrupts the accurate NTP burst estimate from syncClockBurst().
@@ -3346,9 +3412,11 @@
             audioSock.on('fppPosition', (msg) => {
               if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
 
-              // ---- PLL-style clock offset refinement ----
-              const measured = msg.serverTimestamp - Date.now();
-              clockOffset = clockOffset * 0.95 + measured * 0.05;
+              // v0.33.202: no clockOffset update here. msg.serverTimestamp is a
+              // one-way timestamp; nudging clockOffset toward it made phones
+              // gradually ignore the message's travel time (steady lag).
+              // Only syncClockBurst() sets clockOffset.
+              recordFppSample(msg);
 
               // Always update fppStatus regardless of pause state —
               // needed for syncPoint seek calculation even before play()
@@ -3585,6 +3653,7 @@
       prefetchedSeq = null;
       currentSequence = null;
       currentMediaName = null;
+      currentTrackMediaName = null;
     }
 
     // ---- NTP-style clock sync (burst pings) ----
@@ -3871,6 +3940,7 @@
         };
       }
       currentMediaName = data.sequenceName;
+      currentTrackMediaName = data.mediaName || null;
       trackStartedAtMs = data.trackStartedAtMs || (Date.now() + clockOffset - (data.elapsedSec * 1000));
       trackDuration = data.durationSec || 0;
       if (typeof data.audioSyncOffsetMs === 'number') audioSyncOffsetMs = data.audioSyncOffsetMs;
@@ -3959,12 +4029,16 @@
         //
         // DO NOT add more snap events after the first — one cut per song change only.
         const myGeneration = playGeneration;
-        const outputLatencySec = audioCtx.outputLatency || audioCtx.baseLatency || 0;
+        const outputLatencySec = getOutputLatencySec();
         const serverNow = Date.now() + clockOffset;
 
         // ---- Fast-start: play immediately from current position ----
         let fastStartPos;
-        if (fppStatus && fppStatus.positionSec >= 0) {
+        const fastStartEst = estimateFppPosNow();
+        if (fastStartEst) {
+          fastStartPos = fastStartEst.pos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
+        } else if (fppStatus && fppStatus.positionSec >= 0) {
           const ageMs = Math.max(0, serverNow - (fppStatus.serverTimestamp || serverNow));
           fastStartPos = fppStatus.positionSec + (ageMs / 1000)
             - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
@@ -3978,7 +4052,16 @@
           return;
         }
 
-        const fastStartCtxTime = audioCtx.currentTime + 0.05 + outputLatencySec;
+        // v0.33.202: start 50ms from now at the position FPP will be at when
+        // this sample is actually HEARD (lead + output latency ahead). Older
+        // versions delayed the start by the output latency instead of
+        // advancing the position, landing 50ms + 2x latency behind.
+        const fastStartCtxTime = audioCtx.currentTime + 0.05;
+        fastStartPos += 0.05 + outputLatencySec;
+        if (fastStartPos >= audioBuffer.duration) {
+          statusEl.textContent = 'Waiting for next track…';
+          return;
+        }
         console.log('[ShowPilot] fast-start: pos', fastStartPos.toFixed(3) + 's');
 
         if (playGeneration !== myGeneration) return;
@@ -4036,8 +4119,16 @@
           // Compute position from syncPoint
           const snapServerNow = Date.now() + clockOffset;
           const ageMs = Math.max(0, snapServerNow - snapAnchor.serverTimestamp);
-          let snapPos = snapAnchor.positionSec + (ageMs / 1000)
-            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
+          // v0.33.202: best estimate of FPP's position now = the most advanced
+          // of this syncPoint and recent position readings (see
+          // estimateFppPosNow). Then add the output latency: snapPos is the
+          // position that should be LEAVING the audio pipeline now.
+          let snapFppPos = snapAnchor.positionSec + (ageMs / 1000);
+          const snapEst = estimateFppPosNow();
+          if (snapEst && snapEst.pos > snapFppPos) snapFppPos = snapEst.pos;
+          let snapPos = snapFppPos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+            + getOutputLatencySec();
 
           if (snapPos < 0) snapPos = 0;
           if (snapPos >= audioBuffer.duration) { snapPendingUntilMs = 0; return; }
@@ -4056,7 +4147,10 @@
             try { srcGain.disconnect(); } catch (_) {}
             srcNode.onended = null;
 
-            const snapCtxTime = audioCtx.currentTime + 0.02 + outputLatencySec;
+            // Start 20ms from now, 20ms further into the song (v0.33.202 —
+            // previously delayed by the output latency without advancing).
+            const snapCtxTime = audioCtx.currentTime + 0.02;
+            snapPos += 0.02;
             const snapNode = audioCtx.createBufferSource();
             snapNode.buffer = audioBuffer;
             const snapGain = audioCtx.createGain();
@@ -4095,8 +4189,14 @@
 
           const followClientTs = followFppStatus.serverTimestamp - clockOffset;
           const followAge = Math.min(Math.max(Date.now() - followClientTs, 0), 2000);
-          const followTarget = followFppStatus.positionSec + (followAge / 1000)
-            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
+          const followEst = estimateFppPosNow();
+          const followFppPos = followEst
+            ? followEst.pos
+            : followFppStatus.positionSec + (followAge / 1000);
+          // Position that should be rendering now = heard target + output latency.
+          const followTarget = followFppPos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+            + getOutputLatencySec();
 
           if (followTarget < 0 || followTarget >= audioBuffer.duration - 0.1) return;
 
@@ -4171,6 +4271,7 @@
 
         // Block periodic crossfade until snap+follow-up resolves (~3s)
         snapPendingUntilMs = Date.now() + 9000;
+        smoothedDriftMs = 0; // v0.33.202: don't carry the last song's drift over
 
         console.info('[ShowPilot] WebAudio fast-start at', fastStartCtxTime.toFixed(3),
           'ctx sec, position', fastStartPos.toFixed(3) + 's');
@@ -4373,6 +4474,7 @@
       snapPendingUntilMs = 0;
       snapAnchorCtxTime = 0;
       snapAnchorPosSec = 0;
+      smoothedDriftMs = 0;
     }
 
     // If the audio gate fires during playback (e.g. user walked outside the
@@ -4430,10 +4532,21 @@
         // This is device-clock-free — both phones compute the same value
         // because they both anchored to the same syncPoint position.
         // Falls back to fppPositionNow when no snap anchor is set.
+        // v0.33.202: the snap-anchor comparison that used to be here was
+        // always 0 (both anchors were set from the same values at the same
+        // moment), so nothing ever corrected an error left by the snap.
+        // Drift is now what the listener HEARS (rendered position minus
+        // output latency) against FPP's estimated position, the way
+        // PulseMesh-style players do it. Device clock differences are
+        // handled by clockOffset (syncClockBurst), not by avoiding FPP.
+        const loopEst = estimateFppPosNow();
+        const loopLatencySec = getOutputLatencySec();
         let drift, driftMs;
-        if (snapAnchorCtxTime > 0 && snapAnchorPosSec > 0) {
-          const expectedPos = snapAnchorPosSec + (audioCtx.currentTime - snapAnchorCtxTime);
-          drift = htmlAudio.currentTime - expectedPos;
+        if (loopEst) {
+          const heardPos = htmlAudio.currentTime - loopLatencySec;
+          const targetHeardPos = loopEst.pos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
+          drift = heardPos - targetHeardPos;
           driftMs = Math.round(drift * 1000);
         } else {
           drift = htmlAudio.currentTime - fppPositionNow;
@@ -4450,7 +4563,8 @@
         const rawDriftMs = Math.round((htmlAudio.currentTime - rawFppPositionNow) * 1000);
         const playingForMs = Date.now() - audioStartedAtMs;
         const isCalibrated = calibrationSamples.length >= 5;
-        if (!isCalibrated && playingForMs > 3000 && fppStatusAgeMs < 300) {
+        // v0.33.202: disabled (see note where sp_device_offset is cleared).
+        if (false && !isCalibrated && playingForMs > 3000 && fppStatusAgeMs < 300) {
           calibrationSamples.push(rawDriftMs);
           if (calibrationSamples.length === 5) {
             const sorted = [...calibrationSamples].sort((a, b) => a - b);
@@ -4515,20 +4629,24 @@
         const msSinceLastCrossfade = lastCrossfadeAtCtx > 0
           ? (audioCtx.currentTime - lastCrossfadeAtCtx) * 1000 : Infinity;
 
+        // v0.33.202: requires at least 3 fresh readings of the current track
+        // (instead of one reading < 200ms old) so a single late reading
+        // can't trigger a correction.
         if (Date.now() > snapPendingUntilMs &&
             msSinceLastCrossfade > CROSSFADE_COOLDOWN_MS &&
-            fppStatusAgeMs < 200 &&
+            loopEst && loopEst.n >= 3 && loopEst.newestAgeMs < 1500 &&
             Math.abs(correctionDriftMs) > CROSSFADE_THRESHOLD_MS &&
             currentBuffer && currentSource && currentSourceGain) {
 
-          // Use fresh fppStatus directly — no stale extrapolation
-          const freshAge = fppStatusAgeMs / 1000;
-          const targetPos = fppStatus.positionSec + freshAge
+          // Position that should be rendering now: FPP's estimated position,
+          // show offset applied, plus output latency. (v0.33.202: no longer
+          // adds the fade length, which left audio 50ms ahead.)
+          const targetPos = loopEst.pos
             - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
-            + CROSSFADE_DURATION_SEC;
+            + loopLatencySec;
           if (targetPos >= 0 && targetPos < currentBuffer.duration - 0.1) {
             console.log('[ShowPilot] crossfade correction: drift', correctionDriftMs + 'ms →',
-              targetPos.toFixed(3) + 's (fppAge ' + Math.round(fppStatusAgeMs) + 'ms)');
+              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old)');
 
             // Capture by value — snap or song change may reassign currentSource
             // before the fadeout setTimeout fires

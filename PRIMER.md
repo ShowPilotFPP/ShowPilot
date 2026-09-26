@@ -254,32 +254,29 @@ This is the core of multi-phone sync. Every song change goes through these steps
 
 1. **Fast-start** — audio begins playing immediately from current `fppStatus` position. No waiting. Phones may be slightly out of sync at this point.
 
-2. **SyncPoint snap** (~2s after song change) — `handleTrackChange` awaits the first `fppSyncPoint` for this song (daemon suppresses them for ~1s, first one arrives at ~2s). When it arrives, compute `snapPos` from the syncPoint's `positionSec + ageMs`. Stop the fast-start source, start a new `AudioBufferSourceNode` at `snapPos`. This is a hard cut (~20ms gap). All phones receive the same syncPoint and snap to the same position.
+2. **SyncPoint snap** (~2s after song change) — `handleTrackChange` awaits the first `fppSyncPoint` for this song. FPP's position is estimated with `estimateFppPosNow()` (the most advanced of that syncPoint and recent readings — see below), and the snap starts a new `AudioBufferSourceNode` 20ms from now at that position + 20ms + output latency. Hard cut (~20ms gap). If no syncPoint arrives within 8s the snap is skipped (the continuous loop still corrects once readings arrive).
 
-3. **Follow-up crossfade** (500ms after snap) — one 50ms crossfade correction using a fresh `fppStatus` reading. Catches any residual error from the snap's scheduling jitter. After this, all phones should be within ~20ms of each other.
+3. **Follow-up crossfade** (500ms after snap) — one 50ms crossfade using the same estimator.
 
-4. **Ongoing crossfade correction** — periodic check (50ms threshold, 10s cooldown) using fresh `fppStatus` (< 200ms stale). Only fires if drift exceeds threshold. Uses `snapAnchorCtxTime`/`snapAnchorPosSec` for device-clock-free drift measurement.
+4. **Continuous correction** (v0.33.202+) — every 250ms tick, drift = what the listener hears (`htmlAudio.currentTime − outputLatency`) minus FPP's estimated position (show offset applied). Smoothed (EMA α=0.6). Crossfades when |smoothed drift| > 50ms, 10s cooldown, only with ≥3 readings of the current track in the window and the newest < 1.5s old. This is the loop that keeps phones on the show; before v0.33.202 it was effectively dead (see below).
 
-5. **Fast calibration** — 5 samples collected starting 3s after the follow-up crossfade. Measures `audioPos - fppPos` (raw, without deviceOffset applied). Median stored as `sp_device_offset` in localStorage. Applied to `snapPos` on the next song. Recalibrates every song so speaker offset is automatically corrected. No manual `audioSyncOffsetMs` tuning needed.
+5. **No auto-calibration** (removed v0.33.202). The old 5-sample `sp_device_offset` calibration stored each measurement as the new offset, but each measurement already included the previous offset, so any constant error was added again every song (runaway, capped only by a ±1s sanity check). `deviceOffset` is now always 0 and the old localStorage key is cleared on load. Fixed per-show speaker delay is the admin's `audioSyncOffsetMs`.
 
-### Device-clock-free drift measurement (v0.33.134+)
+### Drift reference and FPP position estimate (v0.33.202+)
 
-**The problem:** Different devices (phone vs PC, or two phones) have OS clocks that may differ by 100-300ms even on the same LAN. Using `clockOffset` (server - client time) to compute `fppPositionNow` produces different values on each device, causing them to correct to different positions.
+**History — do not reintroduce:** v0.33.134–0.33.201 measured drift after the snap as `htmlAudio.currentTime − (snapAnchorPosSec + (ctx.now − snapAnchorCtxTime))`. The snap and follow-up set `snapAnchor*` from exactly the same values as `trackScheduledAt*`, so that expression was always 0 and nothing ever corrected an error left by the snap. The motivation (device OS clocks differ) is real, but it is handled by `clockOffset` from `syncClockBurst()`, not by ignoring FPP. `snapAnchor*` are still set but are no longer the drift reference.
 
-**The solution:** After the snap fires, drift is measured as:
-```
-expectedPos = snapAnchorPosSec + (audioCtx.currentTime - snapAnchorCtxTime)
-drift = htmlAudio.currentTime - expectedPos
-```
-This is purely audio-clock-relative. No server clock, no `clockOffset`, no network. Both devices anchored to the same syncPoint → same `snapAnchorPosSec` → same drift calculation → corrections converge to the same position.
+**Estimator (`estimateFppPosNow()`):** `recordFppSample()` keeps recent `fppPosition` and `fppSyncPoint` readings (`{p, ts, file}`, reset on file change). The estimate is the **upper envelope**: the maximum of `p + (serverNow − ts)` over the last 5s, current track only (`currentTrackMediaName` = the track's raw `mediaName`). Why maximum, not latest: the daemon stamps each reading when it *sends*, 0–100ms after FPP reported it (it polls the FIFO every 100ms), and the first syncPoint after a song change re-sends a position up to ~500ms old with a fresh stamp. Both errors only make readings look older, never newer. Simulated with those delays: mean −3ms, worst −23ms at the 5s window (a 2.5s window reached −70ms, too close to the 50ms threshold). If readings for the same file jump backwards by >1.5s (FPP restart/seek), older ones are dropped.
 
-`fppPositionNow` is still computed (via `clockOffset`) for display and for the initial fast-start position, but NOT used as the drift reference after the snap.
+**Output latency (`getOutputLatencySec()`):** `outputLatency || baseLatency`, clamped to 0–0.4s (a latency API once reported 2000ms+). Sources start a short lead from now at FPP position + lead + output latency, so the sample is *heard* when FPP is at that position. Before v0.33.202 the start time was delayed by the latency without advancing the position, landing lead + 2× latency behind.
 
 ### Clock sync (Socket.io NTP-style)
 
 `syncClockBurst(n)` fires n parallel Socket.io `timesync` events. Server responds immediately. Viewer computes: `offset = ((t2-t1) + (t3-t4)) / 2`. Takes median of lowest-RTT half. Re-syncs every 30 seconds.
 
-**Critical:** Do NOT update `clockOffset` from `fppSyncPoint` message timestamps — those are one-way and noisy. Only `syncClockBurst` should set `clockOffset`.
+**Critical:** Do NOT update `clockOffset` from `fppSyncPoint` or `fppPosition` message timestamps — they are one-way. Only `syncClockBurst` sets `clockOffset`. (Until v0.33.202 the `fppPosition` handler still nudged `clockOffset` 5% toward each message, which made phones gradually ignore the message's travel time — a steady lag between 30s re-syncs.)
+
+**FPP clock → server clock (relay, v0.33.202+):** the daemon stamps with the FPP host's clock; viewers convert with their offset to the ShowPilot server's clock. `lib/audio-position-relay.js` estimates the difference as `min(serverRecv − fppTs)` over ~40 messages minus half the minimum WebSocket ping RTT (pinged every 5s; `ws` answers pings automatically), and rewrites `serverTimestamp` into server time before emitting. Reset on every reconnect. Logs `FPP clock is Nms vs server clock` when it changes by >25ms. A backward step of the FPP clock takes up to ~20s to be reflected (window minimum).
 
 **High-jitter rejection (v0.33.133+):** `bestRttEverMs` tracks the best RTT seen across all bursts. A new burst's result is rejected if its best RTT exceeds `bestRttEverMs * 3`. This prevents a high-jitter burst (e.g. 200ms RTT when previous was 5ms) from corrupting a good clock estimate.
 
@@ -301,7 +298,7 @@ While the current song plays, `rf-compat.js` prefetches and decodes the next sch
 
 2. **`trackScheduledAtAudioCtx` / `trackScheduledAtPositionSec`** must be updated atomically whenever a new `AudioBufferSourceNode` starts. `htmlAudio.currentTime` reads from these.
 
-3. **`snapAnchorCtxTime` / `snapAnchorPosSec`** must be updated when the snap fires AND when the follow-up crossfade fires. These are the reference for device-clock-free drift. Reset in `stopAudio()`.
+3. **Drift is measured against FPP's estimated position** (`estimateFppPosNow()`), never against `snapAnchor*`. See "Drift reference and FPP position estimate".
 
 4. **The HTTP poll in `showpilot_audio.js` must NOT set `lastSyncPointAt`**. Only the FIFO handler controls syncPoint suppression.
 
@@ -309,9 +306,11 @@ While the current song plays, `rf-compat.js` prefetches and decodes the next sch
 
 6. **Do not revert to HTML5 `<audio>`**. PCM-decoded Web Audio is the correct architecture.
 
-7. **Do not use `fppPositionNow` as the drift reference after snap**. Use `snapAnchorCtxTime`/`snapAnchorPosSec`. Using `fppPositionNow` re-introduces the device-clock difference problem.
+7. **Timing math: a source that starts at ctx time `now + lead` must start at FPP position + lead + output latency.** Never delay the start by the output latency instead.
 
-8. **Crossfade corrections must only fire with fresh fppStatus** (< 200ms stale). Stale extrapolation produces inaccurate targets and causes overcorrection.
+8. **Corrections need ≥3 fresh readings of the current track** (`loopEst.n >= 3`, newest < 1.5s). Don't go back to acting on a single reading.
+
+9. **Bump the `rf-compat.js?v=N` cache-buster in `lib/viewer-renderer.js`** whenever `rf-compat.js` changes, or browsers keep the old file.
 
 ### Daemon restart after plugin update
 
@@ -397,6 +396,7 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.196 | Two pre-existing bugs found and fixed while investigating a reported update-button crash (neither was introduced by v0.33.195's vendoring, both predate it back to at least v0.33.194). (1) The `#updateActionStatus` div in the Settings → Updates panel had literal backslash-escaped quotes baked into its markup (`id=\"updateActionStatus\"` instead of `id="updateActionStatus"`), so the browser never parsed a real `id` attribute and `document.getElementById('updateActionStatus')` in `applyUpdate()` returned null — the actual cause of the `Cannot set properties of null (setting 'textContent')` crash on clicking "Update now." One isolated occurrence in the file; fixed. (2) `initMonacoIfNeeded()` guarded against re-initializing with `if (monacoEditor) return`, but `monacoEditor` is only assigned inside the async `require(['vs/editor/editor.main'])` callback — so the three call sites that invoke it (tab switch, PDF export, the third at line ~8040) can each fire before that callback resolves, and each would pass the guard and re-issue the AMD require, producing "Duplicate definition of module 'vs/editor/editor.main'" in the console. Fixed by caching the in-flight promise in `_monacoInitPromise` so every caller awaits the same single load. Reproduced in isolation with a fake AMD loader before and after: old code triggered the duplicate-definition path twice under three concurrent callers, fixed code triggered it zero times. |
 | 0.33.200 | Sequence categories. Operators group sequences into named categories; the viewer page shows a heading above each group, and each category can be enabled/disabled individually (disabled = its sequences vanish from the viewer list and votes / jukebox requests / race taps for them are rejected server-side). New `lib/categories.js`; three new config columns (`sequence_categories` JSON, `viewer_show_categories`, `uncategorized_label`); new admin endpoints under `/api/admin/categories` plus `POST /api/admin/sequences/bulk-category`; Category column + Categories card + bulk "Set category" on the Sequences tab; `/api/state` gains `categoryHeaders` + `uncategorizedLabel` and returns sequences pre-grouped. rf-compat v=78, default-template `viewer.js` v=0.5.2. Non-audio — mirrored to Lite. See "Sequence categories" under Architecture decisions. |
 | 0.33.201 | Removed a stale nested copy of the whole repo at `showpilot/` (committed by accident in v0.33.191, pinned at that version). Nothing referenced it, but it shipped inside every Docker image (`COPY . .`) and confused searches. Repo housekeeping only; no app behavior change, so no ShowPilot-Lite or Demo change. |
+| 0.33.202 | **Audio sync fixes (phones were steadily late; "refresh doesn't help").** (1) The post-snap drift check compared the audio position to anchors set from the same values, so it was always 0 and nothing ever corrected a bad snap — replaced with real continuous correction against FPP's position (50ms threshold, 10s cooldown, ≥3 fresh readings). (2) New `estimateFppPosNow()` upper-envelope estimator absorbs the daemon's 0–100ms send-time stamping and stale first syncPoints. (3) Relay now corrects FPP-host clock differences into server time (min receive gap minus half min ping RTT). (4) `fppPosition` handler no longer drags `clockOffset`. (5) Output latency now advances the start position instead of delaying the start (was lead + 2× latency late); clamped 0–0.4s. (6) Runaway `sp_device_offset` auto-calibration removed and the stored value cleared. (7) Periodic crossfade no longer lands 50ms ahead. Cache-buster `rf-compat.js?v=79`. Operators who tuned `audioSyncOffsetMs` to compensate for the old lag may need to reduce it. Audio-only: ShowPilot main only. |
 
 **Plugin version history (this session):**
 | Version | Change |

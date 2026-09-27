@@ -318,7 +318,7 @@
     const next = dashStats.nextUp;
     $('spnNext').textContent = next ? seqInfo(next).title : '—';
     $('spnNextSrc').hidden = !next;
-    $('spnNextSrc').textContent = mode === 'VOTING' ? 'Vote leader' : mode === 'JUKEBOX' ? 'From the queue' : mode === 'RACE' ? 'Race leader' : 'Scheduled';
+    $('spnNextSrc').textContent = dashStats.nextUpSource === 'vote' ? 'Vote leader' : dashStats.nextUpSource === 'queue' ? 'From the queue' : 'Scheduled';
     paintProgress();
 
     $('spnS1').textContent = dashStats.activeViewers ?? 0;

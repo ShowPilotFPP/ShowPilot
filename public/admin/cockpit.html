@@ -237,10 +237,9 @@
     return { title: (s && s.display_name) || name || '', artist: (s && s.artist) || '' };
   }
   function nowHtml() {
-    const mode = ctx.cfg.viewer_control_mode || 'OFF';
-    const now = ctx.stats.nowPlaying, next = ctx.stats.nextUp;
+    const now = ctx.stats.nowPlaying, next = ctx.stats.nextUp, source = ctx.stats.nextUpSource;
     const i = now ? info(now) : null;
-    const src = next ? (mode === 'VOTING' ? 'vote leader' : mode === 'JUKEBOX' ? 'from the queue' : mode === 'RACE' ? 'race leader' : 'scheduled') : '';
+    const src = next ? (source === 'vote' ? 'vote leader' : source === 'queue' ? 'from the queue' : 'scheduled') : '';
     return '<div class="now"><div class="ring" role="img" aria-label="Time left in this song"><svg width="130" height="130" viewBox="0 0 130 130" aria-hidden="true">' +
       '<circle cx="65" cy="65" r="56" fill="none" stroke="var(--bg-tertiary)" stroke-width="11"></circle>' +
       '<circle data-ring cx="65" cy="65" r="56" fill="none" stroke="var(--accent)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 400"></circle></svg>' +

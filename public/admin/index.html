@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.217</span>
+        <span class="app-version">v0.33.218</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3081,6 +3081,21 @@
             <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
               Adds a small timing button to the player. Listeners on Bluetooth or car audio can shift the sound
               earlier or later until it lines up with the lights. Saved on their phone only; takes effect on page reload.
+            </p>
+            <div class="row" style="margin: 0 0 0.75rem 1.5rem; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+              <span>Slider range: from</span>
+              <input type="number" id="cfg_listener_timing_min_ms" step="50" min="-2000" max="0" style="width: 6.5rem;"
+                     aria-label="Timing slider lowest value in milliseconds"
+                     onchange="saveSetting('listener_timing_min_ms', parseInt(this.value, 10) || 0)" />
+              <span>to</span>
+              <input type="number" id="cfg_listener_timing_max_ms" step="50" min="0" max="3000" style="width: 6.5rem;"
+                     aria-label="Timing slider highest value in milliseconds"
+                     onchange="saveSetting('listener_timing_max_ms', parseInt(this.value, 10) || 0)" />
+              <span>ms</span>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: -0.5rem 0 0.75rem 1.5rem;">
+              Negative plays later ("music is early"), positive plays earlier ("music is late"). Default −500 to +1000.
+              Allowed: −2000 to 0, and 0 to +3000.
             </p>
 
             <div id="cfg_audio_subsection" style="margin-top: 1.5rem;">
@@ -5501,6 +5516,8 @@
       setChk('cfg_debug_overlay_enabled', c.debug_overlay_enabled);
       setChk('cfg_player_stats_enabled', c.player_stats_enabled);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
+      setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
+      setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);
       setChk('cfg_player_tall_layout', c.player_tall_layout === 1);
 
       setChk('cfg_pwa_admin_enabled', c.pwa_admin_enabled);

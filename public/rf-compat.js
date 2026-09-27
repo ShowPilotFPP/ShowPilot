@@ -2883,8 +2883,21 @@
     // and any saved offset ignored.
     const listenerTimingEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.listenerTimingEnabled === false);
     const LT_KEY = 'sp_listener_offset_ms';
-    const LT_MIN_MS = -500;   // "music is early" is rare and small
-    const LT_MAX_MS = 1000;
+    // Slider range: admin-configurable (v0.33.218+, listener_timing_min_ms /
+    // _max_ms), sanitized here so a typo can't break the player: min in
+    // [-2000, 0], max in [0, 3000], min < max, else the defaults.
+    const LT_RANGE = (() => {
+      const b = window.__SHOWPILOT__ || {};
+      // Blank / missing means "use the default" (Number(null) would be 0).
+      const num = (v) => (v === null || v === undefined || v === '' ? NaN : Math.round(Number(v)));
+      let lo = num(b.listenerTimingMinMs), hi = num(b.listenerTimingMaxMs);
+      if (!isFinite(lo) || lo < -2000 || lo > 0) lo = -500;
+      if (!isFinite(hi) || hi < 0 || hi > 3000) hi = 1000;
+      if (lo >= hi) { lo = -500; hi = 1000; }
+      return [lo, hi];
+    })();
+    const LT_MIN_MS = LT_RANGE[0];
+    const LT_MAX_MS = LT_RANGE[1];
     const LT_STEP_MS = 50;
     const LT_PRESETS = [['Phone speaker', 0], ['Bluetooth headphones', 150], ['Car Bluetooth', 250]];
     let listenerOffsetSec = 0;
@@ -2988,7 +3001,7 @@
           '<input class="sp-lt-range" type="range" min="' + LT_MIN_MS + '" max="' + LT_MAX_MS + '" step="10" aria-label="Fine adjust audio timing">' +
           '<div class="sp-lt-scale"><span>music early</span><span>in sync</span><span>music late</span></div></div>' +
         '<div class="sp-lt-presets-label">Presets</div>' +
-        '<div class="sp-lt-presets">' + LT_PRESETS.map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
+        '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
       ltSheet.querySelector('.sp-lt-done').addEventListener('click', ltClose);
       ltSheet.querySelectorAll('[data-lt-nudge]').forEach(b => b.addEventListener('click', () =>

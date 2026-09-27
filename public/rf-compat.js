@@ -2832,6 +2832,132 @@
     const playerStatsEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerStatsEnabled);
     const driftEl = playerStatsEnabled ? panel.querySelector('#of-listen-drift') : null;
 
+    // ---- Microphone sync measurement (debug, v0.33.218) ----
+    // Settings → Debug → "Microphone sync measurement" (boot.micMeasureEnabled;
+    // sp-mic.js provides SPMicCore). Records the mic with the phone playing
+    // (hears phone + show speakers) and then muted (speakers only), and finds
+    // both copies of the song by GCC-PHAT against the decoded track. The
+    // phone − speakers gap is independent of mic/output delays. Nothing here
+    // changes sync; it only reports.
+    const micEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.micMeasureEnabled);
+    const micResults = [];
+    let micBusy = false;
+    function micPanel(text, isHtml) {
+      let p = document.getElementById('sp-mic-panel');
+      if (!p) {
+        p = document.createElement('div');
+        p.id = 'sp-mic-panel';
+        p.setAttribute('role', 'status');
+        p.style.cssText = 'position:fixed;left:12px;right:12px;bottom:222px;z-index:10002;max-width:460px;margin:0 auto;' +
+          'padding:12px 14px;border-radius:12px;background:rgba(10,12,20,.94);color:#e8eaf2;border:1px solid rgba(255,255,255,.18);' +
+          'font:14px/1.45 system-ui,-apple-system,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.5)';
+        document.body.appendChild(p);
+      }
+      if (isHtml) p.innerHTML = text; else p.textContent = text;
+    }
+    function monoSlice(buf, startSec, len) {
+      const sr = buf.sampleRate, out = new Float32Array(len), s0 = Math.round(startSec * sr);
+      for (let c = 0; c < buf.numberOfChannels; c++) {
+        const d = buf.getChannelData(c);
+        for (let i = 0; i < len; i++) { const j = s0 + i; if (j >= 0 && j < d.length) out[i] += d[j] / buf.numberOfChannels; }
+      }
+      return out;
+    }
+    function micCapture(stream, secs) {
+      return new Promise((resolve) => {
+        const sr = audioCtx.sampleRate, need = Math.round(secs * sr);
+        const src = audioCtx.createMediaStreamSource(stream);
+        const proc = audioCtx.createScriptProcessor(4096, 1, 1);
+        const sink = audioCtx.createGain(); sink.gain.value = 0;
+        src.connect(proc); proc.connect(sink); sink.connect(audioCtx.destination);
+        const chunks = []; let total = 0, startCtx = null;
+        proc.onaudioprocess = (e) => {
+          const d = e.inputBuffer.getChannelData(0);
+          // Rough start time — only used to pick the stretch of song to search
+          // (±1 s window), never in the result itself.
+          if (startCtx === null) startCtx = audioCtx.currentTime - d.length / sr;
+          chunks.push(new Float32Array(d)); total += d.length;
+          if (total >= need) {
+            proc.onaudioprocess = null;
+            try { src.disconnect(); proc.disconnect(); sink.disconnect(); } catch (_) {}
+            const mic = new Float32Array(need); let o = 0;
+            for (const c of chunks) { const n = Math.min(c.length, need - o); mic.set(c.subarray(0, n), o); o += n; if (o >= need) break; }
+            resolve({ mic, startCtx });
+          }
+        };
+      });
+    }
+    function micRef(cap) {
+      const expected = renderedPosAt(cap.startCtx);
+      if (expected === null || expected === undefined || !isFinite(expected)) return null;
+      const sr = currentBuffer.sampleRate;
+      const refStartSec = Math.max(0, expected - 1.0);
+      return { mic: cap.mic, ref: monoSlice(currentBuffer, refStartSec, cap.mic.length + Math.round(2.2 * sr)), refStartSec, expectedPosSec: expected };
+    }
+    async function micMeasure() {
+      if (micBusy) return;
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        micPanel('The microphone needs the normal https:// viewer page. Open it from your show\'s web address.'); return;
+      }
+      if (!window.SPMicCore) { micPanel('Measurement code not loaded — reload the page.'); return; }
+      if (!audioCtx || !currentBuffer || !currentSource) { micPanel('Start listening first, then tap Measure sync while a song plays.'); return; }
+      micBusy = true;
+      const buf = currentBuffer;
+      const wasMuted = isMuted;
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+        if (gainNode) gainNode.gain.value = 1;
+        micPanel('Step 1 of 2 — listening with the phone playing (3 s)… keep the phone\'s volume up and stay still.');
+        const a = await micCapture(stream, 3);
+        if (gainNode) gainNode.gain.value = 0;
+        micPanel('Step 2 of 2 — listening to the show speakers only (3 s)…');
+        const b = await micCapture(stream, 3);
+        if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
+        stream.getTracks().forEach(tr => tr.stop()); stream = null;
+        if (currentBuffer !== buf) { micPanel('The song changed during the measurement. Try again mid-song.'); return; }
+        const A = micRef(a), B = micRef(b);
+        if (!A || !B) { micPanel('Could not read the player position. Try again mid-song.'); return; }
+        micPanel('Analyzing…');
+        await new Promise(r => setTimeout(r, 50));
+        const r = window.SPMicCore.analyze(A, B, buf.sampleRate);
+        console.log('[ShowPilot] mic measurement:', JSON.stringify({ ok: r.ok, deltaMs: r.deltaMs, merged: r.merged, reason: r.reason,
+          speakerPeaks: (r.pb || []).slice(0, 4).map(p => [Math.round(p.rel * 1000), Math.round(p.strength)]),
+          playingPeaks: (r.pa || []).slice(0, 4).map(p => [Math.round(p.rel * 1000), Math.round(p.strength)]),
+          showOffsetMs: audioSyncOffsetMs, listenerOffsetMs: Math.round((listenerOffsetSec || 0) * 1000) }));
+        if (!r.ok) { micPanel('No result: ' + r.reason + '. Try again.'); return; }
+        micResults.push(r.deltaMs);
+        const n = micResults.length;
+        const avg = Math.round(micResults.reduce((x, y) => x + y, 0) / n);
+        const d = r.deltaMs;
+        const verdict = r.merged ? 'In sync: the phone and the show speakers land within a few ms of each other.'
+          : d > 0 ? 'The show speakers are <b>' + d + ' ms behind</b> this phone.'
+          : 'The show speakers are <b>' + (-d) + ' ms ahead of</b> this phone.';
+        const suggest = Math.round(audioSyncOffsetMs + avg);
+        micPanel(verdict +
+          '<div style="margin-top:6px;color:#aab0c0">Runs: ' + micResults.join(', ') + ' ms (average ' + (avg >= 0 ? '+' : '') + avg + ' ms)' +
+          '<br>Show offset now ' + audioSyncOffsetMs + ' ms → try <b style="color:#fff">' + suggest + ' ms</b> (Settings → Audio → Offset), then reload and measure again.' +
+          ((listenerOffsetSec || 0) !== 0 ? '<br>Note: this phone also has its own timing offset of ' + Math.round(listenerOffsetSec * 1000) + ' ms set.' : '') +
+          '</div>', true);
+      } catch (e) {
+        if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
+        micPanel(e && e.name === 'NotAllowedError' ? 'Microphone permission was denied.' : 'Measurement failed: ' + (e && e.message ? e.message : e));
+      } finally {
+        if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micBusy = false;
+      }
+    }
+    if (micEnabled) {
+      const mb = document.createElement('button');
+      mb.type = 'button';
+      mb.id = 'sp-mic-btn';
+      mb.textContent = '🎤 Measure sync';
+      mb.style.cssText = 'position:fixed;left:12px;bottom:170px;z-index:10001;padding:10px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.25);' +
+        'background:rgba(10,12,20,.9);color:#fff;font:600 14px system-ui,-apple-system,sans-serif;cursor:pointer';
+      mb.addEventListener('click', () => micMeasure());
+      document.body.appendChild(mb);
+    }
+
     // ---- Larger two-row player on phones (v0.33.215+) ----
     // Admin setting player_tall_layout (boot.playerTallLayout), off by default.
     // On screens <= 600px wide the player becomes two rows: cover + full-width
@@ -3573,6 +3699,103 @@
     // Returns { pos, n, newestAgeMs } — FPP's estimated position right now
     // (server-clock based), from readings of the current track only — or
     // null when there aren't usable readings.
+    // ---- Sync probe (debug, v0.33.218) ----
+    // With the Debug setting on, the player ALSO connects straight to the FPP
+    // audio daemon (like v0.11.0 did) and measures how far the relayed
+    // position (estimateFppPosNow) is from the daemon's own, using an
+    // NTP-style clock offset measured directly against the daemon (lowest
+    // round-trip sample). Also compares FPP's status-API position with the
+    // event-driven one. Display/logging only — nothing here steers playback.
+    const probeUrl = (window.__SHOWPILOT__ && window.__SHOWPILOT__.syncProbeUrl) || null;
+    const probe = { state: probeUrl ? 'starting' : 'off', offsetMs: null, rttMs: null, samples: [], pos: null, api: null, relay: [], apiVsDirect: [], apiField: null };
+    window.__spProbe = probe;
+    function probeStats(arr) {
+      if (!arr.length) return null;
+      const sorted = arr.slice().sort((a, b) => a - b);
+      const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+      const sd = Math.sqrt(arr.reduce((a, b) => a + (b - mean) * (b - mean), 0) / arr.length);
+      return { mean: Math.round(mean), median: Math.round(sorted[Math.floor(sorted.length / 2)]), min: Math.round(sorted[0]), max: Math.round(sorted[sorted.length - 1]), sd: Math.round(sd), n: arr.length };
+    }
+    const fmtStat = (st) => st ? ((st.mean >= 0 ? '+' : '') + st.mean + 'ms (median ' + st.median + ', ' + st.min + '..' + st.max + ', sd ' + st.sd + ', n=' + st.n + ')') : 'waiting…';
+    function probeLines() {
+      if (probe.state === 'off') return [];
+      return [
+        `probe:       ${probe.state}`,
+        `probe rtt:   ${probe.rttMs === null ? '…' : probe.rttMs + 'ms'}  offset ${probe.offsetMs === null ? '…' : Math.round(probe.offsetMs) + 'ms'}`,
+        `relay−dir:   ${fmtStat(probeStats(probe.relay))}`,
+        `api−dir:     ${fmtStat(probeStats(probe.apiVsDirect))}${probe.apiField ? ' [' + probe.apiField + ']' : ''}`,
+      ];
+    }
+    if (probeUrl) {
+      if (location.protocol === 'https:') {
+        probe.state = 'blocked on https — open this page via the server\'s local http:// address';
+        console.warn('[ShowPilot] sync probe: ' + probe.state);
+      } else {
+        const connectProbe = () => {
+          let ws;
+          try { ws = new WebSocket(probeUrl); } catch (e) { probe.state = 'cannot connect: ' + e.message; return; }
+          let pingTimer = null, pings = 0;
+          const ping = () => { if (ws.readyState === 1) { ws.send(JSON.stringify({ type: 'timeReq', t0: Date.now() })); pings++; } };
+          ws.onopen = () => {
+            probe.state = 'connected to ' + probeUrl;
+            ws.send(JSON.stringify({ type: 'probeHello' }));
+            ping();
+            pingTimer = setInterval(() => ping(), 1000); // 1/s: plenty for a debug tool
+          };
+          ws.onmessage = (ev) => {
+            const t1 = Date.now();
+            let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+            if (m.type === 'timeResp' && typeof m.t0 === 'number') {
+              const rtt = t1 - m.t0;
+              if (rtt < 0 || rtt > 3000) return;
+              probe.samples.push({ rtt, offset: m.daemonNow - (m.t0 + t1) / 2 });
+              if (probe.samples.length > 30) probe.samples.shift();
+              const best = probe.samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
+              probe.offsetMs = best.offset; probe.rttMs = best.rtt;
+            } else if ((m.type === 'position' || m.type === 'syncPoint') && typeof m.positionSec === 'number') {
+              probe.pos = m;
+            } else if (m.type === 'apiPosition') {
+              probe.api = m;
+            }
+          };
+          ws.onclose = () => { clearInterval(pingTimer); probe.state = 'disconnected — retrying'; setTimeout(connectProbe, 3000); };
+          ws.onerror = () => { probe.state = 'connection error (is the daemon reachable from this device?)'; };
+        };
+        connectProbe();
+        // Compare once a second.
+        setInterval(() => {
+          if (probe.offsetMs === null || !probe.pos || !probe.pos.playing) return;
+          const daemonNow = Date.now() + probe.offsetMs;
+          const directPos = probe.pos.positionSec + (daemonNow - probe.pos.serverTimestamp) / 1000;
+          if (daemonNow - probe.pos.serverTimestamp > 3000) return; // stale
+          const est = estimateFppPosNow();
+          const relayFile = fppSamples.length ? fppSamples[fppSamples.length - 1].file : null;
+          if (est && relayFile === probe.pos.filename) {
+            probe.relay.push((est.pos - directPos) * 1000);
+            if (probe.relay.length > 120) probe.relay.shift();
+          }
+          const a = probe.api;
+          if (a && a.playing && daemonNow - a.daemonAt < 1500) {
+            const apiSec = a.millisecondsElapsed !== null && a.millisecondsElapsed > 0 ? a.millisecondsElapsed / 1000
+              : a.secondsPlayed !== null ? a.secondsPlayed : a.secondsElapsed;
+            probe.apiField = a.millisecondsElapsed > 0 ? 'milliseconds_elapsed' : a.secondsPlayed !== null ? 'seconds_played' : 'seconds_elapsed';
+            if (apiSec !== null) {
+              const apiNow = apiSec + (daemonNow - a.daemonAt) / 1000;
+              probe.apiVsDirect.push((apiNow - directPos) * 1000);
+              if (probe.apiVsDirect.length > 120) probe.apiVsDirect.shift();
+            }
+          }
+        }, 1000);
+        setInterval(() => {
+          if (probe.relay.length || probe.apiVsDirect.length) {
+            console.log('[ShowPilot] sync probe — relay minus direct: ' + fmtStat(probeStats(probe.relay)) +
+              ' | FPP status (' + (probe.apiField || '?') + ') minus event position: ' + fmtStat(probeStats(probe.apiVsDirect)) +
+              ' | phone↔Pi rtt ' + probe.rttMs + 'ms');
+          }
+        }, 5000);
+      }
+    }
+
     function estimateFppPosNow() {
       if (!fppSamples.length) return null;
       const serverNow = Date.now() + clockOffset;
@@ -5264,6 +5487,7 @@
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
             `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
+            ...probeLines(),
           ].join('\n');
         }
 

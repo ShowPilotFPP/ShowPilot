@@ -3025,6 +3025,7 @@
     const LT_MIN_MS = LT_RANGE[0];
     const LT_MAX_MS = LT_RANGE[1];
     const LT_STEP_MS = 50;
+    const ltTipEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.listenerTimingTip === false);
     const LT_PRESETS = [['Phone speaker', 0], ['Bluetooth headphones', 150], ['Car Bluetooth', 250]];
     let listenerOffsetSec = 0;
     const clampOffsetMs = (ms) => Math.max(LT_MIN_MS, Math.min(LT_MAX_MS, Math.round((Number(ms) || 0) / 10) * 10));
@@ -3087,6 +3088,8 @@
         '#sp-lt-sheet .sp-lt-ms{font-family:ui-monospace,"SF Mono",Menlo,monospace;color:#9aa3b5;font-variant-numeric:tabular-nums}' +
         '#sp-lt-sheet .sp-lt-range{width:100%;accent-color:var(--sp-lt-accent,#60a5fa);min-height:32px;margin:0}' +
         '#sp-lt-sheet .sp-lt-scale{display:flex;justify-content:space-between;color:#7d8699;font-size:12px}' +
+        '#sp-lt-sheet .sp-lt-tip{padding:10px 12px;border-radius:12px;border:1px solid var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.06);font-size:14px;line-height:1.45;color:#dfe3ec}' +
+        '#sp-lt-sheet .sp-lt-tip b{color:var(--sp-lt-accent,#60a5fa)}' +
         '#sp-lt-sheet .sp-lt-presets-label{font-weight:700;font-size:13px;color:#9aa3b5;margin-bottom:-8px}' +
         '#sp-lt-sheet .sp-lt-presets{display:flex;flex-wrap:wrap;gap:8px}' +
         '#sp-lt-sheet [data-lt-preset]{min-height:40px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:transparent;font-weight:600}' +
@@ -3126,6 +3129,8 @@
         '<div><div class="sp-lt-readout"><span class="sp-lt-status" aria-live="polite"></span><span class="sp-lt-ms"></span></div>' +
           '<input class="sp-lt-range" type="range" min="' + LT_MIN_MS + '" max="' + LT_MAX_MS + '" step="10" aria-label="Fine adjust audio timing">' +
           '<div class="sp-lt-scale"><span>music early</span><span>in sync</span><span>music late</span></div></div>' +
+        // Second-device tip (v0.33.221+, admin switch listener_timing_tip).
+        (ltTipEnabled ? '<div class="sp-lt-tip"><b>Tip:</b> play the show on another phone\u2019s speaker nearby, then adjust until the two sound together with no echo.</div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
@@ -3153,6 +3158,31 @@
       const pp = panel.querySelector('#of-listen-playpause');
       if (pp && pp.parentNode) pp.parentNode.insertBefore(ltBtn, pp);
       ltUpdateUi();
+      // "Audio Sync Help" blocks (v0.33.221+) render hidden; they only make
+      // sense when this timing button exists, so reveal them here, and copy
+      // the live Listen on Phone button's icon (emoji, preset or custom image,
+      // ringed or not) into their [listen] icon. Re-copied when the player
+      // theme changes and once after load, since the icon can be set late.
+      const mirrorListenIcon = () => {
+        const lb = document.getElementById('of-listen-btn');
+        if (!lb) return;
+        let cs = null; try { cs = getComputedStyle(lb); } catch (_) {}
+        const ringed = cs ? parseFloat(cs.borderTopWidth) > 0 : true;
+        document.querySelectorAll('[data-sp-listen-icon]').forEach(s => {
+          s.innerHTML = '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:.9em' +
+            (ringed ? '' : ';transform:scale(1.45)') + '">' + lb.innerHTML + '</span>';
+          if (cs) {
+            s.style.background = cs.backgroundColor;
+            s.style.color = cs.color;
+            s.style.border = ringed ? '1px solid ' + cs.borderTopColor : '0';
+            s.style.filter = cs.filter === 'none' ? '' : cs.filter;
+          }
+        });
+      };
+      document.querySelectorAll('[data-showpilot-sync-help]').forEach(el => { el.hidden = false; });
+      mirrorListenIcon();
+      setTimeout(mirrorListenIcon, 1500);
+      window.addEventListener('showpilot:player-theme', mirrorListenIcon);
       // The dot takes the player theme's accent; refresh it when the theme changes.
       window.addEventListener('showpilot:player-theme', () => ltUpdateUi());
     }

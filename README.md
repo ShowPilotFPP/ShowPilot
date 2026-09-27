@@ -74,7 +74,7 @@ You get an admin with a live dashboard, a tablet show-remote mode (Cockpit), sta
 - **Live stats dashboard** — votes per round, jukebox queue depth, plays per sequence, last-played times, viewer count, plus visitor charts over time
 - **Viewer QR code** — ready-to-print QR code for your viewer page
 - **Backup & restore** — download a full backup from **Settings → Backup & Restore** and restore it on the same or a new install (including on a fresh install before first sign-in)
-- **In-app updates** — check for and apply new versions from **Settings → Updates**
+- **In-app updates** — check for and apply new versions from **Settings → Updates**. A separate beta channel installs test builds for debugging — not stable, and not for general use
 - **IP blocking** — block individual IPs or CIDR ranges. Useful when one user gets too enthusiastic with the request button
 - **Per-sequence visibility/votability/jukeboxability** — fine-grained control over what shows up where
 - **Auto-fill song info** — looks up sequence titles online to populate display name + artist automatically (no more "JinglePopXmas2019_v3.fseq" shown to viewers)

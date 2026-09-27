@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.219-beta.1</span>
+        <span class="app-version">v0.33.220-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3535,6 +3535,9 @@
             </div>
 
             <div id="updateActionStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+
+            <!-- Beta channel (v0.33.219+): debugging/testing builds only. Rendered by renderBetaChannel(). -->
+            <div id="betaChannelBox" style="display: none; margin-top: 1.75rem;"></div>
           </div>
 
           <!-- DEBUG — diagnostics toggles for audio sync troubleshooting (v0.33.194+) -->
@@ -4775,6 +4778,8 @@
         } else {
           rollbackBtn.style.display = 'none';
         }
+
+        renderBetaChannel(data);
       } catch (err) {
         box.innerHTML = `<div style="color: var(--status-danger);">Could not load update status: ${escapeHtml(err.message)}</div>`;
         actionRow.style.display = 'flex';
@@ -4875,6 +4880,105 @@
       } catch (err) {
         status.textContent = 'Update failed: ' + err.message;
         applyBtn.disabled = false;
+      }
+    }
+
+    // ---- Beta channel (v0.33.219+) — debugging and testing builds only ----
+    function renderBetaChannel(data) {
+      const box = document.getElementById('betaChannelBox');
+      if (!box) return;
+      if (data.isDemoMode) { box.style.display = 'none'; return; }
+      const b = data.beta;
+      const onLatestBeta = !!(data.onBeta && b && b.version && b.version === data.currentVersion);
+      let html = '';
+      if (data.onBeta) {
+        html += `<div style="padding: 0.75rem; border: 2px solid var(--status-warning); border-radius: 8px; background: var(--status-warning-soft); margin-bottom: 1rem;">
+          <strong>This server is running a beta build (v${escapeHtml(data.currentVersion)}).</strong>
+          It is for debugging and testing only and is not stable.
+          ${data.isDocker
+            ? '<div style="margin-top: 0.4rem;">To return to stable, switch the container back to the <code>:latest</code> image.</div>'
+            : (data.returnToStable && data.updaterAvailable
+              ? `<div style="margin-top: 0.6rem;"><button type="button" onclick="applyUpdate()">Return to stable ${escapeHtml(data.returnToStable)}</button></div>`
+              : '')}
+        </div>`;
+      }
+      html += `<h3 style="margin: 0 0 0.5rem;">Beta channel — for debugging and testing only</h3>
+        <div style="padding: 0.9rem; border: 2px solid var(--status-danger); border-radius: 8px; background: var(--status-danger-soft);">
+          <p style="margin: 0 0 0.5rem;"><strong>Beta builds are not stable.</strong> They are unfinished test versions shared to debug
+          specific problems. They may break your viewer page, audio or show control, and they are not supported.
+          <strong>Do not install a beta unless you know what you're doing</strong> — for example, because you were asked to test a specific build.</p>
+          <p class="muted" style="margin: 0 0 0.75rem; font-size: 0.85rem;">Your data is snapshotted first. To go back, use
+          <em>Roll back</em> or <em>Return to stable</em> above.</p>`;
+      if (b) {
+        const when = b.date ? new Date(b.date).toLocaleString() : '';
+        html += `<div style="font-size: 0.9rem; margin-bottom: 0.75rem;"><strong>Latest beta:</strong> ${b.version ? 'v' + escapeHtml(b.version) : 'unknown version'}
+          <span class="muted">· ${escapeHtml(when)} · ${escapeHtml(b.shortSha)}</span>
+          ${b.title ? `<div class="muted" style="font-size: 0.85rem;">${escapeHtml(b.title)}</div>` : ''}
+          ${b.url ? `<a href="${escapeAttr(b.url)}" target="_blank" rel="noopener" style="font-size: 0.85rem;">View on GitHub</a>` : ''}</div>`;
+      } else {
+        html += `<div class="muted" style="font-size: 0.85rem; margin-bottom: 0.5rem;">${data.betaCheckError
+          ? 'Could not check for a beta build: ' + escapeHtml(data.betaCheckError) : 'No beta build is published.'}</div>`;
+      }
+      if (data.isDocker) {
+        html += `<div class="muted" style="font-size: 0.85rem;">This container is managed by its host. To test a beta, run the
+          <code>:beta</code> image instead of <code>:latest</code>.</div>`;
+      } else if (b && data.updaterAvailable && !onLatestBeta) {
+        html += `<label style="display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 0.75rem; font-size: 0.9rem;">
+            <input type="checkbox" id="betaAck" onchange="document.getElementById('betaInstallBtn').disabled = !this.checked" style="margin-top: 0.2rem;" />
+            <span>I understand this is an unstable test build for debugging, and I know how to return to the stable release.</span>
+          </label>
+          <button type="button" id="betaInstallBtn" class="btn btn-danger" disabled onclick="installBeta()" data-sha="${escapeAttr(b.sha)}">
+            Install beta${b.version ? ' v' + escapeHtml(b.version) : ''}</button>
+          <div id="betaActionStatus" class="muted" style="margin-top: 0.6rem; font-size: 0.85rem;"></div>`;
+      } else if (onLatestBeta) {
+        html += `<div style="font-size: 0.9rem;">This server is already on the latest beta.</div>`;
+      }
+      html += `</div>`;
+      box.innerHTML = html;
+      box.style.display = '';
+    }
+
+    async function installBeta(opts) {
+      opts = opts || {};
+      const btn = document.getElementById('betaInstallBtn');
+      const status = document.getElementById('betaActionStatus');
+      const ack = document.getElementById('betaAck');
+      if (!btn || !ack || !ack.checked) return;
+      const sha = btn.dataset.sha;
+      if (!opts.force) {
+        const ok = await showConfirm('Install the beta build?\n\nBeta builds are for debugging and testing only. They are NOT stable and may break your viewer page, audio or show control. Only continue if you know what you are doing.\n\nThe server will restart. Your data is snapshotted first, and you can return with Roll back or Return to stable.', { okLabel: 'Install beta' });
+        if (!ok) return;
+      }
+      btn.disabled = true;
+      status.textContent = 'Installing beta — this may take 30–60 seconds. The server will restart when done.';
+      try {
+        const r = await fetch('/api/admin/updates/apply-beta', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sha, acknowledged: true, force: !!opts.force }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          if (data.preflightErrors && Array.isArray(data.preflightErrors)) {
+            const items = data.preflightErrors.map(e => typeof e === 'string' ? { msg: e, override: false } : e);
+            const anyOverridable = items.some(e => e.override);
+            let html = 'Cannot install right now:<ul style="margin: 0.4rem 0 0 1.2rem;">' + items.map(e => '<li>' + escapeHtml(e.msg) + '</li>').join('') + '</ul>';
+            if (anyOverridable) html += '<button type="button" id="betaForceBtn" class="btn btn-warning" style="margin-top: 0.6rem;">Install anyway</button>';
+            status.innerHTML = html;
+            const fb = document.getElementById('betaForceBtn');
+            if (fb) fb.addEventListener('click', async () => {
+              if (await showConfirm('Install while a show is active?\n\nViewers in the middle of voting or the queue will be disrupted.', { okLabel: 'Install anyway' })) installBeta({ force: true });
+            });
+          } else {
+            status.textContent = 'Beta install failed: ' + (data.error || ('HTTP ' + r.status));
+          }
+          btn.disabled = false;
+          return;
+        }
+        status.textContent = 'Beta installed. The server is restarting. This page will reload in a moment…';
+        setTimeout(() => { location.reload(); }, 8000);
+      } catch (err) {
+        status.textContent = 'Beta install failed: ' + err.message;
+        btn.disabled = false;
       }
     }
 

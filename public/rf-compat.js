@@ -2908,11 +2908,11 @@
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
         if (gainNode) gainNode.gain.value = 1;
-        micPanel('Step 1 of 2 — listening with the phone playing (3 s)… keep the phone\'s volume up and stay still.');
-        const a = await micCapture(stream, 3);
+        micPanel('Step 1 of 2 — listening with the phone playing (5 s)… keep the phone\'s volume up and stay still.');
+        const a = await micCapture(stream, 5);
         if (gainNode) gainNode.gain.value = 0;
-        micPanel('Step 2 of 2 — listening to the show speakers only (3 s)…');
-        const b = await micCapture(stream, 3);
+        micPanel('Step 2 of 2 — listening to the show speakers only (5 s)…');
+        const b = await micCapture(stream, 5);
         if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
         stream.getTracks().forEach(tr => tr.stop()); stream = null;
         if (currentBuffer !== buf) { micPanel('The song changed during the measurement. Try again mid-song.'); return; }
@@ -3886,11 +3886,43 @@
       }
     }
 
+    // ---- Hidden output delay (v0.33.223-beta) ----
+    // Some browsers (notably Chrome on Android) report outputLatency as 0 and
+    // can quietly grow the output buffer mid-playback, so sound comes out later
+    // than the audio clock says. getOutputTimestamp() tells us which point on
+    // the audio clock is reaching the speaker right now; the distance to
+    // currentTime (both expressed "now") is the real output delay. Sampled
+    // 5x/s, median of the last 25. Shown in the debug overlay (outDelay:);
+    // with Settings → Debug → "Compensate hidden output delay"
+    // (boot.outputDelayComp) the measured delay is used whenever it's larger
+    // than the reported one (max 800 ms).
+    const outDelaySamples = [];
+    let outDelayMs = null;
+    const outDelayCompOn = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.outputDelayComp);
+    function sampleOutputDelay() {
+      if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.getOutputTimestamp !== 'function') return;
+      let ts;
+      try { ts = audioCtx.getOutputTimestamp(); } catch (_) { return; }
+      if (!ts || !(ts.contextTime > 0) || !(ts.performanceTime > 0)) return;
+      const d = (audioCtx.currentTime - ts.contextTime) - (performance.now() - ts.performanceTime) / 1000;
+      if (!isFinite(d) || d < -0.05 || d > 1.5) return;
+      outDelaySamples.push(d);
+      if (outDelaySamples.length > 25) outDelaySamples.shift();
+      const s = outDelaySamples.slice().sort((a, b) => a - b);
+      outDelayMs = Math.round(s[Math.floor(s.length / 2)] * 1000);
+    }
+    setInterval(sampleOutputDelay, 200);
+
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
+      let base = (l > 0 && l < 0.4) ? l : 0;
+      if (outDelayCompOn && outDelayMs !== null && outDelaySamples.length >= 10) {
+        const measured = Math.min(0.8, Math.max(0, outDelayMs / 1000));
+        if (measured > base) base = measured;
+      }
       // + the listener's own timing offset (v0.33.213+), which covers the
       // Bluetooth / car delay the browser can't see.
-      return ((l > 0 && l < 0.4) ? l : 0) + listenerOffsetSec;
+      return base + listenerOffsetSec;
     }
 
     // ---- Smooth correction (v0.33.204+) ----
@@ -5486,6 +5518,7 @@
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
+            `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured${outDelayCompOn ? ' (compensating)' : ''}`,
             `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
             ...probeLines(),
           ].join('\n');

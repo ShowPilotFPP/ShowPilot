@@ -313,6 +313,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'player_tall_layout',
     'debug_sync_probe',
     'debug_mic_measure',
+    'debug_output_delay_comp',
     'pwa_admin_enabled',
     'pwa_viewer_enabled',
     'pwa_viewer_name',

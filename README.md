@@ -23,6 +23,7 @@ You get an admin with a live dashboard, a tablet show-remote mode (Cockpit), sta
 - **Listen-on-Phone audio player** — your show audio, served by ShowPilot and kept in sync with FPP. Phones continuously correct toward FPP's playback position with inaudible speed nudges, and song changes reach them in real time. No native app, no extra service, no Icecast setup. Works on iOS Safari, Android Chrome, and desktop browsers
 - **Alternate-language audio** — optional extra audio tracks per sequence (for example a translated version) that listeners can choose in the player
 - **Larger player on phones (optional)** — a two-row player on phones with the full song title and bigger, spread-out controls, turned on in the admin
+- **Sync debug tools** — under Settings → Debug (off by default): a microphone "Measure sync" button that reports how far the show speakers are from a phone, and a sync probe that checks the relay against FPP directly
 - **Listener audio timing** — phones can't see Bluetooth or car-stereo delay, so listeners can shift the sound earlier or later from a small timing button in the player until it lines up with the lights (big "music is late / early" buttons, a fine slider and presets). Saved on that phone only; you can turn the button off, and set the slider's range, in the admin. A collapsible **Audio Sync Help** block for the viewer page, and a tip inside the timing sheet, explain how to use it
 - **Mobile-first viewer page** — designed for cold winter hands tapping with gloves. Large hit targets, high-contrast cards, marquee-scrolling long titles, optional page-wide effects (snow, leaves, fireworks, hearts, stars, bats, confetti, petals, embers, bubbles, rain), optional themed player decorations (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's, Hanukkah, Thanksgiving, generic snow)
 - **Cover art support** — automatic MusicBrainz/iTunes cover lookup per sequence with admin override, displayed inline on song cards
@@ -74,7 +75,7 @@ You get an admin with a live dashboard, a tablet show-remote mode (Cockpit), sta
 - **Live stats dashboard** — votes per round, jukebox queue depth, plays per sequence, last-played times, viewer count, plus visitor charts over time
 - **Viewer QR code** — ready-to-print QR code for your viewer page
 - **Backup & restore** — download a full backup from **Settings → Backup & Restore** and restore it on the same or a new install (including on a fresh install before first sign-in)
-- **In-app updates** — check for and apply new versions from **Settings → Updates**. A separate beta channel installs test builds for debugging — not stable, and not for general use
+- **In-app updates** — check for and apply new versions from **Settings → Updates**. When a newer beta exists, a separate beta channel installs it for debugging — not stable, and not for general use
 - **IP blocking** — block individual IPs or CIDR ranges. Useful when one user gets too enthusiastic with the request button
 - **Per-sequence visibility/votability/jukeboxability** — fine-grained control over what shows up where
 - **Auto-fill song info** — looks up sequence titles online to populate display name + artist automatically (no more "JinglePopXmas2019_v3.fseq" shown to viewers)

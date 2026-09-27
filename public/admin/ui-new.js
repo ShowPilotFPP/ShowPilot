@@ -60,7 +60,6 @@
   let currentTab = 'dashboard';
   let currentSub = null;
   let applied = false;
-  let urlSync = false;    // off during setup so an incoming ?section= link isn't erased
 
   // ---------- Rail ----------
   function readSections() {
@@ -217,14 +216,7 @@
       title.textContent = s ? s.label : sec.label;
       crumb.textContent = s ? sec.label : '';
     }
-    // Keep the address bar on the current section so a refresh stays here
-    // (replaceState: no navigation, no history entries).
-    if (urlSync) try {
-      const url = new URL(location.href);
-      if (currentTab === 'dashboard') url.searchParams.delete('section');
-      else url.searchParams.set('section', currentTab);
-      if (url.href !== location.href) history.replaceState(history.state, '', url.href);
-    } catch (_) {}
+    // (The address bar is kept in step by index.html's writeAdminUrl(), v0.33.222+.)
     if (currentTab === 'dashboard') refreshDash();
   }
   function wrapNavigation() {
@@ -429,9 +421,6 @@
       }
       syncRail();
       refreshDash();
-      // index.html opens any ?section= tab right after apply(); start
-      // mirroring navigation into the address bar only after that.
-      setTimeout(() => { urlSync = true; }, 0);
     },
   };
 })();

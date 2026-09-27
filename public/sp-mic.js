@@ -127,19 +127,36 @@
   // Each: { mic: Float32Array, ref: Float32Array, refStartSec, expectedPosSec }.
   // Real peaks score in the hundreds against the correlation's typical
   // level; background noise alone scores single digits.
-  const MIN_SPEAKER = 20, MIN_PHONE = 15, SAME_PEAK_SEC = 0.003;
+  const MIN_SPEAKER = 12, MIN_PHONE = 10, SAME_PEAK_SEC = 0.003;
   // Music repeats (beats, bars), which leaves faint 'ghost' matches far
   // away. The phone is next to the mic, so its peak is strong and close to
   // the speakers': ignore anything beyond MAX_GAP_SEC or under
   // MIN_PHONE_SHARE of the strongest peak.
-  const MAX_GAP_SEC = 0.5, MIN_PHONE_SHARE = 0.25;
+  const MAX_GAP_SEC = 0.5, MIN_PHONE_SHARE = 0.35;
+  const RIVAL_GAP_SEC = 0.05, RIVAL_SHARE = 0.7;
   function analyze(a, b, sampleRate) {
     const pb = peaksFor(b, sampleRate);
     const pa = peaksFor(a, sampleRate);
-    if (!pb.length || pb[0].strength < MIN_SPEAKER) {
-      return { ok: false, reason: 'could not hear the show speakers clearly (move closer, turn them up, or reduce background noise)', pa, pb };
+    // Ambiguity check (v0.33.223-beta): repetitive music produces "ghost"
+    // matches a beat or bar away that can score as high as the real one, and
+    // noise alone produces scattered peaks. If the best match has a rival more
+    // than RIVAL_GAP_SEC away and at least RIVAL_SHARE as strong, refuse to
+    // guess rather than report a confident wrong number. (Echoes arrive within
+    // tens of ms, so they don't count as rivals.)
+    const AMBIGUOUS = 'no clear match: the music is too repetitive here, or the speakers too quiet. Try again during a part with vocals';
+    const hasRival = (list, best) => list.some(p => p !== best && Math.abs(p.rel - best.rel) > RIVAL_GAP_SEC && p.strength >= RIVAL_SHARE * best.strength);
+    if (pb.length && hasRival(pb, pb[0])) {
+      return { ok: false, ambiguous: true, reason: AMBIGUOUS, pa, pb };
     }
-    const speakerPeaks = pb.filter(p => p.strength >= MIN_SPEAKER / 2);
+    if (!pb.length || pb[0].strength < MIN_SPEAKER) {
+      return { ok: false, reason: 'could not hear the show speakers clearly (heard at strength ' + Math.round(pb.length ? pb[0].strength : 0) + ', need ' + MIN_SPEAKER + ') — move closer, turn them up, or reduce background noise', pa, pb };
+    }
+    // Everything B hears is the speakers: their direct sound, room echoes, AND
+    // "ghost" matches a beat or bar away (music repeats). Keep B's weaker
+    // peaks too, so a matching ghost in A is recognised as the speakers'
+    // signature — otherwise, when phone and speakers are in sync (one merged
+    // peak in A), a beat-length ghost could be mistaken for the phone.
+    const speakerPeaks = pb.filter(p => p.strength >= Math.max(4, 0.12 * pb[0].strength));
     const speakerRel = pb[0].rel;
     // Capture B holds the speakers' direct sound AND their room echoes. Any
     // peak in A that also appears in B is the speakers' signature; the phone
@@ -154,6 +171,11 @@
         p.strength >= MIN_PHONE_SHARE * strongest &&
         Math.abs(p.rel - speakerInA.rel) <= MAX_GAP_SEC)
       .sort((x, y) => y.strength - x.strength)[0];
+    // The phone's match must be unambiguous too.
+    const phoneCands = pa.filter(p => !inB(p) && p.strength >= MIN_PHONE && Math.abs(p.rel - speakerInA.rel) <= MAX_GAP_SEC);
+    if (phone && hasRival(phoneCands, phone)) {
+      return { ok: false, ambiguous: true, reason: AMBIGUOUS, pa, pb };
+    }
     if (!phone) {
       // No phone-only peak: the phone and the speakers land together.
       return { ok: true, deltaMs: 0, merged: true, speakerStrength: pb[0].strength, pa, pb };

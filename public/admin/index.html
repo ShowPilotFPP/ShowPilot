@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.222-beta.1</span>
+        <span class="app-version">v0.33.223-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3566,6 +3566,16 @@
               <code>?debug=1</code> to the URL. Turn off when done.
             </p>
             <div class="row">
+              <input type="checkbox" id="cfg_debug_output_delay_comp"
+                     onchange="saveSetting('debug_output_delay_comp', this.checked ? 1 : 0)" />
+              <label for="cfg_debug_output_delay_comp" style="margin: 0;">Compensate hidden output delay (experimental)</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+              Some phones (often Android) report no output delay but quietly buffer audio, so the music lags the lights
+              like an echo. The debug overlay's <code>outDelay</code> line shows the delay measured directly; with this on,
+              the player also corrects for it. Takes effect on page reload.
+            </p>
+            <div class="row">
               <input type="checkbox" id="cfg_debug_mic_measure"
                      onchange="saveSetting('debug_mic_measure', this.checked ? 1 : 0)" />
               <label for="cfg_debug_mic_measure" style="margin: 0;">Microphone sync measurement</label>
@@ -4897,6 +4907,10 @@
       const box = document.getElementById('betaChannelBox');
       if (!box) return;
       if (data.isDemoMode) { box.style.display = 'none'; return; }
+      // Only shown when a beta NEWER than this install exists (v0.33.222+),
+      // or when this install is itself running a beta (so there's always a
+      // way back). Otherwise the section is hidden entirely.
+      if (!data.betaAvailable && !data.onBeta) { box.innerHTML = ''; box.style.display = 'none'; return; }
       const b = data.beta;
       const onLatestBeta = !!(data.onBeta && b && b.version && b.version === data.currentVersion);
       let html = '';
@@ -4910,6 +4924,12 @@
               ? `<div style="margin-top: 0.6rem;"><button type="button" onclick="applyUpdate()">Return to stable ${escapeHtml(data.returnToStable)}</button></div>`
               : '')}
         </div>`;
+      }
+      if (!data.betaAvailable) {
+        // Running a beta, and nothing newer to offer: just the notice above.
+        box.innerHTML = html;
+        box.style.display = '';
+        return;
       }
       html += `<h3 style="margin: 0 0 0.5rem;">Beta channel — for debugging and testing only</h3>
         <div style="padding: 0.9rem; border: 2px solid var(--status-danger); border-radius: 8px; background: var(--status-danger-soft);">
@@ -5437,6 +5457,50 @@
       location.reload();
     }
 
+    // ---- Address bar follows navigation (v0.33.222+, both layouts) ----
+    // ?section=<main tab>&sub=<sub-page>, so a refresh lands on the same page
+    // (e.g. Settings → Audio). restoreSectionFromUrl() runs after sign-in:
+    // it opens what the address names (only if it exists), then wraps
+    // switchMainTab()/switchTab() so every later move rewrites the address
+    // with history.replaceState (no navigation, no history entries). The
+    // Dashboard clears both parameters.
+    let adminUrlSyncOn = false;
+    function writeAdminUrl() {
+      if (!adminUrlSyncOn) return;
+      try {
+        const mainBtn = document.querySelector('.tab-btn.active');
+        const tab = mainBtn ? mainBtn.dataset.tab : 'dashboard';
+        const url = new URL(location.href);
+        if (!tab || tab === 'dashboard') {
+          url.searchParams.delete('section');
+          url.searchParams.delete('sub');
+        } else {
+          url.searchParams.set('section', tab);
+          const subEl = document.querySelector('.tab-pane[data-pane="' + tab + '"] .sub-tab.active');
+          if (subEl && subEl.dataset.subtab) url.searchParams.set('sub', subEl.dataset.subtab);
+          else url.searchParams.delete('sub');
+        }
+        if (url.href !== location.href) history.replaceState(history.state, '', url.href);
+      } catch (_) {}
+    }
+    function restoreSectionFromUrl() {
+      const qp = new URLSearchParams(location.search);
+      const sec = (qp.get('section') || '').replace(/[^a-z-]/g, '');
+      const sub = (qp.get('sub') || '').replace(/[^a-z-]/g, '');
+      if (sec && document.querySelector('.tab-btn[data-tab="' + sec + '"]')) {
+        switchMainTab(sec);
+        if (sub && document.querySelector('.tab-pane[data-pane="' + sec + '"] .sub-tab[data-subtab="' + sub + '"]')) switchTab(sub);
+      }
+      if (!window.__spUrlWrapped) {
+        window.__spUrlWrapped = true;
+        const origMain = window.switchMainTab, origSub = window.switchTab;
+        window.switchMainTab = function () { const r = origMain.apply(this, arguments); writeAdminUrl(); return r; };
+        window.switchTab = function () { const r = origSub.apply(this, arguments); writeAdminUrl(); return r; };
+      }
+      adminUrlSyncOn = true;
+      writeAdminUrl();
+    }
+
     async function checkAuth() {
       const r = await api('/me');
       if (r.ok) {
@@ -5447,11 +5511,9 @@
         await loadAll();
         // v0.33.209: new layout (default) unless the user chose classic.
         if (window.SPNew) window.SPNew.apply(r.data);
-        // /admin/?section=<tab> opens that tab.
-        {
-          const sec = (new URLSearchParams(location.search).get('section') || '').replace(/[^a-z-]/g, '');
-          if (sec && document.querySelector('.tab-btn[data-tab="' + sec + '"]')) switchMainTab(sec);
-        }
+        // Reopen the section + sub-page named in the address, then keep the
+        // address in step with navigation (v0.33.222+).
+        restoreSectionFromUrl();
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
       } else {
         show('loginView'); hide('appView');
@@ -5545,6 +5607,7 @@
         await loadAll();
         // v0.33.209: new layout (default) unless the user chose classic.
         if (me.ok && window.SPNew) window.SPNew.apply(me.data);
+        restoreSectionFromUrl();
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
         // Clear sensitive fields
         document.getElementById('loginPassword').value = '';
@@ -5653,6 +5716,7 @@
       setChk('cfg_player_stats_enabled', c.player_stats_enabled);
       setChk('cfg_debug_sync_probe', c.debug_sync_probe === 1);
       setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
+      setChk('cfg_debug_output_delay_comp', c.debug_output_delay_comp === 1);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
       setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);

@@ -36,6 +36,11 @@ async function buildStatusResponse({ force }) {
   // returnToStable does, whenever this install runs a prerelease.
   const betaCheck = await updater.checkBeta({ force });
   const onBeta = updater.isPrerelease(current);
+  // The beta channel is only offered when a beta NEWER than this install
+  // exists (v0.33.222+). Betas are published only when there's something to
+  // test, so most of the time there's none and the section stays hidden.
+  const betaAvailable = !!(betaCheck.beta && betaCheck.beta.version &&
+    updater.compareVersions(betaCheck.beta.version, current) > 0);
 
   return {
     currentVersion: current,
@@ -51,6 +56,7 @@ async function buildStatusResponse({ force }) {
     onBeta,
     returnToStable: (onBeta && latestTag && !updateAvailable) ? latestTag : null,
     beta: betaCheck.beta,
+    betaAvailable,
     betaCheckError: betaCheck.error || null,
     rollback: (updateState && updateState.previous_version_sha && snapshotMeta) ? {
       previousVersionTag: updateState.previous_version_tag,
@@ -170,6 +176,9 @@ router.post('/apply-beta', async (req, res) => {
   const check = await updater.checkBeta({ force: true });
   if (!check.beta || check.beta.sha !== sha) {
     return res.status(409).json({ error: 'The beta build changed since this page loaded; please refresh.', latestSha: check.beta && check.beta.sha });
+  }
+  if (!check.beta.version || updater.compareVersions(check.beta.version, updater.readPackageVersion()) <= 0) {
+    return res.status(409).json({ error: 'No beta newer than this version is available.' });
   }
   try {
     const result = await updater.applyBetaUpdate(sha, { force: force === true });

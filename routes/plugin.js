@@ -21,6 +21,7 @@ const {
   updateConfig,
   setNowPlaying,
   setNextScheduled,
+  setBaselineNext,
   getHighestVotedSequence,
   detectVoteTie,
   getTiebreakLeader,
@@ -371,6 +372,87 @@ router.get('/state', (req, res) => {
       rememberHandoff(next.sequence_name, 'request');
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
+    } else {
+      // No fresh entry to hand off. In non-interrupt mode FPP polls many
+      // times between the handoff and when the current song actually ends;
+      // if we return nothing on those polls FPP drops the queued song and
+      // resumes its main playlist. Re-return the already-handed-off but
+      // not-yet-confirmed-played entry so FPP keeps it queued.
+      // Also refresh handed_off_at so cleanupStaleHandoffs doesn't expire
+      // it while a long song is still playing.
+      const pending = db.prepare(`
+        SELECT q.sequence_name, q.requested_at, s.sort_order
+        FROM jukebox_queue q
+        LEFT JOIN sequences s ON s.name = q.sequence_name COLLATE NOCASE
+        WHERE q.played = 0 AND q.handed_off_at IS NOT NULL
+        ORDER BY q.requested_at ASC LIMIT 1
+      `).get();
+      if (pending) {
+        db.prepare(
+          `UPDATE jukebox_queue SET handed_off_at = CURRENT_TIMESTAMP
+           WHERE sequence_name = ? AND played = 0 AND handed_off_at IS NOT NULL`
+        ).run(pending.sequence_name);
+        rememberHandoff(pending.sequence_name, 'request');
+        response.nextRequest = {
+          sequence: pending.sequence_name,
+          playlistIndex: pending.sort_order,
+          queuedAt: pending.requested_at,
+        };
+      }
+    }
+  } else if (cfg.viewer_control_mode === 'RACE') {
+    // Race mode: plugin v0.13.58+ handles RACE natively via the raceWinner
+    // field. Returns the winner with an interrupt flag when decided; plugin
+    // follows FPP schedule while race is running (no raceWinner field).
+    if (cfg.race_winner && !cfg.race_active) {
+      const winSeq = db.prepare(`SELECT sort_order FROM sequences WHERE name = ? LIMIT 1`).get(cfg.race_winner);
+      response.raceWinner = {
+        sequence:     cfg.race_winner,
+        playlistIndex: winSeq ? winSeq.sort_order : 0,
+        interrupt:    cfg.race_interrupt_winner === 1,
+      };
+      rememberHandoff(cfg.race_winner, 'vote');
+    }
+  }
+
+  // Snapshot the main-playlist "next" at handoff time so the viewer shows the
+  // correct return point while the interrupting song plays. Only save on the
+  // first handoff — if a second vote/request wins before the main playlist
+  // resumes, the original baseline is still where FPP will return to.
+  if (response.winningVote || response.nextRequest || response.raceWinner) {
+    const npState = db.prepare('SELECT next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npState && !npState.baseline_next_sequence_name && npState.next_sequence_name) {
+      setBaselineNext(npState.next_sequence_name);
+    }
+  }
+
+  // Playlist patches (v0.33.152+): when cooldown_suppress_fpp_playlist is
+  // enabled, sequences in cooldown are disabled in FPP's playlist JSON so
+  // FPP skips them in normal rotation. Off by default -- opt-in only, since
+  // not all operators want ShowPilot reaching into their FPP playlist.
+  // Requires plugin v0.13.40+.
+  if (cfg.cooldown_suppress_fpp_playlist === 1) {
+    const cooldownCandidates = db.prepare(`
+      SELECT name, last_played_at, cooldown_minutes
+      FROM sequences
+      WHERE cooldown_minutes > 0 AND last_played_at IS NOT NULL
+    `).all();
+
+    if (cooldownCandidates.length > 0) {
+      const now = Date.now();
+      const patches = [];
+      for (const s of cooldownCandidates) {
+        const playedAt = new Date(s.last_played_at + 'Z').getTime();
+        const cooldownMs = s.cooldown_minutes * 60 * 1000;
+        const reenableAt = new Date(playedAt + cooldownMs).toISOString();
+        const inCooldown = now < (playedAt + cooldownMs);
+        patches.push({
+          sequenceName: s.name,
+          enabled: !inCooldown,
+          reenableAt: inCooldown ? reenableAt : null,
+        });
+      }
+      response.playlistPatches = patches;
     }
   }
 
@@ -413,10 +495,12 @@ setInterval(() => {
 }, 60 * 1000);
 
 // Periodic cleanup of stale queue entries — handed off but never confirmed.
-// Anything older than 5 minutes is marked played to keep the queue clean.
+// Anything older than 5 minutes (handed-off) or 2 hours (un-handed) is
+// marked played to keep the queue clean across plugin restarts.
 setInterval(() => {
-  const { cleanupStaleHandoffs } = require('../lib/db');
+  const { cleanupStaleHandoffs, cleanupStaleRequests } = require('../lib/db');
   cleanupStaleHandoffs(300);
+  cleanupStaleRequests(120);
 }, 60 * 1000);
 
 // ============================================================
@@ -432,6 +516,22 @@ router.post('/playing', (req, res) => {
   // (See round-close logic below.)
   const previouslyPlaying = db.prepare(`SELECT sequence_name FROM now_playing WHERE id = 1`).get();
   const isSequenceChange = !!name && (!previouslyPlaying || previouslyPlaying.sequence_name !== name);
+
+  // When the main playlist resumes at the expected return point, clear the
+  // baseline so subsequent "Up Next" display switches back to FPP's live report.
+  if (isSequenceChange && name) {
+    const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npBaseline && npBaseline.baseline_next_sequence_name === name) {
+      setBaselineNext(null);
+    }
+  }
+
+  // FPP stopped (the plugin reports an empty sequence when idle). Nothing is
+  // going to resume, so the return point is meaningless; left in place it
+  // pins "Up Next" to that song indefinitely.
+  if (!name) {
+    setBaselineNext(null);
+  }
 
   // If the plugin reported a playback position, backdate started_at so the
   // audio player knows the song has been playing for that long. This handles
@@ -478,6 +578,27 @@ router.post('/playing', (req, res) => {
     // detection + handoff source. Helps debug "round stuck" issues.
     const cfgForRound = getConfig();
     console.log(`[playing] seq="${name}" source=${source} mode=${cfgForRound.viewer_control_mode} isChange=${isSequenceChange}`);
+
+    // A schedule song starting means the interruption is over, so the
+    // baseline has served its purpose even if FPP didn't resume exactly on it
+    // (manual jump/restart, cooldown skip, schedule change, playlist end).
+    // Without this, Voting/Race modes only cleared the baseline when that
+    // exact song started, so one missed return pinned "Up Next" to it for
+    // good. Jukebox additionally waits for its queue to drain.
+    if (isSequenceChange && source === 'schedule') {
+      const queueEmpty = cfgForRound.viewer_control_mode !== 'JUKEBOX' || db.prepare(
+        `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`
+      ).get().n === 0;
+      if (queueEmpty) {
+        const npBaseline = db.prepare(
+          `SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1`
+        ).get();
+        if (npBaseline && npBaseline.baseline_next_sequence_name &&
+            npBaseline.baseline_next_sequence_name !== name) {
+          setBaselineNext(null);
+        }
+      }
+    }
 
     const isVoting = cfgForRound.viewer_control_mode === 'VOTING';
     if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round) {
@@ -535,6 +656,47 @@ router.post('/playing', (req, res) => {
       }
     }
 
+    // ---- Race mode: reset taps on every song change (v0.33.155+) ----
+    // When the winning song starts (or any song change while in RACE mode),
+    // clear all taps and start a fresh race for the new song.
+    // This also naturally handles the "prevent taps after race ends" case:
+    // resolveRace() sets race_winner and race_active=0; the tap endpoint
+    // rejects taps when race_winner is set; on the next song change we
+    // re-arm and clear the winner so tapping is allowed again.
+    const isRace = cfgForRound.viewer_control_mode === 'RACE';
+    if (isRace && isSequenceChange) {
+      const { resetRaceTaps } = require('../lib/db');
+      const viewerModule = require('./viewer');
+      const io = req.app.get('io');
+      // Re-arm: start a fresh race for this song
+      const freshEndsAt = viewerModule.startRace(cfgForRound);
+      if (io) {
+        io.emit('raceStarted', { endsAt: freshEndsAt });
+        io.emit('raceTapUpdate', { counts: [], bars: {}, leadingSequence: null });
+      }
+      // Schedule server-side timer for the new race
+      if (freshEndsAt) {
+        const ms = new Date(freshEndsAt).getTime() - Date.now();
+        if (ms > 0) {
+          const { getRaceLeader } = require('../lib/db');
+          viewerModule._raceTimerHandle = setTimeout(() => {
+            viewerModule._raceTimerHandle = null;
+            const latestCfg = getConfig();
+            if (latestCfg.race_active && !latestCfg.race_winner) {
+              const leader = getRaceLeader();
+              if (leader) {
+                const seqRow = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+                viewerModule.resolveRace(io, leader.sequence_name, seqRow?.display_name || leader.sequence_name, seqRow?.artist || '', leader.count);
+              } else {
+                db.prepare(`UPDATE config SET race_active = 0 WHERE id = 1`).run();
+                if (io) io.emit('raceEnded', { noWinner: true });
+              }
+            }
+          }, Math.max(ms, 0));
+        }
+      }
+    }
+
     // Mark this sequence as played; reset its hidden counter
     // (only update sequences we actually know about — schedule fillers
     // may not be in our pool)
@@ -585,16 +747,10 @@ router.post('/playing', (req, res) => {
   const io = req.app.get('io');
   if (io) io.emit('nowPlaying', { sequenceName: name || null });
 
-  // Start the broadcast relay for the new song. The relay opens one
-  // connection to FPP and fans audio bytes out to all viewer listeners,
-  // giving automatic multi-phone sync without any offset math.
-  // stopRelay() is called inside startRelay() if a relay was already running.
-  const { startRelay, stopRelay } = require('../lib/audio-relay');
-  if (name) {
-    startRelay(name);
-  } else {
-    stopRelay('nothing playing');
-  }
+  // Relay disabled — audio sync now uses cache delivery + WebSocket position
+  // correction via fppPosition events from the daemon. The relay was opening
+  // one connection to FPP per song change and streaming bytes that nobody
+  // was connecting to, wasting CPU and bandwidth.
 
   res.json({ ok: true });
 });
@@ -672,8 +828,50 @@ router.post('/next', (req, res) => {
 
   setNextScheduled(name || null);
 
+  // Interrupt-mode detection: cfg.interrupt_schedule may not be set when the
+  // FPP plugin manages its own interrupt flag independently. Instead, detect
+  // interrupt mode by observing FPP's behavior: when a jukebox song is playing
+  // and FPP reports the last scheduled song as "next," FPP is in interrupt mode
+  // and that song is the return point after the queue drains. Update the
+  // baseline now so Tier 3 immediately shows the correct song.
+  //
+  // In non-interrupt mode FPP reports null (end of request playlist) or the
+  // main-playlist continuation (Song B), which won't match the last scheduled
+  // song (Song A), so the existing baseline is left untouched.
+  if (name) {
+    const npNow = db.prepare('SELECT sequence_name FROM now_playing WHERE id = 1').get();
+    const nowPlayingName = npNow && npNow.sequence_name;
+    if (nowPlayingName) {
+      const isJukeboxPlaying = db.prepare(`
+        SELECT COUNT(*) AS n FROM jukebox_queue
+        WHERE sequence_name = ? COLLATE NOCASE
+          AND (played = 1 OR handed_off_at IS NOT NULL)
+      `).get(nowPlayingName).n > 0;
+      if (isJukeboxPlaying) {
+        const lastScheduled = db.prepare(`
+          SELECT sequence_name FROM play_history
+          WHERE source = 'schedule'
+          ORDER BY played_at DESC LIMIT 1
+        `).get();
+        if (lastScheduled && lastScheduled.sequence_name === name) {
+          const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+          if (!npBaseline || npBaseline.baseline_next_sequence_name !== name) {
+            setBaselineNext(name);
+          }
+        }
+      }
+    }
+  }
+
   const io = req.app.get('io');
-  if (io) io.emit('nextScheduled', { sequenceName: name || null });
+  if (io) {
+    // Emit the baseline if set (main-playlist return point), otherwise FPP's
+    // live report. The baseline update above runs first so interrupt mode
+    // immediately emits the correct return song.
+    const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    const emitName = (npBaseline && npBaseline.baseline_next_sequence_name) || name || null;
+    io.emit('nextScheduled', { sequenceName: emitName });
+  }
 
   res.json({ ok: true });
 });
@@ -848,7 +1046,7 @@ router.post('/sync-sequences', (req, res) => {
 
 // ============================================================
 // POST /api/plugin/viewer-mode
-// Body: { mode: "VOTING" | "JUKEBOX" | "OFF" | "ON" }
+// Body: { mode: "VOTING" | "JUKEBOX" | "RACE" | "OFF" | "ON" }
 //
 // Special cases:
 //   mode = "ON"  — restore viewer control to the last non-OFF mode
@@ -856,16 +1054,21 @@ router.post('/sync-sequences', (req, res) => {
 //                  hardcode a voting vs jukebox choice)
 //   mode = "OFF" — also stashes the current mode so ON can restore it
 //
+// RACE mode activates tap-as-fast-as-you-can competitive voting.
+// The race timer and settings are configured in the ShowPilot admin UI;
+// this command simply switches the viewer_control_mode to RACE so the
+// scheduler can trigger a race at a specific playlist position.
+//
 // Used by FPP scheduler commands to toggle viewer control at showtime.
 // Auth: same Bearer token as other plugin endpoints.
 // ============================================================
 router.post('/viewer-mode', (req, res) => {
   const { mode: requested } = req.body || {};
-  const allowed = ['VOTING', 'JUKEBOX', 'OFF', 'ON'];
+  const allowed = ['VOTING', 'JUKEBOX', 'RACE', 'OFF', 'ON'];
 
   if (!requested || !allowed.includes(requested)) {
     return res.status(400).json({
-      error: 'mode must be VOTING, JUKEBOX, OFF, or ON',
+      error: 'mode must be VOTING, JUKEBOX, RACE, OFF, or ON',
     });
   }
 
@@ -886,7 +1089,7 @@ router.post('/viewer-mode', (req, res) => {
     updateConfig(updates);
     newMode = 'OFF';
   } else {
-    // Explicit VOTING or JUKEBOX — also update last_active_mode
+    // Explicit VOTING, JUKEBOX, or RACE — also update last_active_mode
     updateConfig({ viewer_control_mode: requested, last_active_mode: requested });
     newMode = requested;
   }

@@ -1,17 +1,17 @@
 # ShowPilot
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/UpmcXmWfN9) [![Facebook](https://img.shields.io/badge/Facebook-Join%20the%20group-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/groups/showpilot)
+[![Website](https://img.shields.io/badge/Website-showpilot.dev-ffb155?logo=googlechrome&logoColor=white)](https://showpilot.dev) [![Discord](https://img.shields.io/badge/Discord-Join%20the%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/UpmcXmWfN9) [![Facebook](https://img.shields.io/badge/Facebook-Join%20the%20group-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/groups/showpilot)
 
 **Self-hosted light show viewer control server.** A drop-in alternative to Remote Falcon for hobbyists who want to run their own infrastructure without relying on a cloud service.
 
 ShowPilot pairs with a Falcon Player (FPP) plugin to let your visitors:
-- 🎵 Vote for sequences (Voting mode) or queue them up (Jukebox mode)
-- 📱 Listen to your show audio on their phone via a built-in web player — no app required
+- 🎵 Vote for sequences (Voting mode), queue them up (Jukebox mode), or tap-race for the next song (Race mode)
+- 📱 Listen to your show audio on their phone via a built-in web player, kept in sync with the show — no app required
 - 🎄 See what's playing now and what's coming up next on a customizable viewer page
 
-You get an admin dashboard with stats, queue management, sequence configuration, viewer-page editor, theming, and multi-user authentication.
+You get an admin with a live dashboard, a tablet show-remote mode (Cockpit), stats, queue management, sequence configuration, a viewer-page designer, theming, backups, in-app updates, and multi-user authentication.
 
-> **Migrating from Remote Falcon?** ShowPilot's viewer page renderer is **fully compatible with Remote Falcon templates**. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into ShowPilot's editor and it just works — no template rewrite needed.
+> **Migrating from Remote Falcon?** ShowPilot's viewer page renderer is fully compatible with Remote Falcon templates. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into ShowPilot's editor and it just works — no template rewrite needed. If something doesn't render quite right out of the box (older RF templates sometimes lack a few of the toast hooks or the after-hours setup ShowPilot expects), drop your HTML into the [RF Template Converter](https://showpilot.dev/convert) — it adds the missing pieces, flags layout traps, and gives you back a paste-ready ShowPilot template.
 
 ---
 
@@ -19,17 +19,23 @@ You get an admin dashboard with stats, queue management, sequence configuration,
 
 ### Visitor experience
 
-- **Voting & Jukebox modes** — switch between letting viewers vote for the next sequence or queue songs to play in order
-- **Listen-on-Phone audio player** — built-in web audio streaming directly from FPP. Visitors hear synchronized show audio on their phones with no native app, no extra service, no Icecast setup. Works on iOS Safari, Android Chrome, and desktop browsers
-- **Mobile-first viewer page** — designed for cold winter hands tapping with gloves. Large hit targets, high-contrast cards, marquee-scrolling long titles, optional snow effects, optional themed player decorations (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's, Hanukkah, Thanksgiving, generic snow)
+- **Voting, Jukebox & Race modes** — let viewers vote for the next sequence, queue songs to play in order, or race to tap their pick to a target first. Optional tiebreak round when a vote ends tied
+- **Listen-on-Phone audio player** — your show audio, served by ShowPilot and kept in sync with FPP. Phones continuously correct toward FPP's playback position with inaudible speed nudges, and song changes reach them in real time. No native app, no extra service, no Icecast setup. Works on iOS Safari, Android Chrome, and desktop browsers
+- **Alternate-language audio** — optional extra audio tracks per sequence (for example a translated version) that listeners can choose in the player
+- **Larger player on phones (optional)** — a two-row player on phones with the full song title and bigger, spread-out controls, turned on in the admin
+- **Listener audio timing** — phones can't see Bluetooth or car-stereo delay, so listeners can shift the sound earlier or later from a small timing button in the player until it lines up with the lights (big "music is late / early" buttons, a fine slider and presets). Saved on that phone only; you can turn the button off, and set the slider's range, in the admin
+- **Mobile-first viewer page** — designed for cold winter hands tapping with gloves. Large hit targets, high-contrast cards, marquee-scrolling long titles, optional page-wide effects (snow, leaves, fireworks, hearts, stars, bats, confetti, petals, embers, bubbles, rain), optional themed player decorations (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's, Hanukkah, Thanksgiving, generic snow)
 - **Cover art support** — automatic MusicBrainz/iTunes cover lookup per sequence with admin override, displayed inline on song cards
 - **Now Playing + Up Next** — real-time updates pushed via Socket.io, plus polled fallback for slower connections
+- **Song progress bar (optional)** — a slim bar with time left, on top of the Listen-on-Phone player in its theme color (or across the top of the page). Templates can also place `{NOW_PLAYING_PROGRESS}` or the `{NOW_PLAYING_TIMER}` countdown anywhere
+- **Song categories** — group sequences under headings on the viewer page, and switch whole categories on or off
+- **Viewer page translation (optional)** — visitors can read the viewer page in their own language
 
 ### Visual page designer
 
 - **Three editing modes** — pick what fits your comfort level:
   - **Settings mode**: form-based editor for show name, colors, fonts, hours, social links, FM frequency. No HTML knowledge required
-  - **Blocks mode**: drag-and-drop sections onto a canvas — 12 block types covering Hero, Text, Divider, Show Hours, Now Playing, Queue, Voting Instructions, Jukebox Instructions, Song List, Location Code, Social Links, and Custom HTML. Reorder by dragging or with arrow buttons
+  - **Blocks mode**: drag-and-drop sections onto a canvas — 13 block types covering Hero, Text, Divider, Show Hours, Now Playing, Up Next, Queue, Voting Instructions, Jukebox Instructions, Song List, Location Code, Social Links, and Custom HTML. Reorder by dragging or with arrow buttons
   - **Code mode**: full Monaco editor for hand-written HTML. Standard Remote Falcon placeholders supported
 - **Live preview iframe** — see your changes update next to the editor as you type, before committing
 - **Drafts** — edits save as drafts automatically (debounced 500ms). Visitors keep seeing the live page until you click Save Changes
@@ -38,9 +44,9 @@ You get an admin dashboard with stats, queue management, sequence configuration,
 
 ### Audio & copyright safeguards
 
-- **GPS audio gate (optional)** — restrict audio playback to listeners physically present at your show. Tapping the 🎧 button forces a fresh GPS check (cached location won't bypass it). Re-verifies every 15 minutes during playback to catch listeners who walked away
+- **GPS audio gate (optional)** — restrict audio playback to listeners physically present at your show. Tapping the 🎧 button forces a fresh GPS check (cached location won't bypass it). Re-checks every 5 minutes during playback to catch listeners who walked away
 - **Refresh-to-recover latch** — once the gate trips, audio stays blocked until the page is refreshed. Prevents auto-resume when admin toggles control modes
-- **External audio access** — set your public domain so listeners on cellular can stream the audio without VPN. Local listeners still use the direct path for best performance
+- **External audio access** — set your public base URL (your domain) so listeners on cellular can stream the audio without VPN, or let ShowPilot set up a Cloudflare Tunnel for you under **Settings → Public Access**. Local listeners still use the direct path for best performance
 
 ### Location tools
 
@@ -50,7 +56,8 @@ You get an admin dashboard with stats, queue management, sequence configuration,
 
 ### FPP integration
 
-- **Companion FPP plugin** — install the ShowPilot plugin from FPP's Plugin Manager, point it at your ShowPilot server URL, and it stays connected. Plugin handles sequence sync, playing-status reporting, and viewer request handoff to FPP's playlist
+- **Companion FPP plugin (ShowPilot Blackbox, FPP 10+)** — install it from FPP's Plugin Manager, point it at your ShowPilot server URL, and it stays connected. It handles sequence sync, playing-status reporting, viewer request handoff to FPP, and the precise playback position phones sync their audio to
+- **Song cooldowns** — keep a song from being requested again for a while after it plays; optionally also skip cooled-down songs in FPP's normal playlist rotation (the plugin skips ahead without editing your playlists)
 - **Sequence sync** — sequences imported from FPP into the admin, where you can reorder, rename for display, set artists, hide individual sequences, and toggle votable/jukeboxable per sequence
 - **Mid-track resume** — when a viewer-requested song interrupts the original, resuming the original picks up at the correct elapsed position (not the start)
 - **PSA injection** — auto-inject PSAs (sponsor messages, holiday greetings) every N interactions
@@ -58,11 +65,16 @@ You get an admin dashboard with stats, queue management, sequence configuration,
 
 ### Admin & operations
 
+- **Redesigned admin** — every section and settings page in a collapsible sidebar, a live dashboard with an On Air panel, and a slide-out menu on phones and tablets. Each admin can switch back to the classic layout anytime
+- **Cockpit (tablet mode)** — a big-button show remote for a tablet at the booth that you lay out yourself: drag in the tiles you want (viewer control, modes, reset/purge, safeguard switches, song categories, page effect and template, status readouts, the now-playing countdown, live vote/queue and song lists), resize and reorder them. Each admin's layout is saved to their account
 - **Multi-user authentication** — username + password, bcrypt hashed, JWT session cookies. Per-user "remember me" (30-day cookie or session-only). Force-password-change flag for new accounts
 - **User management** — add/edit/disable/delete users. Self-protection: can't disable yourself, can't delete the last user
 - **Themes** — Stage·Dark and Stage·Light core themes for the admin UI, plus seasonal variants (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's) you can switch between
 - **Sequence snapshots** — save your current playlist configuration (display names, artists, sort order, visibility) as a named snapshot. Restore later when switching seasons. Non-destructive: preserves play history, vote stats, queue state
-- **Live stats dashboard** — votes per round, jukebox queue depth, plays per sequence, last-played times, viewer count
+- **Live stats dashboard** — votes per round, jukebox queue depth, plays per sequence, last-played times, viewer count, plus visitor charts over time
+- **Viewer QR code** — ready-to-print QR code for your viewer page
+- **Backup & restore** — download a full backup from **Settings → Backup & Restore** and restore it on the same or a new install (including on a fresh install before first sign-in)
+- **In-app updates** — check for and apply new versions from **Settings → Updates**
 - **IP blocking** — block individual IPs or CIDR ranges. Useful when one user gets too enthusiastic with the request button
 - **Per-sequence visibility/votability/jukeboxability** — fine-grained control over what shows up where
 - **Auto-fill song info** — looks up sequence titles online to populate display name + artist automatically (no more "JinglePopXmas2019_v3.fseq" shown to viewers)
@@ -122,7 +134,7 @@ If you don't use any location features, plain HTTP is fine.
 | RAM       | 256 MB  | 512 MB+ |
 | Disk      | 100 MB for app + your data | 1 GB+ if storing many cover art images |
 | OS        | any modern Linux, macOS 11+, Windows 10+ | Linux for production |
-| FPP       | 7.0+ on a separate device (Pi, BeagleBone, etc.) | latest stable |
+| FPP       | 10.0+ on a separate device (Pi, BeagleBone, etc.) — required by the ShowPilot plugin | latest stable |
 
 **Network:** ShowPilot listens on TCP port 3100 by default. The FPP plugin needs to reach this port. Visitors hit the same port (or whatever you front it with).
 
@@ -156,8 +168,8 @@ sudo mkdir -p /opt/showpilot
 sudo chown $USER:$USER /opt/showpilot
 cd /opt/showpilot
 
-# Download the latest release tarball
-wget https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz
+# Download the latest release (the main branch always holds the latest release)
+wget https://github.com/ShowPilotFPP/ShowPilot/archive/refs/heads/main.tar.gz
 tar -xzf showpilot.tar.gz --strip-components=1
 rm showpilot.tar.gz
 
@@ -222,7 +234,7 @@ sudo mkdir -p /opt/showpilot
 sudo chown $USER:$USER /opt/showpilot
 cd /opt/showpilot
 
-curl -L https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz \
+curl -L https://github.com/ShowPilotFPP/ShowPilot/archive/refs/heads/main.tar.gz \
      -o showpilot.tar.gz
 tar -xzf showpilot.tar.gz --strip-components=1
 rm showpilot.tar.gz
@@ -263,7 +275,7 @@ Or download the official installer from [nodejs.org](https://nodejs.org/en/downl
 mkdir -p ~/showpilot
 cd ~/showpilot
 
-curl -L https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz \
+curl -L https://github.com/ShowPilotFPP/ShowPilot/archive/refs/heads/main.tar.gz \
      -o showpilot.tar.gz
 tar -xzf showpilot.tar.gz --strip-components=1
 rm showpilot.tar.gz
@@ -309,7 +321,7 @@ New-Item -ItemType Directory -Force -Path C:\ShowPilot
 Set-Location C:\ShowPilot
 
 # Download the latest release
-Invoke-WebRequest -Uri https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz -OutFile showpilot.tar.gz
+Invoke-WebRequest -Uri https://github.com/ShowPilotFPP/ShowPilot/archive/refs/heads/main.tar.gz -OutFile showpilot.tar.gz
 
 # Extract (Windows 10 1803+ has tar built in)
 tar -xzf showpilot.tar.gz --strip-components=1
@@ -403,22 +415,21 @@ For Docker secrets / Kubernetes environments, you can inject `SHOWPILOT_JWT_SECR
 
 ## Install the FPP plugin
 
-The FPP plugin is what reports playback to ShowPilot, hands off requested sequences, and serves audio to viewers.
+The FPP plugin (**ShowPilot Blackbox**) reports playback to ShowPilot, hands off requested sequences to FPP, and provides the precise playback position that keeps phone audio in sync. It requires **FPP 10.0 or newer**.
 
-1. SSH into your FPP device (or open the FPP web UI's shell)
-2. In FPP web UI, go to **Content Setup → Plugin Manager**
-3. Click **Manual Install** (or follow the github URL flow)
-4. Use the ShowPilot plugin URL: `https://github.com/ShowPilotFPP/ShowPilot-plugin`
-5. After install, click **Configure** on the plugin in the plugin list
-6. Fill in:
-   - **ShowPilot URL**: `http://<your-showpilot-server-ip>:3100`
-   - **Show token**: paste the token you copied from ShowPilot's Plugin tab
-   - **Remote playlist**: the FPP playlist that contains your show sequences
-   - **Interrupt schedule**: enable if you want viewer requests to interrupt the schedule
-7. Click **Save**, then **Restart Listener**
-8. Back in ShowPilot → **Plugin** tab, you should see the plugin go online (green dot in header) within ~30 seconds
+1. In the FPP web UI, go to **Content Setup → Plugin Manager**
+2. Paste this into the plugin URL box, click **Get Plugin Info**, then **Install**:
+   `https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot-plugin/main/pluginInfo.json`
+3. Open the plugin's settings from **Content Setup → ShowPilot**
+4. Fill in:
+   - **Server URL**: `http://<your-showpilot-server-ip>:3100` (no trailing slash; use your `https://` domain if the server is outside your home network)
+   - **Show Token**: paste the token you copied from ShowPilot's **Plugin** tab
+   - **Remote Playlist**: the FPP playlist that contains your viewer-controllable sequences
+   - **Interrupt schedule**: enable if you want viewer picks to play immediately instead of after the current song
+5. Click **Sync Now** — your sequences appear in ShowPilot's admin
+6. ShowPilot shows the plugin as connected (FPP status in the admin sidebar) within a few seconds
 
-If it doesn't connect, check the plugin log via FPP UI → Status → Logs → `showpilot_listener`.
+If it doesn't connect, check the plugin's log in the FPP UI under **Status/Control → Logs** (`plugin-showpilot-plugin.log`) or the plugin's **Diagnostics** tab. See the [plugin README](https://github.com/ShowPilotFPP/ShowPilot-plugin) for details.
 
 ---
 
@@ -431,12 +442,17 @@ If it doesn't connect, check the plugin log via FPP UI → Status → Logs → `
 | `port` | `3100` | TCP port to listen on |
 | `host` | `0.0.0.0` | Bind address. Use `127.0.0.1` to restrict to localhost only |
 | `dbPath` | `./data/showpilot.db` | SQLite DB path. Created automatically. |
-| `jwtSecret` | _CHANGE_ME_ | Used to sign session cookies. **Must be set to a random value.** |
+| `trustProxy` | `false` | Set to `1` (or the number of proxy hops) when ShowPilot sits behind a reverse proxy / Cloudflare Tunnel, so visitor IPs are read correctly |
+| `jwtSecret` | `null` | Signs session cookies. Leave `null` to auto-generate a random secret on first run (saved in `data/secrets.json`), or set `SHOWPILOT_JWT_SECRET` |
 | `sessionCookieName` | `showpilot_session` | Browser cookie name |
 | `sessionDurationHours` | `720` (30 days) | Default session length when "remember me" is off; remember-me always extends to 30d |
-| `showToken` | _CHANGE_ME_ | Shared secret between ShowPilot and FPP plugin |
+| `showToken` | `null` | Shared secret between ShowPilot and the FPP plugin. Leave `null` to auto-generate (printed on first run and shown in the admin's **Plugin** tab), or set `SHOWPILOT_SHOW_TOKEN` |
 | `viewer.activeWindowSeconds` | `30` | How recently a viewer must have heartbeat'd to count as "active" |
 | `viewer.pollIntervalMs` | `5000` | Viewer page state poll fallback (when socket disconnects) |
+| `viewer.maxJukeboxRequestsPerViewer` | `1` | Default request limit (the admin's Interaction Safeguards setting takes over once saved) |
+| `viewer.maxVotesPerRound` | `1` | Default votes per viewer per round |
+| `voting.resetAfterWinnerPlays` | `true` | Start a new voting round after the winner plays |
+| `demoMode` | `false` | Public demo instance: resets itself every `demoResetIntervalMinutes` and shows `demoCredentialsHint` on the login page |
 | `logLevel` | `info` | `debug` / `info` / `warn` / `error` |
 
 Most operational settings (jukebox depth, vote rules, viewer-page HTML, theme, snow effect, etc.) live in the **admin panel UI**, not in `config.js`.
@@ -459,7 +475,7 @@ Type=simple
 User=showpilot
 WorkingDirectory=/opt/showpilot
 ExecStart=/usr/bin/node server.js
-Restart=on-failure
+Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
@@ -468,6 +484,12 @@ Environment=NODE_ENV=production
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **Note:** `Restart=always` is required (not `Restart=on-failure`). ShowPilot's in-app updater exits cleanly (code 0) after downloading an update so the new code is picked up on restart — `on-failure` won't restart on a clean exit, leaving ShowPilot stopped after an update. If you have an existing install with `Restart=on-failure`, fix it with:
+> ```bash
+> sudo sed -i 's/Restart=on-failure/Restart=always/' /etc/systemd/system/showpilot.service
+> sudo systemctl daemon-reload
+> ```
 
 Then:
 
@@ -565,7 +587,7 @@ sudo systemctl stop showpilot    # or pm2 stop showpilot
 cp -r data data.backup-$(date +%F)
 
 # Get the new version
-wget -O showpilot.tar.gz https://github.com/ShowPilotFPP/ShowPilot/releases/latest/download/showpilot.tar.gz
+wget -O showpilot.tar.gz https://github.com/ShowPilotFPP/ShowPilot/archive/refs/heads/main.tar.gz
 tar -xzf showpilot.tar.gz --strip-components=1
 rm showpilot.tar.gz
 npm install --omit=dev
@@ -615,14 +637,15 @@ sqlite3 data/showpilot.db .dump > showpilot.sql
 
 - Verify the `showToken` in `config.js` exactly matches what you entered in the FPP plugin config
 - Check FPP can reach ShowPilot: `curl http://<showpilot-ip>:3100/api/plugin/state -H "remotetoken: YOUR_TOKEN"`
-- Check the plugin log on FPP: web UI → **Status → Logs → showpilot_listener**
+- Check the plugin log on FPP: web UI → **Status/Control → Logs** → `plugin-showpilot-plugin.log` (or the plugin's **Diagnostics** tab)
+- Make sure FPP is **10.0 or newer** — the plugin doesn't support older versions
 - Restart the plugin listener via the FPP web UI
 
 ### "Audio doesn't play for cellular listeners"
 
 ShowPilot needs to be reachable from the public internet for off-network audio. Either:
-- Set up a reverse proxy with a public domain, then enter that domain in **Settings → External Audio Access**
-- Use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for a domain without exposing your home IP
+- Set up a reverse proxy with a public domain, then enter that domain as the **Public base URL** in the admin settings
+- Or use a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for a domain without exposing your home IP — ShowPilot can set one up for you under **Settings → Public Access**
 
 ### "I forgot my admin password"
 
@@ -631,7 +654,7 @@ Reset directly in the database:
 ```bash
 cd /opt/showpilot
 sqlite3 data/showpilot.db "DELETE FROM users WHERE username='admin';"
-# Then restart ShowPilot — it'll re-seed the default admin/admin user.
+# Then restart ShowPilot. If no users are left, it re-seeds the default admin/admin user.
 ```
 
 If you have a working admin account, just use the **Users** tab → **Reset PW** for any other user.
@@ -650,7 +673,7 @@ sudo chown -R showpilot:showpilot /opt/showpilot/data
 
 ### "Cover art doesn't show" / "wrong covers"
 
-In admin → **Sequences**, click **Fetch Covers** to re-pull all sequence covers from iTunes. If a specific cover is wrong, click on it directly to upload or replace.
+In admin → **Sequences**, click **Fetch Covers** to re-pull all sequence covers (MusicBrainz / Cover Art Archive, then iTunes). If a specific cover is wrong, click on it directly to upload or replace.
 
 ### Logs
 
@@ -675,14 +698,16 @@ showpilot/
 ├── lib/
 │   ├── db.js                # SQLite schema, migrations, helpers
 │   ├── viewer-renderer.js   # Server-side template rendering for the viewer page
-│   ├── cover-art.js         # iTunes cover lookup, cache-busting
+│   ├── cover-art.js         # MusicBrainz / iTunes cover lookup, cache-busting
+│   ├── audio-position-relay.js  # FPP playback position relay for phone audio sync
+│   ├── categories.js        # Sequence categories
 │   └── ...
 ├── routes/
 │   ├── admin.js             # /api/admin/* endpoints
-│   ├── viewer.js            # /api/viewer/* + audio streaming
+│   ├── viewer.js            # /api/* viewer endpoints + audio streaming
 │   └── plugin.js            # /api/plugin/* (FPP plugin talks here)
 ├── public/
-│   ├── admin/               # Admin SPA
+│   ├── admin/               # Admin (index.html; ui-new.css/js = new layout; cockpit.html = tablet mode)
 │   ├── viewer.html          # Default viewer page template
 │   └── rf-compat.js         # Viewer-side audio player + visual effects
 └── data/                    # SQLite + cover art (gitignored)

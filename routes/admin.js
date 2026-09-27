@@ -8,9 +8,10 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
+const QRCode = require('qrcode');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, updateConfig,
+const { db, getConfig, updateConfig, getNextUpInfo,
         listSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, renameSnapshot } = require('../lib/db');
 
 // ============================================================
@@ -135,6 +136,12 @@ router.get('/me', requireAdmin, (req, res) => {
     rememberMe: !!req.user.remember_me,
     mustChangePassword: !!req.user.must_change_password,
     theme: req.user.theme || null,
+    // v0.33.208: 'new' (default) or 'classic', and whether the one-time
+    // layout notice has been dismissed.
+    adminLayout: req.user.admin_layout === 'classic' ? 'classic' : 'new',
+    layoutNoticeSeen: req.user.layout_notice_seen === 1,
+    // Cockpit tile layout; null = use the built-in default.
+    cockpitLayout: (() => { try { const l = JSON.parse(req.user.cockpit_layout || 'null'); return Array.isArray(l) ? l : null; } catch (_) { return null; } })(),
   });
 });
 
@@ -150,6 +157,51 @@ const ALLOWED_THEMES = new Set([
   'christmas', 'halloween', 'easter',
   'stpatricks', 'independence', 'valentines',
 ]);
+// Admin layout preference (v0.33.208+), per user like the theme.
+router.put('/me/layout', requireAdmin, (req, res) => {
+  const { layout } = req.body || {};
+  if (layout !== 'new' && layout !== 'classic') {
+    return res.status(400).json({ error: 'Invalid layout' });
+  }
+  require('../lib/db').setUserAdminLayout(req.user.id, layout);
+  res.json({ ok: true, layout });
+});
+
+// Cockpit tile layout, per user. The server checks the shape only (ids
+// are the catalog in public/admin/cockpit-tiles.js, plus 'cat:<name>' for
+// song categories); Cockpit skips ids it doesn't recognize. layout: null
+// resets to the default.
+router.put('/me/cockpit-layout', requireAdmin, (req, res) => {
+  const { layout } = req.body || {};
+  if (layout === null) {
+    require('../lib/db').setUserCockpitLayout(req.user.id, null);
+    return res.json({ ok: true, layout: null });
+  }
+  if (!Array.isArray(layout) || layout.length > 40) {
+    return res.status(400).json({ error: 'Layout must be a list of up to 40 tiles' });
+  }
+  const seen = new Set();
+  const clean = [];
+  for (const t of layout) {
+    const id = t && typeof t.id === 'string' ? t.id : '';
+    const size = t && Number(t.size);
+    if (!/^[a-zA-Z][a-zA-Z0-9]{0,39}$/.test(id) && !/^cat:[^\u0000-\u001f]{1,80}$/.test(id)) {
+      return res.status(400).json({ error: 'Invalid tile id' });
+    }
+    if (![1, 2, 4].includes(size)) return res.status(400).json({ error: 'Invalid tile size' });
+    if (seen.has(id)) continue;
+    seen.add(id);
+    clean.push({ id, size });
+  }
+  require('../lib/db').setUserCockpitLayout(req.user.id, JSON.stringify(clean));
+  res.json({ ok: true, layout: clean });
+});
+
+router.put('/me/layout-notice-seen', requireAdmin, (req, res) => {
+  require('../lib/db').setUserLayoutNoticeSeen(req.user.id);
+  res.json({ ok: true });
+});
+
 router.put('/me/theme', requireAdmin, (req, res) => {
   const { theme } = req.body || {};
   // null/empty clears the preference (falls back to default on next login)
@@ -214,8 +266,27 @@ router.put('/config', requireAdmin, (req, res) => {
     // Location code (v0.33.24+)
     'location_code_enabled',
     'location_code',
+    // Race mode (v0.33.155+)
+    'race_duration_seconds',
+    'race_end_on_sequence_end',
+    'race_target_taps',
+    'race_interrupt_winner',
+    'race_instructions_text',
+    'race_font_size',
+    'race_use_template_css',
+    // Sequence categories — display options only. The category list itself
+    // (config.sequence_categories) is managed via /api/admin/categories.
+    'viewer_show_categories',
+    'uncategorized_label',
+    'viewer_progress_bar',
+    'viewer_progress_bar_position',
+    'viewer_progress_bar_show_time',
+    'viewer_progress_bar_color',
+    // race_active, race_started_at, race_ends_at, race_winner are
+    // server-managed runtime state — NOT whitelisted here.
     // Misc
     'hide_sequence_after_played',
+    'cooldown_suppress_fpp_playlist',
     'blocked_ips',
     // Viewer player decoration
     'player_decoration',
@@ -231,11 +302,25 @@ router.put('/config', requireAdmin, (req, res) => {
     'audio_gate_enabled',
     'audio_gate_radius_miles',
     'audio_sync_offset_ms',
+    'audio_daemon_port',
     'viewer_source_obfuscate',
+    'debug_overlay_enabled',
+    'player_stats_enabled',
+    'listener_timing_enabled',
+    'listener_timing_min_ms',
+    'listener_timing_max_ms',
+    'player_tall_layout',
+    'debug_sync_probe',
+    'debug_mic_measure',
     'pwa_admin_enabled',
     'pwa_viewer_enabled',
     'pwa_viewer_name',
     'pwa_viewer_icon',
+    // Translation settings
+    'translation_enabled',
+    'translation_backend',
+    'translation_api_url',
+    'translation_api_key',
     // Listen-on-phone launcher button
     'launcher_icon_source',
     'launcher_icon_data',
@@ -276,6 +361,42 @@ router.put('/config', requireAdmin, (req, res) => {
   if ('viewer_control_mode' in updates) {
     const io = req.app.get('io');
     if (io) io.emit('viewerModeChanged', { mode: updates.viewer_control_mode });
+
+    // Race mode lifecycle: auto-start race when switching TO race mode;
+    // clear the timer when switching away.
+    const { startRace, clearRaceTimer } = require('./viewer');
+    if (updates.viewer_control_mode === 'RACE') {
+      const freshCfg = getConfig();
+      const endsAt = startRace(freshCfg);
+      if (io) io.emit('raceStarted', { endsAt });
+      // Schedule timer-based resolution if a duration is configured
+      if (endsAt) {
+        const ms = new Date(endsAt).getTime() - Date.now();
+        if (ms > 0) {
+          const viewerModule = require('./viewer');
+          const { getRaceLeader } = require('../lib/db');
+          // Store handle in viewer module so clearRaceTimer() can cancel it
+          viewerModule._raceTimerHandle = setTimeout(() => {
+            viewerModule._raceTimerHandle = null;
+            const latestCfg = getConfig();
+            if (latestCfg.race_active && !latestCfg.race_winner) {
+              const leader = getRaceLeader();
+              if (leader) {
+                const seq = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+                viewerModule.resolveRace(io, leader.sequence_name, seq?.display_name || leader.sequence_name, seq?.artist || '', leader.count);
+              } else {
+                db.prepare(`UPDATE config SET race_active = 0 WHERE id = 1`).run();
+                if (io) io.emit('raceEnded', { noWinner: true });
+              }
+            }
+          }, Math.max(ms, 0));
+        }
+      }
+    } else {
+      clearRaceTimer();
+      // Clear race runtime state when leaving race mode
+      db.prepare(`UPDATE config SET race_active = 0, race_winner = NULL, race_started_at = NULL, race_ends_at = NULL WHERE id = 1`).run();
+    }
   }
 
   res.json({ ok: true });
@@ -422,12 +543,14 @@ router.post('/sequences', requireAdmin, (req, res) => {
   } = req.body || {};
 
   if (!name || !display_name) return res.status(400).json({ error: 'name and display_name required' });
+  // Register the category (if any) and use its canonical spelling.
+  const categoryCanon = category ? require('../lib/categories').ensureCategory(category) : null;
 
   try {
     const info = db.prepare(`
       INSERT INTO sequences (name, display_name, artist, category, duration_seconds, visible, votable, jukeboxable, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, display_name, artist || null, category || null, duration_seconds || null, visible, votable, jukeboxable, sort_order);
+    `).run(name, display_name, artist || null, categoryCanon || null, duration_seconds || null, visible, votable, jukeboxable, sort_order);
     res.json({ ok: true, id: info.lastInsertRowid });
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
@@ -451,18 +574,71 @@ function updateSequence(req, res) {
     if (k in req.body) updates[k] = req.body[k];
   }
   if (Object.keys(updates).length === 0) return res.json({ ok: true });
+  if ('category' in updates) {
+    // Empty → uncategorized. Otherwise register + canonicalize spelling.
+    updates.category = updates.category
+      ? require('../lib/categories').ensureCategory(updates.category)
+      : null;
+  }
 
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE sequences SET ${setClause} WHERE id = @id`).run({ ...updates, id });
   res.json({ ok: true });
 }
 
+// ---- Sequence categories (see lib/categories.js) ----
+// Category is addressed by NAME in the JSON body (names may contain
+// characters that are awkward in a URL path).
+function notifyCategoriesChanged(req) {
+  const io = req.app.get('io');
+  // Reuse the existing event: admin tabs reload the sequence list, and
+  // viewers pick up the new grouping/visibility on their next state poll.
+  if (io) io.emit('sequencesReordered');
+}
+function categoryResult(req, res, result) {
+  if (result.error) return res.status(400).json(result);
+  notifyCategoriesChanged(req);
+  res.json(result);
+}
+router.get('/categories', requireAdmin, (req, res) => {
+  res.json(require('../lib/categories').listCategoriesWithCounts());
+});
+router.post('/categories', requireAdmin, (req, res) => {
+  categoryResult(req, res, require('../lib/categories').addCategory((req.body || {}).name));
+});
+router.post('/categories/enabled', requireAdmin, (req, res) => {
+  const { name, enabled } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').setCategoryEnabled(name, !!enabled));
+});
+router.post('/categories/rename', requireAdmin, (req, res) => {
+  const { name, new_name } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').renameCategory(name, new_name));
+});
+router.post('/categories/delete', requireAdmin, (req, res) => {
+  categoryResult(req, res, require('../lib/categories').deleteCategory((req.body || {}).name));
+});
+router.post('/categories/reorder', requireAdmin, (req, res) => {
+  categoryResult(req, res, require('../lib/categories').reorderCategories((req.body || {}).names));
+});
+router.post('/sequences/bulk-category', requireAdmin, (req, res) => {
+  const { ids, category } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+  const canon = category ? require('../lib/categories').ensureCategory(category) : null;
+  const stmt = db.prepare(`UPDATE sequences SET category = ? WHERE id = ?`);
+  db.transaction(() => { for (const id of ids) stmt.run(canon, Number(id)); })();
+  notifyCategoriesChanged(req);
+  res.json({ ok: true, category: canon });
+});
+
 router.delete('/sequences/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
-  // Capture the media_name BEFORE delete so we can detach any cached
-  // audio bytes pointing at it. Without this, deleting a sequence
-  // leaves orphan rows in audio_cache_files and orphan files on disk.
+  // Capture the media_name BEFORE delete so we can clean up cached audio.
   const seq = db.prepare(`SELECT media_name FROM sequences WHERE id = ?`).get(id);
+  // Delete dependent rows first — jukebox_queue and votes have FK references
+  // to sequences(id). SQLite enforces these with PRAGMA foreign_keys=ON;
+  // deleting the sequence without clearing dependents throws a FK constraint error.
+  db.prepare(`DELETE FROM jukebox_queue WHERE sequence_id = ?`).run(id);
+  db.prepare(`DELETE FROM votes WHERE sequence_id = ?`).run(id);
   db.prepare(`DELETE FROM sequences WHERE id = ?`).run(id);
   if (seq && seq.media_name) {
     detachCacheForMediaName(seq.media_name);
@@ -470,22 +646,18 @@ router.delete('/sequences/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// Helper: detach (set media_name = NULL) any audio_cache_files rows for
-// the given media_name. Called when a sequence is deleted so orphaned
-// cache rows can be cleaned by pruneOrphanedHashes(). We don't delete
-// the bytes immediately — prune handles that — keeping cleanup batched
-// and giving an admin a chance to re-create the sequence with the same
-// media_name without re-uploading.
+// Helper: detach audio_cache_files rows for the given media_name when a
+// sequence is deleted. Prior to v0.33.172 this set media_name = NULL so
+// pruneOrphanedHashes() could batch-clean the disk files later. After the
+// schema change to UNIQUE(media_name, language), setting multiple rows to
+// NULL violates the constraint (two NULLs with the same language). Instead
+// we delete the rows outright here; disk file cleanup still happens via
+// pruneOrphanedHashes() which checks for .bin files with no DB row.
 function detachCacheForMediaName(mediaName) {
   try {
-    db.prepare(`
-      UPDATE audio_cache_files SET media_name = NULL WHERE media_name = ?
-    `).run(mediaName);
+    db.prepare(`DELETE FROM audio_cache_files WHERE media_name = ?`).run(mediaName);
   } catch (err) {
-    // Cache table may not exist on very old installs that haven't
-    // migrated yet. Failing silently here is correct — the sequence
-    // delete itself succeeded, this is just bookkeeping.
-    console.warn('[admin] cache detach failed (table missing?):', err.message);
+    console.warn('[admin] cache detach failed:', err.message);
   }
 }
 
@@ -606,30 +778,11 @@ router.get('/stats', requireAdmin, (req, res) => {
   const nowPlaying = db.prepare(`SELECT * FROM now_playing WHERE id = 1`).get() || {};
   const nowPlayingName = nowPlaying.sequence_name || null;
 
-  // "Next up" priority order:
-  //   1. JUKEBOX mode + queue has entries (after now-playing) → first queued
-  //   2. VOTING mode + votes cast → highest-voted song
-  //   3. Otherwise → schedule's next song (from FPP plugin)
-  let nextUp = nowPlaying.next_sequence_name || null;
-  if (cfg.viewer_control_mode === 'JUKEBOX') {
-    // Skip the currently-playing entry — it's still in the queue with
-    // played=0 (handed off but not confirmed-played yet).
-    const firstQueued = db.prepare(`
-      SELECT sequence_name FROM jukebox_queue
-      WHERE played = 0 AND sequence_name != COALESCE(?, '')
-      ORDER BY requested_at ASC LIMIT 1
-    `).get(nowPlayingName);
-    if (firstQueued) nextUp = firstQueued.sequence_name;
-  } else if (cfg.viewer_control_mode === 'VOTING') {
-    const top = db.prepare(`
-      SELECT sequence_name, COUNT(*) AS n FROM votes
-      WHERE round_id = ?
-      GROUP BY sequence_name
-      ORDER BY n DESC
-      LIMIT 1
-    `).get(cfg.current_voting_round);
-    if (top) nextUp = top.sequence_name;
-  }
+  // Same "Up Next" the viewer page shows. This used to be a separate copy of
+  // only the queue/vote/plugin-next tiers, so it showed "—" whenever the
+  // plugin reports no next — e.g. while the Remote Playlist itself plays, or
+  // while a vote winner plays (the viewer shows the return point then).
+  const { name: nextUp, source: nextUpSource } = getNextUpInfo(cfg, nowPlayingName);
 
   res.json({
     totalViewers,
@@ -641,6 +794,7 @@ router.get('/stats', requireAdmin, (req, res) => {
     currentRound: cfg.current_voting_round,
     nowPlaying: nowPlayingName,
     nextUp,
+    nextUpSource,
   });
 });
 
@@ -657,6 +811,41 @@ router.post('/reset-votes', requireAdmin, (req, res) => {
   const cfg = getConfig();
   db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfg.current_voting_round);
   res.json({ ok: true });
+});
+
+// Reset and restart the current race (admin manually re-fires the race)
+router.post('/race/reset', requireAdmin, (req, res) => {
+  const cfg = getConfig();
+  const { startRace } = require('./viewer');
+  const io = req.app.get('io');
+  const endsAt = startRace(cfg);
+  if (io) {
+    io.emit('raceStarted', { endsAt });
+    io.emit('raceTapUpdate', { counts: [], bars: {}, leadingSequence: null });
+  }
+  // Schedule new timer
+  if (endsAt) {
+    const ms = new Date(endsAt).getTime() - Date.now();
+    if (ms > 0) {
+      const viewerModule = require('./viewer');
+      const { getRaceLeader } = require('../lib/db');
+      viewerModule._raceTimerHandle = setTimeout(() => {
+        viewerModule._raceTimerHandle = null;
+        const latestCfg = getConfig();
+        if (latestCfg.race_active && !latestCfg.race_winner) {
+          const leader = getRaceLeader();
+          if (leader) {
+            const seq = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+            viewerModule.resolveRace(io, leader.sequence_name, seq?.display_name || leader.sequence_name, seq?.artist || '', leader.count);
+          } else {
+            db.prepare(`UPDATE config SET race_active = 0 WHERE id = 1`).run();
+            if (io) io.emit('raceEnded', { noWinner: true });
+          }
+        }
+      }, Math.max(ms, 0));
+    }
+  }
+  res.json({ ok: true, endsAt });
 });
 
 // Purge jukebox queue
@@ -927,6 +1116,190 @@ router.post('/audio-cache/prune', requireAdmin, (req, res) => {
   } catch (err) {
     console.error('[admin/audio-cache/prune] failed:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// Multi-language audio variants (admin manual upload)
+// ============================================================
+// These endpoints let the admin upload alternate-language audio files
+// for any sequence that already has a default track in the cache.
+// The FPP plugin only uploads the default/primary track; language
+// variants are managed manually here.
+//
+// GET  /audio-cache/languages/:sequence  — list available languages
+// POST /audio-cache/languages/:sequence  — upload a variant (raw body)
+// DELETE /audio-cache/languages/:sequence/:lang — remove a variant
+
+router.get('/audio-cache/languages/:sequence', requireAdmin, (req, res) => {
+  const audioCache = require('../lib/audio-cache');
+  const seqName = decodeURIComponent(req.params.sequence);
+  try {
+    const languages = audioCache.getLanguagesForSequence(seqName);
+    res.json({ ok: true, sequenceName: seqName, languages });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post(
+  '/audio-cache/languages/:sequence',
+  requireAdmin,
+  express.raw({ type: '*/*', limit: '50mb' }),
+  (req, res) => {
+    const audioCache = require('../lib/audio-cache');
+    const { getSequenceByName } = require('../lib/db');
+    const seqName = decodeURIComponent(req.params.sequence);
+    const lang = String(req.query.lang || '').toLowerCase().trim();
+    const claimedHash = String(req.query.hash || '').toLowerCase();
+    const mimeType = req.query.mimeType
+      ? String(req.query.mimeType)
+      : (req.headers['content-type'] || 'audio/mpeg');
+
+    if (!lang || lang === 'default') {
+      return res.status(400).json({ error: 'lang query param required and must not be "default"' });
+    }
+    if (!/^[a-z]{2,10}$/.test(lang)) {
+      return res.status(400).json({ error: 'lang must be 2-10 lowercase letters (e.g. "es", "fr")' });
+    }
+    if (!audioCache.isValidHash(claimedHash)) {
+      return res.status(400).json({ error: 'Invalid hash format' });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'Empty body — expected raw audio bytes' });
+    }
+
+    // Sequence must exist and have a media_name — we key language rows by media_name
+    const seq = getSequenceByName(seqName);
+    if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+    if (!seq.media_name) {
+      return res.status(400).json({ error: 'Sequence has no media_name — sync with FPP first' });
+    }
+
+    try {
+      audioCache.storeLanguageFile(req.body, claimedHash, seq.media_name, lang, mimeType);
+      console.log(`[admin/language-upload] stored ${lang} variant for "${seqName}" (${req.body.length} bytes)`);
+      res.json({ ok: true, sequenceName: seqName, lang, hash: claimedHash, sizeBytes: req.body.length });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+router.delete('/audio-cache/languages/:sequence/:lang', requireAdmin, (req, res) => {
+  const audioCache = require('../lib/audio-cache');
+  const { getSequenceByName } = require('../lib/db');
+  const seqName = decodeURIComponent(req.params.sequence);
+  const lang = String(req.params.lang || '').toLowerCase();
+
+  if (lang === 'default') {
+    return res.status(400).json({ error: 'Cannot delete the default track via this endpoint' });
+  }
+
+  const seq = getSequenceByName(seqName);
+  if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+  if (!seq.media_name) return res.status(400).json({ error: 'Sequence has no media_name' });
+
+  try {
+    const deleted = audioCache.deleteLanguageFile(seq.media_name, lang);
+    res.json({ ok: true, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// Translation management endpoints (v0.33.175+)
+// ============================================================
+
+router.get('/translation/cache', requireAdmin, (req, res) => {
+  try {
+    const { getTranslationCacheStats } = require('../lib/translator');
+    const rows = getTranslationCacheStats();
+    // Enrich with template names
+    const enriched = rows.map(r => {
+      const tpl = db.prepare(`SELECT name FROM viewer_page_templates WHERE id = ? LIMIT 1`).get(r.template_id);
+      return { ...r, template_name: tpl ? tpl.name : null };
+    });
+    res.json({ ok: true, rows: enriched });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/translation/cache', requireAdmin, (req, res) => {
+  try {
+    const { clearTranslationCache } = require('../lib/translator');
+    clearTranslationCache();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/translation/cache/:templateId/:lang', requireAdmin, (req, res) => {
+  try {
+    const { db: dbLib } = require('../lib/db');
+    dbLib.prepare(`DELETE FROM translation_cache WHERE template_id = ? AND lang = ?`)
+      .run(Number(req.params.templateId), req.params.lang);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Test the configured translation backend with a short fixed string
+router.get('/translation/test', requireAdmin, async (req, res) => {
+  try {
+    const { getConfig } = require('../lib/db');
+    const cfg = getConfig();
+    if (cfg.translation_enabled !== 1) {
+      return res.json({ ok: false, error: 'Translation is not enabled' });
+    }
+    const backend = cfg.translation_backend || 'mymemory';
+    const https = require('https');
+    const http = require('http');
+    const testInput = 'Now playing';
+    const lang = 'es';
+
+    // Test the configured backend directly — no cache, no full HTML pipeline
+    let output;
+    if (backend === 'deepl') {
+      const apiKey = cfg.translation_api_key || '';
+      if (!apiKey) return res.json({ ok: false, error: 'DeepL API key not configured' });
+      const r = await new Promise((resolve, reject) => {
+        const data = JSON.stringify({ text: [testInput], target_lang: 'ES' });
+        const req2 = https.request({ hostname: 'api-free.deepl.com', path: '/v2/translate', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `DeepL-Auth-Key ${apiKey}`, 'Content-Length': Buffer.byteLength(data) }
+        }, res2 => { let b=''; res2.on('data',c=>b+=c); res2.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){reject(e)} }); });
+        req2.on('error', reject); req2.write(data); req2.end();
+      });
+      output = r.translations?.[0]?.text || testInput;
+    } else if (backend === 'libretranslate') {
+      const apiUrl = cfg.translation_api_url || 'https://libretranslate.com';
+      const apiKey = cfg.translation_api_key || '';
+      const body = JSON.stringify({ q: testInput, source: 'en', target: lang, format: 'text', ...(apiKey ? { api_key: apiKey } : {}) });
+      const u = new URL(apiUrl + '/translate');
+      const lib = u.protocol === 'https:' ? https : http;
+      const r = await new Promise((resolve, reject) => {
+        const req2 = lib.request({ hostname: u.hostname, port: u.port || 443, path: u.pathname + '/translate',
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }, res2 => { let b=''; res2.on('data',c=>b+=c); res2.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){reject(e)} }); });
+        req2.on('error', reject); req2.write(body); req2.end();
+      });
+      output = r.translatedText || testInput;
+    } else {
+      // MyMemory
+      const r = await new Promise((resolve, reject) => {
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(testInput)}&langpair=en|${lang}`;
+        https.get(url, res2 => { let b=''; res2.on('data',c=>b+=c); res2.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){reject(e)} }); }).on('error', reject);
+      });
+      output = r?.responseData?.translatedText || testInput;
+    }
+
+    res.json({ ok: true, input: testInput, output, lang, backend });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
@@ -1685,6 +2058,38 @@ router.get('/geocode', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[geocode] error:', err.message);
     res.status(500).json({ error: 'geocode failed: ' + err.message });
+  }
+});
+
+// ============================================================
+// QR code generator
+// Returns a PNG of the viewer URL as a QR code. Generated server-side
+// so no client-side QR library is needed in the admin UI.
+// ============================================================
+router.get('/qr-code', requireAdmin, async (req, res) => {
+  const cfg = getConfig();
+  const url = (cfg.public_base_url || '').trim();
+  if (!url) {
+    return res.status(400).json({ error: 'public_base_url not configured' });
+  }
+  try {
+    // SVG output scales perfectly at any size — no pixelation when printed
+    // or displayed on large screens. The viewBox is set by the qrcode library
+    // automatically; width/height are omitted so CSS controls the display size.
+    const svg = await QRCode.toString(url, {
+      type: 'svg',
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    // Strip the fixed width/height attrs the library adds so the SVG scales
+    // freely via CSS on the client side.
+    const scalable = svg.replace(/(<svg[^>]*)\s+width="[^"]*"\s+height="[^"]*"/, '$1');
+    res.set('Content-Type', 'image/svg+xml');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(scalable);
+  } catch (err) {
+    console.error('[qr-code] generation failed:', err.message);
+    res.status(500).json({ error: 'QR generation failed' });
   }
 });
 

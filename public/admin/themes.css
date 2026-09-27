@@ -1,0 +1,166 @@
+/* ShowPilot admin themes — shared by the new admin layout (ui-new.css) and
+   Cockpit (cockpit.html). Extracted from the classic admin (index.html),
+   which keeps its own inline copy. When adding or changing a theme, update
+   BOTH this file and index.html's <style> (and ALLOWED_THEMES in
+   routes/admin.js). Themes apply as a theme-<name> class on <body>. */
+:root, .theme-stage-dark {
+      --bg: #0a1428;
+      --bg-elevated: #14233f;
+      --bg-tertiary: #1a2c4f;
+      --bg-input: #0d1b35;
+      --border: #1e3050;
+      --border-hover: #2c4773;
+
+      --text: #e8eef7;
+      --text-muted: #8b9bb4;
+      --text-dim: #5a6a85;
+
+      --accent: #ef4444;          /* primary action — red light */
+      --accent-hover: #dc2626;
+      --accent-text: #ffffff;
+      --accent-soft: rgba(239,68,68,0.15);
+
+      --rgb-red: #ef4444;
+      --rgb-green: #22c55e;
+      --rgb-blue: #3b82f6;
+      --rgb-amber: #f59e0b;
+      --rgb-purple: #a855f7;
+
+      --status-success: #22c55e;
+      --status-success-soft: rgba(34,197,94,0.15);
+      --status-warning: #f59e0b;
+      --status-warning-soft: rgba(245,158,11,0.15);
+      --status-danger: #ef4444;
+      --status-danger-soft: rgba(239,68,68,0.15);
+      --status-neutral: #6b7280;
+      --status-neutral-soft: rgba(107,114,128,0.2);
+
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+      --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.theme-stage-light {
+      --bg: #f5f7fb;
+      --bg-elevated: #ffffff;
+      --bg-tertiary: #ebf0f7;
+      --bg-input: #ffffff;
+      --border: #d8dfeb;
+      --border-hover: #b0bbcd;
+
+      --text: #1a2c4f;
+      --text-muted: #5a6a85;
+      --text-dim: #8b9bb4;
+
+      --accent: #dc2626;
+      --accent-hover: #b91c1c;
+      --accent-text: #ffffff;
+      --accent-soft: rgba(220,38,38,0.1);
+
+      --rgb-red: #dc2626;
+      --rgb-green: #16a34a;
+      --rgb-blue: #2563eb;
+      --rgb-amber: #d97706;
+      --rgb-purple: #9333ea;
+
+      --status-success: #16a34a;
+      --status-success-soft: rgba(22,163,74,0.12);
+      --status-warning: #d97706;
+      --status-warning-soft: rgba(217,119,6,0.12);
+      --status-danger: #dc2626;
+      --status-danger-soft: rgba(220,38,38,0.1);
+      --status-neutral: #6b7280;
+      --status-neutral-soft: rgba(107,114,128,0.12);
+
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 1px 1px rgba(0,0,0,0.03);
+      --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.theme-christmas {
+      --bg: #0a2818; --bg-elevated: #14382a; --bg-tertiary: #1a4233; --bg-input: #0d2e1f;
+      --border: #1e4f3a; --border-hover: #2c6e51;
+      --text: #f0f7e8; --text-muted: #9bb49b; --text-dim: #5a7563;
+      --accent: #dc2626; --accent-hover: #b91c1c; --accent-text: #ffffff; --accent-soft: rgba(220,38,38,0.15);
+      --rgb-red: #ef4444; --rgb-green: #22c55e; --rgb-blue: #3b82f6; --rgb-amber: #f59e0b; --rgb-purple: #a855f7;
+      --status-success: #22c55e; --status-success-soft: rgba(34,197,94,0.15);
+      --status-warning: #f59e0b; --status-warning-soft: rgba(245,158,11,0.15);
+      --status-danger: #ef4444;  --status-danger-soft: rgba(239,68,68,0.15);
+      --status-neutral: #6b7280; --status-neutral-soft: rgba(107,114,128,0.2);
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.3); --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.theme-halloween {
+      --bg: #1a0a28; --bg-elevated: #2a1438; --bg-tertiary: #341a44; --bg-input: #1f0d2e;
+      --border: #4a1e5a; --border-hover: #6b2c80;
+      --text: #f7e8f0; --text-muted: #b49bb0; --text-dim: #75637c;
+      --accent: #f97316; --accent-hover: #ea580c; --accent-text: #ffffff; --accent-soft: rgba(249,115,22,0.18);
+      --rgb-red: #ef4444; --rgb-green: #84cc16; --rgb-blue: #06b6d4; --rgb-amber: #f97316; --rgb-purple: #a855f7;
+      --status-success: #84cc16; --status-success-soft: rgba(132,204,22,0.15);
+      --status-warning: #f97316; --status-warning-soft: rgba(249,115,22,0.18);
+      --status-danger: #ef4444;  --status-danger-soft: rgba(239,68,68,0.15);
+      --status-neutral: #71717a; --status-neutral-soft: rgba(113,113,122,0.2);
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.4); --shadow-elevated: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.theme-easter {
+      --bg: #fef9f3; --bg-elevated: #ffffff; --bg-tertiary: #faf0e8; --bg-input: #ffffff;
+      --border: #f0d8e0; --border-hover: #d8a8c0;
+      --text: #4a3a52; --text-muted: #8a6a82; --text-dim: #b8a0b0;
+      --accent: #ec4899; --accent-hover: #db2777; --accent-text: #ffffff; --accent-soft: rgba(236,72,153,0.12);
+      --rgb-red: #ec4899; --rgb-green: #84cc16; --rgb-blue: #38bdf8; --rgb-amber: #fbbf24; --rgb-purple: #c084fc;
+      --status-success: #65a30d; --status-success-soft: rgba(101,163,13,0.12);
+      --status-warning: #d97706; --status-warning-soft: rgba(217,119,6,0.12);
+      --status-danger: #e11d48;  --status-danger-soft: rgba(225,29,72,0.1);
+      --status-neutral: #78716c; --status-neutral-soft: rgba(120,113,108,0.12);
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.04); --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.theme-stpatricks {
+      --bg: #042818; --bg-elevated: #0d3d28; --bg-tertiary: #144d32; --bg-input: #082e1d;
+      --border: #1d6648; --border-hover: #2d8a64;
+      --text: #f0f7e8; --text-muted: #b4c79b; --text-dim: #6a7d5a;
+      --accent: #f0c419; --accent-hover: #d4a90a; --accent-text: #1a2c0f; --accent-soft: rgba(240,196,25,0.15);
+      --rgb-red: #ef4444; --rgb-green: #22c55e; --rgb-blue: #3b82f6; --rgb-amber: #f0c419; --rgb-purple: #a855f7;
+      --status-success: #22c55e; --status-success-soft: rgba(34,197,94,0.15);
+      --status-warning: #f0c419; --status-warning-soft: rgba(240,196,25,0.18);
+      --status-danger: #ef4444;  --status-danger-soft: rgba(239,68,68,0.15);
+      --status-neutral: #71717a; --status-neutral-soft: rgba(113,113,122,0.2);
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.3); --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.theme-independence {
+      --bg: #0a1438; --bg-elevated: #14234f; --bg-tertiary: #1a2c66; --bg-input: #0d1b3e;
+      --border: #2c3a78; --border-hover: #3d52a8;
+      --text: #f7faff; --text-muted: #a0b0d0; --text-dim: #6a78a0;
+      --accent: #dc2626; --accent-hover: #b91c1c; --accent-text: #ffffff; --accent-soft: rgba(220,38,38,0.15);
+      --rgb-red: #dc2626; --rgb-green: #22c55e; --rgb-blue: #3b82f6; --rgb-amber: #f59e0b; --rgb-purple: #a855f7;
+      --status-success: #22c55e; --status-success-soft: rgba(34,197,94,0.15);
+      --status-warning: #f59e0b; --status-warning-soft: rgba(245,158,11,0.15);
+      --status-danger: #ef4444;  --status-danger-soft: rgba(239,68,68,0.15);
+      --status-neutral: #6b7280; --status-neutral-soft: rgba(107,114,128,0.2);
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.3); --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.theme-valentines {
+      --bg: #2a0a18; --bg-elevated: #3d1428; --bg-tertiary: #4d1a32; --bg-input: #2e0d1f;
+      --border: #5a2842; --border-hover: #7a3a5e;
+      --text: #fdf2f8; --text-muted: #d4a8b8; --text-dim: #9c7080;
+      --accent: #ec4899; --accent-hover: #db2777; --accent-text: #ffffff; --accent-soft: rgba(236,72,153,0.18);
+      --rgb-red: #f43f5e; --rgb-green: #10b981; --rgb-blue: #38bdf8; --rgb-amber: #fb923c; --rgb-purple: #c084fc;
+      --status-success: #10b981; --status-success-soft: rgba(16,185,129,0.15);
+      --status-warning: #f59e0b; --status-warning-soft: rgba(245,158,11,0.15);
+      --status-danger: #f43f5e;  --status-danger-soft: rgba(244,63,94,0.15);
+      --status-neutral: #71717a; --status-neutral-soft: rgba(113,113,122,0.2);
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.3); --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+:root, .theme-stage-dark {
+      --logo-primary: var(--rgb-amber, #f59e0b);
+      --logo-accent:  var(--accent, #ef4444);
+      --logo-dim:     rgba(245, 158, 11, 0.45);
+}
+
+.theme-stage-light {
+      --logo-primary: var(--text, #1a2c4f);
+      --logo-accent:  var(--accent, #dc2626);
+      --logo-dim:     rgba(26, 44, 79, 0.35);
+}

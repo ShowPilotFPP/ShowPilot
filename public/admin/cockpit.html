@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>ShowPilot Cockpit</title>
+  <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
+  <link rel="manifest" href="/admin-manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/admin/themes.css">
+  <style>
+    /* ShowPilot Cockpit — customizable tablet show remote (main v0.33.214 /
+       Lite v0.5.61). Tiles come from cockpit-tiles.js and the user's saved
+       layout; "Edit layout" adds, moves, resizes and removes them. Colors
+       come only from themes.css tokens. */
+    :root {
+      --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+      --font-body: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: var(--bg); color: var(--text); font: 16px/1.4 var(--font-body); min-height: 100vh;
+      padding: calc(14px + env(safe-area-inset-top, 0px)) 18px calc(24px + env(safe-area-inset-bottom, 0px)); }
+    button, select { font: inherit; color: inherit; cursor: pointer; }
+    a { color: inherit; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .muted { color: var(--text-muted); }
+
+    header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+    .brand { font: 800 21px/1 var(--font-display); letter-spacing: -0.02em; margin-right: 4px; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--status-neutral); }
+    .dot.ok { background: var(--status-success); }
+    .dot.bad { background: var(--status-danger); }
+    .spacer { flex: 1; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--border-hover); background: transparent; font-weight: 600; text-decoration: none; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    .select-wrap { display: inline-flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 6px 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    .select-wrap select, .tile select { min-height: 38px; border: 0; border-radius: 8px; padding: 0 8px; background: var(--bg-input); font-weight: 600; }
+
+    .workspace { display: flex; gap: 16px; align-items: flex-start; }
+    /* The grid: rows grow with their content so long labels never push
+       controls outside a tile. */
+    .grid { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(132px, auto); gap: 12px; }
+    .tile { position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 14px 16px; border-radius: 18px; border: 2px solid var(--border); background: var(--bg-elevated); }
+    .tile.s1 { grid-column: span 1; } .tile.s2 { grid-column: span 2; } .tile.s4 { grid-column: 1 / -1; }
+    .tile.on { border-color: var(--status-success); }
+    .tile-label { font-weight: 700; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+    .tile-hint { color: var(--text-muted); font-size: 13px; margin-top: -8px; }
+    .tile-body { margin-top: auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .tile.missing { opacity: .6; }
+
+    /* Edit strip: its own row above the label (never shares the label's width). */
+    .edit-strip { display: none; align-items: center; gap: 4px; margin: -4px -6px 0; }
+    body.editing .edit-strip { display: flex; }
+    body.editing .tile { cursor: grab; border-style: dashed; }
+    body.editing .tile .tile-body { pointer-events: none; opacity: .8; }
+    .edit-strip button { min-width: 36px; height: 34px; padding: 0 8px; border: 0; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-muted); font-weight: 700; font-size: 13px; }
+    .edit-strip .grip { color: var(--text-dim); margin-right: auto; padding: 0 4px; font-size: 13px; user-select: none; }
+    .edit-strip .remove { color: var(--text); }
+    .tile.drag-over { outline: 3px dashed var(--accent); outline-offset: 2px; }
+    .drop-end { display: none; grid-column: 1 / -1; min-height: 72px; align-items: center; justify-content: center; border-radius: 18px; border: 2px dashed var(--border-hover); color: var(--text-muted); }
+    body.editing .drop-end { display: flex; }
+
+    .switch { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px 0 6px; border-radius: 999px; border: 1px solid var(--border); background: transparent; font-weight: 700; align-self: flex-start; }
+    .switch .t { display: flex; align-items: center; width: 52px; height: 30px; padding: 3px; border-radius: 999px; background: var(--status-neutral); justify-content: flex-start; flex: 0 0 52px; }
+    .switch .t i { width: 24px; height: 24px; border-radius: 50%; background: #fff; }
+    .switch[aria-pressed="true"] .t { background: var(--status-success); justify-content: flex-end; }
+    .seg { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--bg-input); }
+    .seg button { flex: 1 1 0; min-width: 0; min-height: 46px; padding: 0 6px; border: 0; border-radius: 9px; background: transparent; color: var(--text-muted); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+    .stepper { display: flex; align-items: center; gap: 10px; }
+    .stepper button { width: 48px; height: 48px; border-radius: 12px; border: 1px solid var(--border-hover); background: transparent; font-size: 22px; font-weight: 700; }
+    .stepper .v { font: 700 28px/1 var(--font-mono); min-width: 44px; text-align: center; }
+    .action { min-height: 52px; border-radius: 12px; border: 1px solid var(--border-hover); background: transparent; font-weight: 700; }
+    .action.confirm { border-color: var(--status-danger); background: var(--status-danger-soft); }
+    .status-v { font: 700 34px/1 var(--font-mono); overflow-wrap: anywhere; }
+
+    .now { display: flex; align-items: center; gap: 24px; }
+    .ring { position: relative; flex: 0 0 130px; width: 130px; height: 130px; }
+    .ring svg { transform: rotate(-90deg); }
+    .ring .c { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .ring .c b { font: 700 28px/1 var(--font-mono); }
+    .now-title { margin: 0; font: 800 clamp(30px, 4.6vw, 54px)/0.98 var(--font-display); letter-spacing: -0.03em; overflow-wrap: anywhere; }
+    .now-artist { color: var(--text-muted); font-size: 18px; }
+    .now-next { font-size: 16px; }
+    .bars { display: flex; flex-direction: column; gap: 12px; }
+    .bar-top { display: flex; align-items: baseline; gap: 8px; }
+    .bar-top b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-top .n { margin-left: auto; font: 700 20px/1 var(--font-mono); }
+    .bar { height: 12px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; margin-top: 6px; }
+    .bar > div { height: 100%; border-radius: 999px; background: var(--border-hover); }
+    .bars > div:first-child .bar > div { background: var(--accent); }
+    .rows { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
+    .row { display: flex; align-items: center; gap: 12px; min-height: 54px; border-bottom: 1px solid var(--border); }
+    .row:last-child { border-bottom: 0; }
+    .row .title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .row .switch { min-height: 40px; padding: 0 4px; border: 0; }
+    .row .small { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-hover); background: transparent; font-weight: 600; }
+    .empty { color: var(--text-muted); padding: 6px 0; }
+
+    /* Catalog drawer (edit mode) */
+    .catalog { display: none; position: sticky; top: 14px; width: 320px; flex: 0 0 320px; max-height: calc(100vh - 40px); overflow-y: auto; padding: 14px; border-radius: 18px; border: 1px solid var(--border); background: var(--bg-elevated); }
+    body.editing .catalog { display: block; }
+    .catalog h2 { margin: 0 0 4px; font: 700 18px/1.2 var(--font-display); }
+    .catalog .group { margin-top: 14px; font-weight: 700; font-size: 13px; color: var(--text-muted); }
+    .cat-item { display: flex; align-items: center; gap: 10px; min-height: 48px; margin-top: 6px; padding: 4px 6px 4px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); cursor: grab; }
+    .cat-item.used { opacity: .5; cursor: default; }
+    .cat-item .txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .cat-item .txt b { font-weight: 600; overflow-wrap: anywhere; }
+    .cat-item .txt span { color: var(--text-muted); font-size: 12px; }
+    .cat-item button { min-height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-hover); background: transparent; font-weight: 600; flex: 0 0 auto; }
+    .catalog-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+    .sp-toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 100; padding: 14px 20px; border-radius: 14px; background: var(--bg-tertiary); border: 1px solid var(--border-hover); font-weight: 700; transition: opacity .2s, transform .2s; }
+    .sp-toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .sp-toast.error { border-color: var(--status-danger); }
+
+    @media (max-width: 1100px) {
+      .workspace { flex-direction: column-reverse; }
+      .catalog { position: static; width: 100%; flex: none; max-height: 46vh; }
+    }
+    @media (max-width: 700px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .tile.s2, .tile.s4 { grid-column: 1 / -1; }
+      .now { flex-direction: column; align-items: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) { .sp-toast { transition: none; } }
+  </style>
+</head>
+<body>
+<header>
+  <span class="brand" id="brand">ShowPilot Cockpit</span>
+  <span class="chip"><span class="dot" id="fppDot"></span><span id="fppText">Checking FPP…</span></span>
+  <span class="chip"><span class="num" id="watchCount" style="font-weight:700">0</span><span class="muted">watching</span></span>
+  <span class="spacer"></span>
+  <label class="select-wrap"><span class="muted">Theme</span><select id="themeSelect" aria-label="Theme"></select></label>
+  <button type="button" class="btn" id="editBtn" aria-pressed="false">Edit layout</button>
+  <a class="btn" href="/admin/">Full admin</a>
+</header>
+
+<div class="workspace">
+  <div class="grid" id="grid" aria-live="off"></div>
+  <aside class="catalog" id="catalog" aria-label="Tile catalog">
+    <h2>Add tiles</h2>
+    <div class="muted" style="font-size:14px">Drag a tile onto the Cockpit or tap Add. Changes save automatically.</div>
+    <div id="catalogList"></div>
+    <div class="catalog-actions">
+      <button type="button" class="btn" id="resetBtn">Reset to default</button>
+      <button type="button" class="btn primary" id="doneBtn">Done</button>
+    </div>
+  </aside>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/admin/shared.js"></script>
+<script src="/admin/cockpit-tiles.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = SP.esc;
+  const ctx = { cfg: {}, stats: {}, vstate: null, queue: [], seqs: [], templates: [], fppOnline: false };
+  let layout = SPTiles.DEFAULT_LAYOUT.slice();
+  let editing = false;
+  let confirmId = null, confirmTimer = null;
+  let dragging = null; // { from: 'grid', index } | { from: 'catalog', id }
+
+  $('themeSelect').innerHTML = SP.THEMES.map(t => '<option value="' + t[0] + '">' + esc(t[1]) + '</option>').join('');
+  $('themeSelect').addEventListener('change', (e) => SP.setTheme(e.target.value));
+
+  // ---------- Layout persistence ----------
+  let saveTimer = null;
+  function saveLayout() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const r = await SP.put('/me/cockpit-layout', { layout });
+      if (!r.ok) SP.toast('Could not save the layout', true);
+    }, 400);
+  }
+  function setLayout(next) { layout = next; saveLayout(); render(); }
+  function defsById() { const m = {}; SPTiles.catalog(ctx).forEach(d => { m[d.id] = d; }); return m; }
+
+  // ---------- Tile actions ----------
+  async function run(promise, okText) {
+    const r = await promise;
+    if (r && r.ok === false) SP.toast('That did not work — try again', true);
+    else if (okText) SP.toast(okText);
+    refresh();
+  }
+  function tileValue(d) { return d.get ? d.get(ctx) : (d.kind === 'switch' ? Number(ctx.cfg[d.key]) === 1 : ctx.cfg[d.key]); }
+  function setTile(d, v) {
+    if (d.set) return run(d.set(ctx, v));
+    const val = d.kind === 'switch' ? (v ? 1 : 0) : v;
+    ctx.cfg[d.key] = val; // optimistic
+    render();
+    return run(SP.put('/config', { [d.key]: val }));
+  }
+
+  // ---------- Rendering ----------
+  function ctl(d) {
+    const v = tileValue(d);
+    switch (d.kind) {
+      case 'switch':
+        return '<button type="button" class="switch" data-act="toggle" aria-pressed="' + (!!v) + '"><span class="t" aria-hidden="true"><i></i></span>' + (v ? 'On' : 'Off') + '</button>';
+      case 'seg': {
+        const opts = d.optionsFrom ? d.optionsFrom(ctx) : d.options;
+        if (!opts.length) return '<div class="empty">Nothing to choose yet.</div>';
+        return '<div class="seg" role="group" aria-label="' + esc(d.label) + '">' + opts.map(o =>
+          '<button type="button" data-act="pick" data-v="' + esc(o[0]) + '" aria-pressed="' + (String(v) === String(o[0])) + '">' + esc(o[1]) + '</button>').join('') + '</div>';
+      }
+      case 'select':
+        return '<select data-act="select" aria-label="' + esc(d.label) + '">' + d.options.map(o =>
+          '<option value="' + esc(o[0]) + '"' + (String(v) === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
+      case 'step':
+        return '<div class="stepper"><button type="button" data-act="dec" aria-label="Decrease ' + esc(d.label) + '">−</button><span class="v">' + esc(v ?? '') + '</span>' +
+          '<button type="button" data-act="inc" aria-label="Increase ' + esc(d.label) + '">+</button></div>';
+      case 'action':
+        return confirmId === d.id
+          ? '<button type="button" class="action confirm" data-act="confirm">Tap again to confirm</button>'
+          : '<button type="button" class="action" data-act="arm">' + esc(d.label) + '</button>';
+      case 'status':
+        return '<span class="status-v" data-live="' + (d.live ? 1 : 0) + '">' + esc(d.value(ctx)) + '</span>';
+      case 'now': return nowHtml();
+      case 'board': return boardHtml(d.board);
+    }
+    return '';
+  }
+
+  function info(name) {
+    const s = ctx.seqs.find(x => x.name === name);
+    return { title: (s && s.display_name) || name || '', artist: (s && s.artist) || '' };
+  }
+  function nowHtml() {
+    const now = ctx.stats.nowPlaying, next = ctx.stats.nextUp, source = ctx.stats.nextUpSource;
+    const i = now ? info(now) : null;
+    const src = next ? (source === 'vote' ? 'vote leader' : source === 'queue' ? 'from the queue' : 'scheduled') : '';
+    return '<div class="now"><div class="ring" role="img" aria-label="Time left in this song"><svg width="130" height="130" viewBox="0 0 130 130" aria-hidden="true">' +
+      '<circle cx="65" cy="65" r="56" fill="none" stroke="var(--bg-tertiary)" stroke-width="11"></circle>' +
+      '<circle data-ring cx="65" cy="65" r="56" fill="none" stroke="var(--accent)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 400"></circle></svg>' +
+      '<div class="c"><b data-left>--:--</b><span class="muted">left</span></div></div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;min-width:0"><span class="muted" style="font-weight:700;letter-spacing:.06em">' + (now ? 'NOW PLAYING' : 'OFF AIR') + '</span>' +
+      '<h1 class="now-title">' + esc(i ? i.title : 'Nothing playing') + '</h1><span class="now-artist">' + esc(i ? i.artist : 'The show is idle.') + '</span>' +
+      '<span class="now-next"><span class="muted">Next</span> <b>' + esc(next ? info(next).title : '—') + '</b> <span class="muted">' + esc(src) + '</span></span></div></div>';
+  }
+  function barsHtml(rows) {
+    if (!rows.length) return '';
+    const max = Math.max(1, ...rows.map(r => r.count));
+    return '<div class="bars">' + rows.map(r => '<div><div class="bar-top"><b>' + esc(info(r.name).title) + '</b><span class="n">' + r.count + '</span></div>' +
+      '<div class="bar"><div style="width:' + Math.round(r.count / max * 100) + '%"></div></div></div>').join('') + '</div>';
+  }
+  function boardHtml(kind) {
+    const mode = ctx.cfg.viewer_control_mode || 'OFF';
+    const pending = ctx.queue.filter(q => !q.handed_off_at);
+    if (kind === 'live') {
+      if (mode === 'OFF') return '<div class="empty">Viewer control is off. Visitors can watch, but not vote or request.</div>';
+      if (mode === 'JUKEBOX') return pending.length ? '<div class="rows">' + pending.slice(0, 6).map((q, i) => '<div class="row"><span class="num muted">' + (i + 1) + '</span><span class="title">' + esc(q.display_name || q.sequence_name) + '</span></div>').join('') + '</div>' : '<div class="empty">The request queue is empty.</div>';
+      const src = mode === 'RACE' ? ((ctx.vstate && ctx.vstate.race && ctx.vstate.race.tapCounts) || []) : ((ctx.vstate && ctx.vstate.voteCounts) || []);
+      const rows = src.map(v => ({ name: v.sequence_name, count: v.count })).sort((a, b) => b.count - a.count).slice(0, 6);
+      return rows.length ? barsHtml(rows) : '<div class="empty">' + (mode === 'RACE' ? 'No taps yet.' : 'No votes yet this round.') + '</div>';
+    }
+    if (kind === 'queue') {
+      return pending.length ? '<div class="rows">' + pending.map((q, i) => { const t = q.display_name || q.sequence_name;
+        return '<div class="row"><span class="num muted">' + (i + 1) + '</span><span class="title">' + esc(t) + '</span><button type="button" class="small" data-act="dequeue" data-id="' + esc(q.id) + '" data-title="' + esc(t) + '">Remove</button></div>'; }).join('') + '</div>'
+        : '<div class="empty">The request queue is empty.</div>';
+    }
+    const list = ctx.seqs.filter(s => !s.is_psa);
+    return list.length ? '<div class="rows">' + list.map(s => { const vis = s.visible !== 0 && s.visible !== false;
+      return '<div class="row"><span class="title"' + (vis ? '' : ' style="color:var(--text-muted)"') + '>' + esc(s.display_name || s.name) + '</span>' +
+        '<button type="button" class="switch" data-act="song" data-id="' + esc(s.id) + '" data-vis="' + (vis ? 1 : 0) + '" aria-pressed="' + vis + '" aria-label="' + esc((vis ? 'Hide ' : 'Show ') + (s.display_name || s.name)) + '"><span class="t" aria-hidden="true"><i></i></span></button></div>'; }).join('') + '</div>'
+      : '<div class="empty">No sequences yet. Sync them from FPP in the full admin.</div>';
+  }
+
+  function render() {
+    const defs = defsById();
+    const grid = $('grid');
+    const html = layout.map((t, i) => {
+      const d = defs[t.id];
+      const size = t.size === 4 ? 4 : t.size === 2 ? 2 : 1;
+      const strip = '<div class="edit-strip"><span class="grip" aria-hidden="true">⋮⋮ drag</span>' +
+        '<button type="button" data-edit="left" aria-label="Move earlier">‹</button><button type="button" data-edit="right" aria-label="Move later">›</button>' +
+        '<button type="button" data-edit="size" aria-label="Change size">' + (size === 1 ? 'S' : size === 2 ? 'W' : 'L') + '</button>' +
+        '<button type="button" class="remove" data-edit="remove" aria-label="Remove tile">×</button></div>';
+      if (!d) {
+        // e.g. a category that was deleted: visible only while editing, so it can be removed.
+        return '<div class="tile s' + size + ' missing" data-i="' + i + '"' + (editing ? '' : ' hidden') + '>' + strip +
+          '<div class="tile-label">' + esc(t.id.replace(/^cat:/, '')) + '</div><div class="tile-hint">No longer available</div></div>';
+      }
+      const on = d.kind === 'switch' && tileValue(d);
+      const showLabel = d.kind !== 'now';
+      return '<div class="tile s' + size + (on ? ' on' : '') + '" data-i="' + i + '" draggable="' + editing + '">' + strip +
+        (showLabel ? '<div class="tile-label">' + esc(d.label) + '</div>' + (d.hint && d.kind !== 'board' ? '<div class="tile-hint">' + esc(d.hint) + '</div>' : '') : '') +
+        '<div class="tile-body">' + ctl(d) + '</div></div>';
+    }).join('') + '<div class="drop-end" id="dropEnd">Drop a tile here</div>';
+    grid.innerHTML = html;
+    paintLive();
+    renderCatalog(defs);
+  }
+
+  function renderCatalog(defs) {
+    if (!editing) return;
+    const used = new Set(layout.map(t => t.id));
+    const all = SPTiles.catalog(ctx);
+    const kindLabel = { switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel' };
+    $('catalogList').innerHTML = SPTiles.GROUPS.map(g => {
+      const items = all.filter(d => d.group === g);
+      if (!items.length) return '';
+      return '<div class="group">' + esc(g) + '</div>' + items.map(d => {
+        const u = used.has(d.id);
+        return '<div class="cat-item' + (u ? ' used' : '') + '" draggable="' + !u + '" data-cat="' + esc(d.id) + '"><span class="txt"><b>' + esc(d.label) + '</b><span>' + esc(kindLabel[d.kind] || '') + '</span></span>' +
+          '<button type="button" data-add="' + esc(d.id) + '"' + (u ? ' disabled' : '') + '>' + (u ? 'Added' : '+ Add') + '</button></div>';
+      }).join('');
+    }).join('');
+  }
+
+  function paintLive() {
+    const v = ctx.vstate;
+    const circ = 2 * Math.PI * 56;
+    let left = null, frac = 0;
+    if (ctx.stats.nowPlaying && v && v.nowPlayingStartedAtIso && v.nowPlayingDurationSeconds) {
+      left = Math.max(0, v.nowPlayingDurationSeconds - (SP.serverNow() - Date.parse(v.nowPlayingStartedAtIso)) / 1000);
+      frac = Math.min(1, left / v.nowPlayingDurationSeconds);
+    }
+    document.querySelectorAll('[data-ring]').forEach(el => el.setAttribute('stroke-dasharray', (circ * frac).toFixed(1) + ' ' + circ.toFixed(1)));
+    document.querySelectorAll('[data-left]').forEach(el => { el.textContent = left === null ? '--:--' : SP.fmtTime(left); });
+    const defs = defsById();
+    document.querySelectorAll('.tile .status-v[data-live="1"]').forEach(el => {
+      const t = layout[Number(el.closest('.tile').dataset.i)];
+      const d = t && defs[t.id];
+      if (d) el.textContent = d.value(ctx);
+    });
+  }
+
+  // ---------- Events ----------
+  $('grid').addEventListener('click', (e) => {
+    const tileEl = e.target.closest('.tile');
+    if (!tileEl) return;
+    const i = Number(tileEl.dataset.i);
+    const edit = e.target.closest('[data-edit]');
+    if (edit) {
+      const l = layout.slice();
+      const act = edit.dataset.edit;
+      if (act === 'left' && i > 0) { [l[i - 1], l[i]] = [l[i], l[i - 1]]; }
+      else if (act === 'right' && i < l.length - 1) { [l[i + 1], l[i]] = [l[i], l[i + 1]]; }
+      else if (act === 'size') { l[i] = { ...l[i], size: l[i].size === 1 ? 2 : l[i].size === 2 ? 4 : 1 }; }
+      else if (act === 'remove') { l.splice(i, 1); }
+      return setLayout(l);
+    }
+    if (editing) return;
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const d = defsById()[layout[i].id];
+    if (!d) return;
+    const act = el.dataset.act;
+    if (act === 'toggle') return setTile(d, !tileValue(d));
+    if (act === 'pick') return setTile(d, el.dataset.v);
+    if (act === 'dec' || act === 'inc') {
+      const cur = Number(tileValue(d)) || d.min;
+      const nv = Math.max(d.min, Math.min(d.max, cur + (act === 'inc' ? 1 : -1)));
+      if (nv !== cur) setTile(d, nv);
+      return;
+    }
+    if (act === 'arm') {
+      confirmId = d.id; render();
+      clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { confirmId = null; render(); }, 4000);
+      return;
+    }
+    if (act === 'confirm') { confirmId = null; clearTimeout(confirmTimer); return run(SP.post(d.path), d.done); }
+    if (act === 'dequeue') {
+      if (!window.confirm('Remove "' + el.dataset.title + '" from the queue?')) return;
+      return run(SP.api('/queue/' + encodeURIComponent(el.dataset.id), { method: 'DELETE' }), 'Removed from the queue');
+    }
+    if (act === 'song') return run(SP.put('/sequences/' + encodeURIComponent(el.dataset.id), { visible: el.dataset.vis === '1' ? 0 : 1 })).then(loadSeqs).then(render);
+  });
+  $('grid').addEventListener('change', (e) => {
+    const el = e.target.closest('[data-act="select"]');
+    if (!el || editing) return;
+    const d = defsById()[layout[Number(el.closest('.tile').dataset.i)].id];
+    if (d) setTile(d, el.value);
+  });
+
+  // Drag and drop (mouse / pen). Touch uses the ‹ › S × buttons.
+  $('grid').addEventListener('dragstart', (e) => {
+    const t = e.target.closest('.tile');
+    if (!editing || !t) return;
+    dragging = { from: 'grid', index: Number(t.dataset.i) };
+    try { e.dataTransfer.setData('text/plain', 'tile'); e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+  });
+  $('catalogList').addEventListener('dragstart', (e) => {
+    const c = e.target.closest('.cat-item');
+    if (!c || c.classList.contains('used')) return;
+    dragging = { from: 'catalog', id: c.dataset.cat };
+    try { e.dataTransfer.setData('text/plain', 'tile'); e.dataTransfer.effectAllowed = 'copy'; } catch (_) {}
+  });
+  $('grid').addEventListener('dragover', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    document.querySelectorAll('.tile.drag-over').forEach(x => x.classList.remove('drag-over'));
+    const t = e.target.closest('.tile');
+    if (t) t.classList.add('drag-over');
+  });
+  $('grid').addEventListener('drop', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const t = e.target.closest('.tile');
+    const at = t ? Number(t.dataset.i) : layout.length;
+    const l = layout.slice();
+    if (dragging.from === 'grid') {
+      const [x] = l.splice(dragging.index, 1);
+      l.splice(dragging.index < at ? at - 1 : at, 0, x);
+    } else if (!l.some(x => x.id === dragging.id)) {
+      const d = defsById()[dragging.id];
+      l.splice(at, 0, { id: dragging.id, size: d ? d.size : 1 });
+    }
+    dragging = null;
+    setLayout(l);
+  });
+  document.addEventListener('dragend', () => { dragging = null; document.querySelectorAll('.tile.drag-over').forEach(x => x.classList.remove('drag-over')); });
+
+  $('catalogList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-add]');
+    if (!b || b.disabled) return;
+    const d = defsById()[b.dataset.add];
+    if (!d || layout.some(x => x.id === d.id)) return;
+    setLayout(layout.concat([{ id: d.id, size: d.size }]));
+  });
+  function setEditing(on) {
+    editing = on;
+    document.body.classList.toggle('editing', on);
+    $('editBtn').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('editBtn').textContent = on ? 'Done editing' : 'Edit layout';
+    render();
+  }
+  $('editBtn').addEventListener('click', () => setEditing(!editing));
+  $('doneBtn').addEventListener('click', () => setEditing(false));
+  $('resetBtn').addEventListener('click', async () => {
+    if (!window.confirm('Reset the Cockpit to the default layout?')) return;
+    layout = SPTiles.DEFAULT_LAYOUT.slice();
+    await SP.put('/me/cockpit-layout', { layout: null });
+    render();
+  });
+
+  // ---------- Data ----------
+  async function loadSeqs() { const r = await SP.api('/sequences'); if (r.ok && Array.isArray(r.data)) ctx.seqs = r.data; }
+  async function loadTemplates() { const r = await SP.api('/templates'); if (r.ok && Array.isArray(r.data)) ctx.templates = r.data; }
+  async function loadPlugin() {
+    const r = await SP.api('/plugin-status');
+    const d = (r.ok && r.data) || {};
+    const seen = typeof d.lastSeen === 'number' ? d.lastSeen : Date.parse(d.lastSeen || '');
+    ctx.fppOnline = isFinite(seen) && Date.now() - seen < 30000;
+    $('fppDot').className = 'dot ' + (ctx.fppOnline ? 'ok' : 'bad');
+    $('fppText').textContent = ctx.fppOnline ? 'FPP online' : 'FPP offline';
+  }
+  let busy = false;
+  async function refresh() {
+    if (busy) return;
+    busy = true;
+    try {
+      const [c, s, v, q] = await Promise.all([SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue')]);
+      if (c.ok && c.data) ctx.cfg = c.data;
+      if (s.ok && s.data) ctx.stats = s.data;
+      if (v) ctx.vstate = v;
+      if (q.ok && q.data) ctx.queue = q.data.pending || [];
+      $('watchCount').textContent = ctx.stats.activeViewers ?? 0;
+      // Don't redraw under the user's finger mid-drag / mid-confirm.
+      if (!dragging) render();
+    } finally { busy = false; }
+  }
+
+  (async function start() {
+    const me = await SP.requireLogin();
+    $('themeSelect').value = me.theme || (() => { try { return localStorage.getItem('showpilot_theme'); } catch (_) { return null; } })() || 'stage-dark';
+    if (Array.isArray(me.cockpitLayout)) layout = me.cockpitLayout;
+    await Promise.all([loadSeqs(), loadTemplates(), loadPlugin()]);
+    await refresh();
+    if (new URLSearchParams(location.search).has('edit')) setEditing(true);
+    SP.onLive((ev) => {
+      if (ev === 'pluginStatus') return loadPlugin().then(() => { if (!dragging) render(); });
+      if (ev === 'sequencesSynced') loadSeqs().then(refresh); else refresh();
+    });
+    setInterval(refresh, 5000);
+    setInterval(() => loadPlugin(), 15000);
+    setInterval(loadTemplates, 60000);
+    setInterval(paintLive, 1000);
+  })();
+})();
+</script>
+</body>
+</html>

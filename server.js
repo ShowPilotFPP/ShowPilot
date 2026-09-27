@@ -10,10 +10,19 @@ const helmet = require('helmet');
 const { Server } = require('socket.io');
 const config = require('./lib/config-loader');
 const { cleanupStaleViewers } = require('./lib/db');
+// Register any pre-existing sequences.category text as categories (idempotent).
+try { require('./lib/categories').seedFromSequences(); } catch (e) { console.warn('[categories] seed failed:', e.message); }
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: true, credentials: true } });
+const io = new Server(server, {
+  cors: { origin: true, credentials: true },
+  // Tune for low-latency position updates
+  pingInterval: 5000,
+  pingTimeout: 10000,
+  // Prefer WebSocket over polling for lower latency
+  transports: ['websocket', 'polling'],
+});
 
 // Trust proxy: configurable so direct-exposure deployments aren't
 // vulnerable to X-Forwarded-For spoofing while reverse-proxy deployments
@@ -102,8 +111,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
+    const ms = Date.now() - start;
     if (config.logLevel === 'debug' || res.statusCode >= 400) {
-      console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`);
+      console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
+    } else if (ms > 2000) {
+      // Log slow requests regardless of log level — helps diagnose
+      // intermittent viewer page load delays (> 2s is never normal)
+      console.warn(`[slow-request] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
     }
   });
   next();
@@ -184,6 +198,9 @@ app.use('/api', require('./routes/viewer'));
 // We just pass through every request (network-first, no caching),
 // which satisfies the criteria without changing actual network behavior.
 const PWA_SERVICE_WORKER = `
+// SW v2 (v0.33.143): for HTML navigations, force network revalidation
+// to defeat browser heuristic caching of the viewer page. Other request
+// types (images, JS, CSS) pass through with default cache behavior.
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
@@ -191,11 +208,20 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 self.addEventListener('fetch', (event) => {
-  // Real fetch handler — responds with the network result. Without
-  // this responding to the start_url, Android Chrome won't consider
-  // the page installable and "Add to Home Screen" produces a shortcut
-  // bookmark instead of a true PWA install.
-  event.respondWith(fetch(event.request).catch(() => {
+  const req = event.request;
+  // For navigation requests (the HTML page itself), force network
+  // revalidation. This bypasses any stale browser-cached HTML left
+  // over from before v0.33.143's Cache-Control fix landed.
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req, { cache: 'reload' }).catch(() => {
+      return new Response('Network error', { status: 503 });
+    }));
+    return;
+  }
+  // Everything else: pass through with default cache behavior.
+  // Real fetch handler is required for PWA installability — Android
+  // Chrome won't install pages whose SW lacks a fetch handler.
+  event.respondWith(fetch(req).catch(() => {
     return new Response('Network error', { status: 503 });
   }));
 });
@@ -364,7 +390,7 @@ app.get('/viewer-manifest.json', (req, res) => {
 });
 
 // Viewer page at root — renders the active template through the RF-compatible renderer.
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   try {
     const { renderTemplate, getActiveTemplate } = require('./lib/viewer-renderer');
     const { db, getConfig, getNowPlaying, getNextUp } = require('./lib/db');
@@ -402,12 +428,18 @@ app.get('/', (req, res) => {
     `).all();
 
     const { bustSequenceCovers } = require('./lib/cover-art');
-    const sequencesBusted = bustSequenceCovers(sequences);
+    // Category view: drop disabled categories, group into category order.
+    const sequencesBusted = bustSequenceCovers(require('./lib/categories').applyCategoryView(sequences, cfg));
 
     const voteCounts = db.prepare(`
       SELECT sequence_name, COUNT(*) AS count FROM votes
       WHERE round_id = ? GROUP BY sequence_name
     `).all(cfg.current_voting_round);
+
+    // Race tap counts — only queried when race mode is active (cheap short-circuit)
+    const raceTapCounts = cfg.viewer_control_mode === 'RACE'
+      ? require('./lib/db').getRaceTapCounts()
+      : [];
 
     const queue = db.prepare(`
       SELECT sequence_name, requested_at FROM jukebox_queue
@@ -456,6 +488,7 @@ app.get('/', (req, res) => {
       config: cfg,
       sequences: sequencesBusted,
       voteCounts,
+      raceTapCounts,
       queue,
       nowPlaying: nowPlaying.sequence_name,
       nextScheduled: getNextUp(cfg, nowPlaying.sequence_name || null),
@@ -464,7 +497,41 @@ app.get('/', (req, res) => {
       isAdmin,
     });
 
+    // Translation: if enabled and viewer's browser prefers a non-English
+    // language, translate the rendered HTML before sending. Cache means only
+    // the first visitor per language per template version pays the cost.
+    // Preview mode skips translation so the designer sees the raw template.
+    let finalHtml = html;
+    if (!req.query.preview && cfg.translation_enabled === 1) {
+      try {
+        const { translateHtml, parseAcceptLanguage } = require('./lib/translator');
+        const { createHash } = require('crypto');
+        const langs = parseAcceptLanguage(req.headers['accept-language']);
+        if (langs.length > 0) {
+          // Key the cache on the raw template HTML, not the rendered HTML.
+          // This gives one cache entry per template per language regardless
+          // of mode/state/queue changes — the translated static text is the
+          // same no matter what mode the show is in.
+          const templateHash = createHash('sha256')
+            .update(tpl.html || '')
+            .digest('hex').slice(0, 16);
+          finalHtml = await translateHtml(html, langs[0], tpl.id, cfg, templateHash);
+        }
+      } catch (e) {
+        console.error('[viewer] translation error (serving original):', e.message);
+      }
+    }
+
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    // The viewer page is dynamic per-request (current sequences, vote counts,
+    // now-playing). Without explicit cache headers, browsers apply heuristic
+    // caching based on Last-Modified — often hours. That meant deploys took
+    // hours to reach existing visitors even after the server was patched.
+    // \`no-cache\` tells the browser it MAY cache but MUST revalidate every
+    // time, which gives the network round-trip back. Combined with the SW's
+    // network-first passthrough, every page load reflects the current server
+    // state without permanently caching.
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
 
     // Source-obfuscation deterrent. Wraps the rendered HTML in a stub that:
     //   (1) Looks like nothing-to-see-here in view-source
@@ -481,10 +548,10 @@ app.get('/', (req, res) => {
     // (or whichever section). Skipped automatically for the preview iframe so
     // the visual designer keeps working.
     if (cfg.viewer_source_obfuscate === 1 && !req.query.preview) {
-      const encoded = Buffer.from(html, 'utf8').toString('base64');
+      const encoded = Buffer.from(finalHtml, 'utf8').toString('base64');
       res.send(buildObfuscationStub(encoded));
     } else {
-      res.send(html);
+      res.send(finalHtml);
     }
   } catch (err) {
     console.error('Error rendering viewer page:', err);
@@ -634,6 +701,9 @@ app.use('/covers', express.static(path.join(__dirname, 'data', 'covers'), {
 }));
 
 // Admin static files (under /admin)
+// v0.33.208 briefly shipped the new layout as a separate /admin/new.html; it
+// is now the same admin page restyled (v0.33.209), so old links land there.
+app.get('/admin/new.html', (req, res) => res.redirect(301, '/admin/'));
 app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
 
 // SPA fallback for admin
@@ -656,6 +726,15 @@ app.get('/health', (req, res) => {
 io.on('connection', socket => {
   // Viewers can emit 'subscribe' to confirm they want updates (noop for now)
   socket.on('subscribe', () => socket.emit('subscribed'));
+
+  // NTP-style time sync via Socket.io — much more accurate than HTTP /api/time
+  // because it bypasses Cloudflare's HTTP processing overhead and has lower,
+  // more consistent latency. Viewer sends {t1} and we echo back {t1, t2, t3}
+  // immediately. Viewer computes: offset = ((t2-t1) + (t3-t4)) / 2
+  socket.on('timesync', (msg) => {
+    const t2 = Date.now();
+    socket.emit('timesync', { t1: msg.t1, t2, t3: Date.now() });
+  });
 });
 
 // ============================================================
@@ -678,14 +757,17 @@ server.listen(config.port, config.host, () => {
   console.log(`Plugin endpoint: http://${config.host}:${config.port}/api/plugin`);
   console.log(`Viewer page:     http://${config.host}:${config.port}/`);
   console.log(`Admin:           http://${config.host}:${config.port}/admin/`);
-  // Secret resolution + any "first run, generated for you" announcements
-  // happen in lib/config-loader.js — by the time we get here, secrets are
-  // already real values from one of: env > config.js > secrets.json > generated.
 
-  // Cloudflare Tunnel: if the operator has previously saved a token,
-  // spawn cloudflared as a child process so the tunnel comes back
-  // automatically after a restart. Done after listen() so any spawn
-  // logging goes to operator output, not interleaved with startup.
+  // Start audio position relay — connects to daemon WebSocket on FPP Pi
+  // and fans FPP's live playback position to all viewer phones via Socket.io.
+  // Phones use this to keep their audio in sync with the show speakers.
+  try {
+    const { getConfig } = require('./lib/db');
+    require('./lib/audio-position-relay').start(io, getConfig);
+  } catch (err) {
+    console.error('[audio-position-relay] failed to start:', err.message);
+  }
+
   try {
     require('./lib/cloudflared').autoStartIfConfigured();
   } catch (err) {
@@ -710,9 +792,8 @@ function gracefulExit(signal, code) {
     require('./lib/cloudflared').shutdownHook();
   } catch {}
   // Give the SIGTERM we just sent to cloudflared a moment to land,
-  // then exit. A 500ms wait isn't perfect but it's almost always enough
-  // for a child process to receive the signal and start exiting.
-  setTimeout(() => process.exit(code), 500).unref();
+  // then exit. 2s is enough for cloudflared to receive and act on the signal.
+  setTimeout(() => process.exit(code), 2000).unref();
 }
 process.on('SIGTERM', () => gracefulExit('SIGTERM', 0));
 process.on('SIGINT',  () => gracefulExit('SIGINT',  0));

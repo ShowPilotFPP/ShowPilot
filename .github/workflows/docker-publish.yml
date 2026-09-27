@@ -26,6 +26,13 @@
 # is_default_branch because tag-triggered runs have ref=refs/tags/vX.Y.Z —
 # is_default_branch evaluates false on tag triggers, which was silently
 # preventing :latest from being published on every release.
+#
+# NATIVE PER-ARCH BUILDS (v0.33.206+, issue #19): each architecture builds
+# on its own native runner (amd64 on ubuntu-latest, arm64 on GitHub's free
+# ubuntu-24.04-arm runner for public repos), pushed by digest, then a merge
+# job stitches the digests into one multi-arch manifest with the tags above.
+# This replaces QEMU emulation of arm64 on the amd64 runner, which compiled
+# better-sqlite3 under emulation — slow, and intermittently crashing.
 # ============================================================
 
 name: Build and publish Docker image
@@ -44,29 +51,42 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
 
     permissions:
       contents: read
       packages: write
 
     steps:
+      # GHCR image names must be lowercase (the repo is ShowPilotFPP/ShowPilot).
+      # metadata-action lowercases on its own; the push-by-digest name below
+      # doesn't, so compute it here. PLATFORM_PAIR names the cache + artifact.
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          echo "IMAGE_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # QEMU lets the amd64 GitHub runner build arm64 images. Without this,
-      # the arm64 build would fail because the runner can't natively execute
-      # arm64 binaries during the build (better-sqlite3 compile, etc.).
-      - name: Set up QEMU for multi-arch builds
-        uses: docker/setup-qemu-action@v3
+      # Labels only here; tags are applied once, by the merge job.
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Log in to GHCR using the auto-provided GITHUB_TOKEN. No secret to
-      # configure manually — GitHub gives the workflow the right permissions
-      # via the `packages: write` permission above.
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -74,10 +94,67 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Generate Docker tags. The semver patterns only match on tag pushes
-      # (so `v0.18.5` becomes `0.18.5` + `0.18` + `latest`). The `ref` rule
-      # below tags the beta branch as `beta`, so a push to the beta branch
-      # produces `:beta` without affecting `:latest`.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_LC }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish multi-arch manifest
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Prepare
+        run: echo "IMAGE_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Same tag rules as before the split. The semver patterns only match on
+      # tag pushes (so `v0.18.5` becomes `0.18.5` + `0.18` + `latest`). The
+      # `ref` rule tags the beta branch as `beta` without touching `:latest`.
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -89,13 +166,13 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=ref,event=branch,enable=${{ github.ref == 'refs/heads/beta' }}
 
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_LC }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_LC }}:${{ steps.meta.outputs.version }}

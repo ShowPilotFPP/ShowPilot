@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShowPilot Admin</title>
+  <!-- v0.33.209: new admin layout = this page restyled (ui-new.css) and
+       reorganized (ui-new.js), applied after sign-in unless the user chose
+       the classic layout. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/admin/ui-new.css">
+  <script src="/admin/ui-new.js"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -407,6 +414,7 @@
     }
     .mode-pill.voting { background: var(--rgb-red); color: #fff; box-shadow: 0 0 12px var(--accent-soft); }
     .mode-pill.jukebox { background: var(--rgb-blue); color: #fff; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
+    .mode-pill.race { background: #f59e0b; color: #000; box-shadow: 0 0 12px rgba(245,158,11,0.4); }
     .mode-pill.off { background: var(--status-neutral); color: #fff; }
     .header-spacer { margin-left: auto; }
     /* "Show" link in admin header — opens the viewer in a new tab.
@@ -788,7 +796,7 @@
      * ============================================================ */
     main {
       padding: 1.5rem 1.25rem 3rem;
-      max-width: 1280px;
+      max-width: 1600px;
       margin: 0 auto;
     }
     .tab-pane { display: none; }
@@ -1662,8 +1670,8 @@
       font-weight: 600;
     }
   </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="/vendor/chart.umd.min.js"></script>
+  <script src="/vendor/monaco/vs/loader.js"></script>
   <script>
     /* Monaco's loader.js installs an AMD `define`. jsPDF (UMD) sees it and tries
        to register anonymously, which AMD then rejects ("Can only have one
@@ -1678,8 +1686,8 @@
         s.onload = onload;
         document.head.appendChild(s);
       }
-      loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', function () {
-        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js', function () {
+      loadScript('/vendor/jspdf.umd.min.js', function () {
+        loadScript('/vendor/jspdf.plugin.autotable.min.js', function () {
           window.define = _define;
         });
       });
@@ -1824,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.28</span>
+        <span class="app-version">v0.33.219-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1851,6 +1859,9 @@
         <option value="independence">🎆 Independence Day</option>
         <option value="valentines">💝 Valentine's</option>
       </select>
+      <button type="button" class="header-show-btn" onclick="useNewAdminLayout()" title="Switch to the new admin layout">
+        <span class="header-show-btn-label">New layout</span>
+      </button>
       <span id="headerUserSlot"></span>
     </header>
 
@@ -1948,9 +1959,11 @@
               <option value="OFF">Off</option>
               <option value="VOTING">Voting</option>
               <option value="JUKEBOX">Jukebox</option>
+              <option value="RACE">Race</option>
             </select>
             <button class="secondary" onclick="resetVotes()">Reset Votes</button>
             <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
+            <button class="secondary" id="raceResetBtn" onclick="resetRace()" style="display:none">Reset Race</button>
           </div>
         </div>
 
@@ -1961,6 +1974,32 @@
             <thead><tr><th>Sequence</th><th style="width: 80px;">Plays</th></tr></thead>
             <tbody id="topBody"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
           </table>
+        </div>
+
+        <!-- QR code card — shows viewer URL as a scannable code for display at the show.
+             Hidden until loadQrCard() confirms public_base_url is configured. -->
+        <div class="card" id="qrCard" style="display:none;">
+          <div class="row" style="justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 0;">
+              <h2 style="margin: 0 0 0.25rem;">Viewer QR Code</h2>
+              <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">Print or display this so visitors can scan and open your viewer page.</p>
+              <div id="qrViewerUrl" class="muted" style="font-size: 0.8rem; word-break: break-all; margin-bottom: 0.75rem;"></div>
+              <div class="row" style="gap: 0.5rem; margin: 0;">
+                <button class="secondary" onclick="copyViewerUrl()" id="qrCopyBtn">📋 Copy URL</button>
+                <button class="secondary" onclick="downloadQr()">⬇ Download SVG</button>
+              </div>
+            </div>
+            <!-- QR code rendered as SVG so it scales perfectly at any size -->
+            <object id="qrImg" data="" type="image/svg+xml" aria-label="Viewer QR code"
+                 style="border-radius: 6px; background: #fff; padding: 10px; flex-shrink: 0; width: 180px; height: 180px; display: block;"></object>
+          </div>
+        </div>
+        <!-- Prompt shown when public_base_url isn't set yet -->
+        <div class="card" id="qrNoUrlCard" style="display:none;">
+          <h2>Viewer QR Code</h2>
+          <p class="muted" style="font-size: 0.85rem;">
+            Set your <strong>Public base URL</strong> in Settings → Audio to enable the QR code generator.
+          </p>
         </div>
 
       </div>
@@ -1989,13 +2028,14 @@
             <span style="flex: 1;"></span>
             <button class="secondary" onclick="bulkSetField('visible', 1)">Show</button>
             <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
+            <select id="seqBulkCategory" onchange="bulkSetCategory(this)" title="Set the category of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
             <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
             <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
             <button class="secondary" onclick="clearSeqSelection()">Clear</button>
           </div>
 
           <div style="overflow-x: auto;">
-            <table>
+            <table style="min-width: 1200px;">
               <thead>
                 <tr>
                   <th style="width: 30px;">
@@ -2006,12 +2046,13 @@
                   <th>Display Name</th>
                   <th style="width: 200px;">FPP Name</th>
                   <th>Artist</th>
+                  <th style="width: 150px;" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
                   <th style="width: 70px;">Visible</th>
                   <th style="width: 70px;">Vote</th>
                   <th style="width: 70px;">Jukebox</th>
                   <th style="width: 60px;">PSA</th>
                   <th style="width: 90px;" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
-                  <th style="width: 200px;"></th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="sequencesBody"></tbody>
@@ -2024,6 +2065,35 @@
             <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
             <button onclick="addSequence()">Add</button>
           </div>
+        </div>
+
+        <!-- Sequence categories -->
+        <div class="card">
+          <h2 style="margin-top: 0;">Categories</h2>
+          <p class="muted" style="font-size: 0.85rem; margin-top: 0;">
+            Group sequences under headings on the viewer page. Turning a category <strong>off</strong> hides all of its
+            sequences from viewers and blocks votes/requests for them — it does not change what FPP plays on its own schedule.
+            Assign a category with the Category column above. Sequences with no category are always shown.
+          </p>
+          <div id="categoriesList"></div>
+          <div class="row" style="margin-top: 0.75rem;">
+            <input type="text" id="newCategoryName" placeholder="New category name" maxlength="60" style="flex:1;" onkeydown="if(event.key==='Enter')addCategory()" />
+            <button onclick="addCategory()">Add Category</button>
+          </div>
+          <div class="row" style="margin-top: 1rem; gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <input type="checkbox" id="cfgViewerShowCategories" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
+              Show category headings on the viewer page
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Heading for uncategorized sequences
+              <input type="text" id="cfgUncategorizedLabel" maxlength="60" style="width: 160px;" onchange="saveCategoryDisplayOptions()" />
+            </label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem;">
+            With headings off, categories still control visibility but the viewer list keeps its normal order.
+            Templates can restyle headings with the <code>.sequence-category-header</code> CSS class.
+          </p>
         </div>
 
         <div class="card">
@@ -2195,6 +2265,14 @@
            TAB: VIEWER PAGE (Monaco editor + template list)
            ============================================================ -->
       <div class="tab-pane" data-pane="viewer">
+        <div class="card" style="padding-bottom: 0; margin-bottom: 0;">
+          <div class="sub-tabs">
+            <div class="sub-tab active" data-subtab="viewer-editor" onclick="switchTab('viewer-editor')">Template Editor</div>
+            <div class="sub-tab" data-subtab="viewer-translation" onclick="switchTab('viewer-translation')">Translation</div>
+          </div>
+        </div>
+
+        <div class="sub-tab-pane active" data-subtab="viewer-editor">
         <div class="card">
           <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
             <h2 style="margin: 0;">Viewer Page</h2>
@@ -2483,6 +2561,18 @@
             <input type="checkbox" id="cfg_player_decoration_animated" onchange="saveSetting('player_decoration_animated', this.checked ? 1 : 0)" />
             <label for="cfg_player_decoration_animated" style="margin: 0;">Enable animations (twinkle, fall, drift)</label>
           </div>
+          <!-- v0.33.216: player layout option, next to the player decoration settings. -->
+          <div style="margin-top: 0.75rem;"></div>
+          <div class="row">
+            <input type="checkbox" id="cfg_player_tall_layout"
+                   onchange="saveSetting('player_tall_layout', this.checked ? 1 : 0)" />
+            <label for="cfg_player_tall_layout" style="margin: 0;">Larger two-row player on phones</label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+            On phones, the player uses two rows: the full song title and artist on top, and bigger,
+            spread-out controls below. It covers a little more of the page. Tablets and computers keep the
+            single row. Takes effect on page reload.
+          </p>
 
           <h3 style="margin-top: 1.25rem;">Page-wide effects</h3>
           <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
@@ -2531,6 +2621,41 @@
             Each effect has a sensible default color (snow=white, leaves=orange, hearts=pink, etc).
             Leave the color blank or click "Use default" to use it; otherwise pick any CSS color.
           </p>
+
+          <h3 style="margin-top: 1.25rem;">Song progress bar</h3>
+          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+            A slim bar showing how far into the current song the show is, and how much time is left. By default
+            it sits on the top edge of the Listen-on-Phone player in the player theme's color, and on the bottom
+            edge of the screen while the player is closed. It hides between songs and for sequences with no known
+            length. Changes reach open viewer pages within a few seconds. Template authors can instead place
+            <code>{NOW_PLAYING_PROGRESS}</code> anywhere in a template.
+          </p>
+          <div class="row">
+            <input type="checkbox" id="cfg_viewer_progress_bar" onchange="saveSetting('viewer_progress_bar', this.checked ? 1 : 0)" />
+            <label for="cfg_viewer_progress_bar" style="margin: 0;">Show song progress bar on the viewer page</label>
+          </div>
+          <div class="grid-2" style="margin: 0.75rem 0;">
+            <div>
+              <label for="cfg_viewer_progress_bar_position">Position</label>
+              <select id="cfg_viewer_progress_bar_position" onchange="saveSetting('viewer_progress_bar_position', this.value)">
+                <option value="player">On the player (bottom of the screen when it's closed)</option>
+                <option value="screen-top">Top of the screen</option>
+              </select>
+            </div>
+            <div>
+              <label for="cfg_viewer_progress_bar_color">Bar color</label>
+              <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
+                <input type="color" id="cfg_viewer_progress_bar_color"
+                       onchange="saveSetting('viewer_progress_bar_color', this.value)"
+                       style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                <button type="button" class="secondary" onclick="resetProgressBarColor()" style="font-size: 0.85rem;">Match player theme</button>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <input type="checkbox" id="cfg_viewer_progress_bar_show_time" onchange="saveSetting('viewer_progress_bar_show_time', this.checked ? 1 : 0)" />
+            <label for="cfg_viewer_progress_bar_show_time" style="margin: 0;">Show time left next to the bar</label>
+          </div>
         </div>
 
         <div class="card">
@@ -2615,6 +2740,87 @@
             </div>
           </div>
         </div>
+        </div>
+
+        <div class="sub-tab-pane" data-subtab="viewer-translation">
+            <div class="card">
+              <h2>Viewer Page Translation</h2>
+              <p class="muted" style="font-size:0.9rem; margin:0 0 1rem;">
+                When enabled, ShowPilot automatically translates the viewer page into each visitor's
+                browser language. Translation runs once per language per template version and is
+                cached — the first visitor pays a small delay, everyone after is instant.
+                Song names and artist names are never translated.
+              </p>
+              <div class="row" style="align-items:center; gap:0.75rem; margin-bottom:1rem;">
+                <input type="checkbox" id="cfg_translation_enabled"
+                       onchange="saveSetting('translation_enabled', this.checked ? 1 : 0); toggleTranslationSettings(this.checked)" />
+                <label for="cfg_translation_enabled" style="margin:0;">Enable automatic translation</label>
+              </div>
+              <div id="translationSettingsPanel" style="display:none;">
+                <div style="margin-bottom:1rem;">
+                  <label style="font-size:0.85rem; font-weight:600; display:block; margin-bottom:0.35rem;">Translation backend</label>
+                  <select id="cfg_translation_backend" onchange="saveSetting('translation_backend', this.value); updateTranslationBackendUI()"
+                          style="padding:0.4rem 0.5rem; border-radius:4px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); font-size:0.9rem;">
+                    <option value="mymemory">MyMemory (free, no setup required)</option>
+                    <option value="libretranslate">LibreTranslate (self-hosted)</option>
+                    <option value="deepl">DeepL (higher quality, free tier)</option>
+                  </select>
+                </div>
+                <div id="libreTranslateSettings">
+                  <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.85rem; font-weight:600; display:block; margin-bottom:0.35rem;">LibreTranslate API URL</label>
+                    <input type="text" id="cfg_translation_api_url"
+                           placeholder="https://libretranslate.com"
+                           onchange="saveSetting('translation_api_url', this.value)"
+                           style="width:100%; max-width:420px; padding:0.4rem 0.5rem; border-radius:4px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); font-size:0.9rem;" />
+                    <p class="muted" style="font-size:0.8rem; margin:0.35rem 0 0;">
+                      For self-hosted LibreTranslate. See
+                      <a href="https://github.com/LibreTranslate/LibreTranslate" target="_blank" rel="noopener">LibreTranslate on GitHub</a>
+                      for setup instructions.
+                    </p>
+                  </div>
+                  <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.85rem; font-weight:600; display:block; margin-bottom:0.35rem;">API key <span class="muted" style="font-weight:400;">(optional — only needed if your instance requires one)</span></label>
+                    <input type="password" id="cfg_translation_api_key_libre"
+                           placeholder="Leave blank if not required"
+                           onchange="saveSetting('translation_api_key', this.value)"
+                           style="width:100%; max-width:420px; padding:0.4rem 0.5rem; border-radius:4px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); font-size:0.9rem;" />
+                  </div>
+                </div>
+                <div id="deeplSettings" style="display:none;">
+                  <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.85rem; font-weight:600; display:block; margin-bottom:0.35rem;">DeepL API key</label>
+                    <input type="password" id="cfg_translation_api_key_deepl"
+                           placeholder="DeepL free API key"
+                           onchange="saveSetting('translation_api_key', this.value)"
+                           style="width:100%; max-width:420px; padding:0.4rem 0.5rem; border-radius:4px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); font-size:0.9rem;" />
+                    <p class="muted" style="font-size:0.8rem; margin:0.35rem 0 0;">
+                      Free tier: 500,000 characters/month.
+                      Get a key at <a href="https://www.deepl.com/pro#developer" target="_blank" rel="noopener">deepl.com</a>.
+                    </p>
+                  </div>
+                </div>
+                <div style="margin-bottom:1rem;">
+                  <button class="secondary" onclick="testTranslation()">🧪 Test translation</button>
+                  <span id="translationTestStatus" style="font-size:0.85rem; margin-left:0.75rem;"></span>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                <h2 style="margin:0;">Translation Cache</h2>
+                <button class="danger" onclick="clearTranslationCache()">Clear All</button>
+              </div>
+              <p class="muted" style="font-size:0.85rem; margin:0 0 1rem;">
+                Cached translations are stored per template version. Editing a template automatically
+                invalidates its cached translations — they'll be rebuilt on the next visitor request.
+              </p>
+              <div id="translationCacheList" style="font-size:0.85rem;">
+                <span class="muted">Loading…</span>
+              </div>
+            </div>
+          </div>
+
       </div>
 
       <!-- ============================================================
@@ -2627,15 +2833,36 @@
             <div class="sub-tab active" data-subtab="general" onclick="switchTab('general')">General</div>
             <div class="sub-tab" data-subtab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
             <div class="sub-tab" data-subtab="voting" onclick="switchTab('voting')">Voting</div>
+            <div class="sub-tab" data-subtab="race" onclick="switchTab('race')">Race</div>
             <div class="sub-tab" data-subtab="audio" onclick="switchTab('audio')">Audio</div>
             <div class="sub-tab" data-subtab="app" onclick="switchTab('app')">App</div>
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
             <div class="sub-tab" data-subtab="public-access" onclick="switchTab('public-access')">Public Access</div>
             <div class="sub-tab" data-subtab="backup" onclick="switchTab('backup')">Backup &amp; Restore</div>
+            <div class="sub-tab" data-subtab="cockpit" onclick="switchTab('cockpit')">Cockpit</div>
             <div class="sub-tab" data-subtab="updates" onclick="switchTab('updates')">Updates</div>
+            <div class="sub-tab" data-subtab="debug" onclick="switchTab('debug')">Debug</div>
           </div>
 
           <!-- GENERAL SETTINGS — applies to all templates -->
+          <!-- Cockpit (main v0.33.214 / Lite v0.5.61): the tablet show remote.
+               Its tile layout is per user and edited on the Cockpit itself. -->
+          <div class="sub-tab-pane" data-subtab="cockpit">
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
+              Cockpit is a big-button show remote for a tablet at the booth. Choose exactly which controls it
+              shows: switches, modes, actions, song categories, status readouts and live panels. Drag tiles
+              onto it, reorder and resize them, or remove the ones you don't need. Your layout is saved to your
+              account, so it follows you to any tablet you sign in on.
+            </p>
+            <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+              <a href="/admin/cockpit.html?edit=1" style="text-decoration: none;"><button type="button">Customize Cockpit</button></a>
+              <a href="/admin/cockpit.html" style="text-decoration: none;"><button type="button" class="secondary">Open Cockpit</button></a>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.75rem 0 0;">
+              Tip: on the tablet, add Cockpit to the home screen for a full-screen remote.
+            </p>
+          </div>
+
           <div class="sub-tab-pane active" data-subtab="general">
             <div>
               <label for="cfg_show_name">Show name</label>
@@ -2671,18 +2898,27 @@
                      style="width: 60px;" />
               <label for="cfg_viewer_request_limit" style="margin: 0;">pending request(s) at a time</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Prevents one viewer from flooding the queue. Their slot opens again once a request plays.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_request_currently_playing" onchange="saveSetting('block_request_currently_playing', this.checked ? 1 : 0)" />
               <label for="cfg_block_request_currently_playing" style="margin: 0;">Block requests for the song that's currently playing</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Viewers can't re-request a song while it's on — they'll get a "that's playing now" message.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_request_next_up" onchange="saveSetting('block_request_next_up', this.checked ? 1 : 0)" />
               <label for="cfg_block_request_next_up" style="margin: 0;">Block requests for the song that's already up next</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Prevents duplicates at the front of the queue — if a song is already the next to play, new requests for it are rejected.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', this.checked ? 1 : 0)" />
-              <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide sequence from list after played</label>
+              <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide song from the request list after it plays</label>
             </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Song disappears from the viewer's request grid after playing and stays hidden for the cooldown period set on each sequence.</p>
+            <div class="row" style="margin-top: 0.75rem;">
+              <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
+              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in FPP's normal playlist rotation</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, ShowPilot tells the FPP plugin to disable the song in your playlist file during the cooldown window. FPP will skip it automatically and re-enable it when the cooldown expires. Requires plugin v0.13.40+.</p>
           </div>
 
           <!-- VOTING SETTINGS -->
@@ -2691,22 +2927,27 @@
               <input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0); updateAllowVoteChangeVisibility();" />
               <label for="cfg_prevent_multiple_votes" style="margin: 0;">Limit each viewer to one vote per round</label>
             </div>
-            <div class="row" id="cfg_allow_vote_change_row" style="margin-left: 1.5rem;">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Each viewer token can only vote once. Prevents ballot-stuffing from a single phone.</p>
+            <div class="row" id="cfg_allow_vote_change_row" style="margin-left: 1.5rem; margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_allow_vote_change" onchange="saveSetting('allow_vote_change', this.checked ? 1 : 0)" />
               <label for="cfg_allow_vote_change" style="margin: 0;">Let viewers change their vote (still 1 vote each — clicking another song moves it)</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 3.25rem;">Only applies when the limit above is on. Tapping a different song swaps the vote atomically — counts never show a viewer having two votes at once.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_reset_votes_after_round" onchange="saveSetting('reset_votes_after_round', this.checked ? 1 : 0)" />
               <label for="cfg_reset_votes_after_round" style="margin: 0;">Auto-reset votes after winner plays</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Clears all votes when the winning song starts playing so each round starts fresh. Recommended on.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_vote_currently_playing" onchange="saveSetting('block_vote_currently_playing', this.checked ? 1 : 0)" />
               <label for="cfg_block_vote_currently_playing" style="margin: 0;">Block votes for the song that's currently playing</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Viewers can't vote for the song already on — it won't be the next winner anyway.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_vote_next_up" onchange="saveSetting('block_vote_next_up', this.checked ? 1 : 0)" />
-              <label for="cfg_block_vote_next_up" style="margin: 0;">Block votes for the song that's already winning</label>
+              <label for="cfg_block_vote_next_up" style="margin: 0;">Block votes for the song that's already leading</label>
             </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Prevents piling on the current frontrunner — keeps the vote competitive by directing viewers to other songs.</p>
 
             <h3 style="margin-top: 1.25rem;">Tiebreak</h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
@@ -2733,6 +2974,81 @@
             </div>
           </div>
 
+          <!-- RACE SETTINGS -->
+          <div class="sub-tab-pane" data-subtab="race">
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
+              In Race mode, viewers tap their favourite song as many times as they want. The song with the most taps when the race ends plays next. Select <strong>Race</strong> in the Mode dropdown on the Dashboard tab to start a race.
+            </p>
+
+            <h3>Race duration</h3>
+            <div class="row" style="align-items: center; gap: 10px;">
+              <input type="checkbox" id="cfg_race_end_on_sequence_end"
+                     onchange="saveSetting('race_end_on_sequence_end', this.checked ? 1 : 0); updateRaceDurationVisibility();" />
+              <label for="cfg_race_end_on_sequence_end" style="margin: 0;">End race when the current song ends (ignore timer)</label>
+            </div>
+            <div class="row" id="race_duration_row" style="align-items: center; gap: 10px; margin-top: 0.5rem;">
+              <label for="cfg_race_duration_seconds" style="margin: 0;">Race timer (seconds):</label>
+              <input type="number" id="cfg_race_duration_seconds" min="10" max="600" step="5"
+                     onchange="saveSetting('race_duration_seconds', parseInt(this.value, 10) || 60)"
+                     style="max-width: 120px;" />
+              <span class="muted" style="font-size: 0.8rem;">— default 60s, max 600s</span>
+            </div>
+
+            <h3 style="margin-top: 1rem;">Win condition</h3>
+            <div class="row" style="align-items: center; gap: 10px;">
+              <label for="cfg_race_target_taps" style="margin: 0;">First to reach this many taps wins immediately:</label>
+              <input type="number" id="cfg_race_target_taps" min="0" max="9999" step="1"
+                     onchange="saveSetting('race_target_taps', parseInt(this.value, 10) || 0)"
+                     style="max-width: 100px;" />
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0 0;">
+              Set to <strong>0</strong> to disable — the race will always run until the timer (or song end). Set to any number to let the first song to hit that tap count win immediately.
+            </p>
+
+            <h3 style="margin-top: 1rem;">Winner playback</h3>
+            <div class="row">
+              <input type="checkbox" id="cfg_race_interrupt_winner"
+                     onchange="saveSetting('race_interrupt_winner', this.checked ? 1 : 0)" />
+              <label for="cfg_race_interrupt_winner" style="margin: 0;">Interrupt current song and play winner immediately</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">
+              When off (default), the winner plays after the current song finishes — same behaviour as Voting mode.
+            </p>
+
+            <h3 style="margin-top: 1.5rem;">Viewer instructions</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Text shown to viewers above the tap buttons when a race is active.
+            </p>
+            <textarea id="cfg_race_instructions_text" rows="3"
+                      placeholder="Tap your favourite song as many times as you want — most taps wins!"
+                      oninput="clearTimeout(this._t); this._t = setTimeout(() => saveSetting('race_instructions_text', this.value.trim() || null), 600)"
+                      style="width: 100%; resize: vertical; font-family: inherit; font-size: 0.9rem;"></textarea>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0;">
+              Leave blank to use the default text. Plain text only — no HTML.
+            </p>
+
+            <h3 style="margin-top: 1.25rem;">Instruction font size</h3>
+            <div class="row" style="align-items: center; gap: 10px;">
+              <label for="cfg_race_font_size" style="margin: 0;">Font size (CSS value):</label>
+              <input type="text" id="cfg_race_font_size" placeholder="0.9em"
+                     onchange="saveSetting('race_font_size', this.value.trim() || '0.9em')"
+                     style="max-width: 100px;" />
+              <span class="muted" style="font-size: 0.8rem;">e.g. 0.9em, 14px, 1rem</span>
+            </div>
+
+            <h3 style="margin-top: 1.25rem;">Race styling</h3>
+            <div class="row">
+              <input type="checkbox" id="cfg_race_use_template_css"
+                     onchange="saveSetting('race_use_template_css', this.checked ? 1 : 0)" />
+              <label for="cfg_race_use_template_css" style="margin: 0;">Use template CSS for race UI (skip ShowPilot's built-in race styles)</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">
+              When on, ShowPilot does not inject its own race stylesheet — your viewer template's CSS controls the look entirely.
+              Use this if you've added custom <code>.race-row</code>, <code>.race-tap-btn</code>, etc. rules to your template.
+              When off (default), ShowPilot injects sensible default styles that work with any template.
+            </p>
+          </div>
+
           <!-- AUDIO -->
           <!-- All audio-related settings live here. Previously these were
                scattered: distance gate + sync offset were in safeguards
@@ -2754,6 +3070,33 @@
               <input type="checkbox" id="cfg_audio_enabled" onchange="saveSetting('audio_enabled', this.checked ? 1 : 0); updateAudioEnabledVisibility();" />
               <label for="cfg_audio_enabled" style="margin: 0;">Enable audio playback in ShowPilot</label>
             </div>
+
+            <!-- v0.33.216: listener-facing player options (were under Debug). -->
+            <h3 style="margin-top: 1.25rem;">Listen-on-Phone player</h3>
+            <div class="row">
+              <input type="checkbox" id="cfg_listener_timing_enabled"
+                     onchange="saveSetting('listener_timing_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_listener_timing_enabled" style="margin: 0;">Let listeners adjust audio timing</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+              Adds a small timing button to the player. Listeners on Bluetooth or car audio can shift the sound
+              earlier or later until it lines up with the lights. Saved on their phone only; takes effect on page reload.
+            </p>
+            <div class="row" style="margin: 0 0 0.75rem 1.5rem; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+              <span>Slider range: from</span>
+              <input type="number" id="cfg_listener_timing_min_ms" step="50" min="-2000" max="0" style="width: 6.5rem;"
+                     aria-label="Timing slider lowest value in milliseconds"
+                     onchange="saveSetting('listener_timing_min_ms', parseInt(this.value, 10) || 0)" />
+              <span>to</span>
+              <input type="number" id="cfg_listener_timing_max_ms" step="50" min="0" max="3000" style="width: 6.5rem;"
+                     aria-label="Timing slider highest value in milliseconds"
+                     onchange="saveSetting('listener_timing_max_ms', parseInt(this.value, 10) || 0)" />
+              <span>ms</span>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: -0.5rem 0 0.75rem 1.5rem;">
+              Negative plays later ("music is early"), positive plays earlier ("music is late"). Default −500 to +1000.
+              Allowed: −2000 to 0, and 0 to +3000.
+            </p>
 
             <div id="cfg_audio_subsection" style="margin-top: 1.5rem;">
             <h3>Audio distance gate <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(copyright safety)</span></h3>
@@ -2785,14 +3128,30 @@
               Adjusts when audio starts playing on listeners' phones relative to
               the light show. If phones sound ahead of the lights, use a positive
               value (delays audio). If phones sound behind, use a negative value.
-              Typical range is 0–2000ms. Changes take effect on the next song.
+              Changes take effect on the next song.
             </p>
             <div class="row" style="gap: 0.5rem; align-items: center;">
               <label for="cfg_audio_sync_offset_ms" style="margin: 0;">Offset (ms):</label>
-              <input type="number" id="cfg_audio_sync_offset_ms" step="50" min="-5000" max="5000"
+              <input type="number" id="cfg_audio_sync_offset_ms" step="50"
                      onchange="saveSetting('audio_sync_offset_ms', parseInt(this.value) || 0)"
                      style="max-width: 120px;" />
+              <button onclick="toggleAudioSyncSign()" title="Flip sign" style="padding: 0.25rem 0.6rem; font-size: 0.9rem;">−/+</button>
               <span class="muted" style="font-size: 0.8rem;">— positive = delay audio (phones were ahead); negative = advance audio (phones were behind)</span>
+            </div>
+
+            <h3 style="margin-top: 1.5rem;">Audio daemon</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+              ShowPilot connects to the audio daemon running on your FPP Pi to relay
+              live audio to all listeners simultaneously. The daemon is automatically
+              started by the ShowPilot FPP plugin on port 8090. Only change this if
+              you configured a different port in the plugin.
+            </p>
+            <div class="row" style="gap: 0.5rem; align-items: center;">
+              <label for="cfg_audio_daemon_port" style="margin: 0;">Daemon port:</label>
+              <input type="number" id="cfg_audio_daemon_port" step="1" min="1024" max="65535"
+                     onchange="saveSetting('audio_daemon_port', parseInt(this.value) || 8090)"
+                     style="max-width: 120px;" />
+              <span class="muted" style="font-size: 0.8rem;">— default 8090, must match ShowPilot plugin setting</span>
             </div>
 
             <h3 style="margin-top: 1.5rem;">External audio access</h3>
@@ -3177,6 +3536,56 @@
 
             <div id="updateActionStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
           </div>
+
+          <!-- DEBUG — diagnostics toggles for audio sync troubleshooting (v0.33.194+) -->
+          <div class="sub-tab-pane" data-subtab="debug">
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
+              Diagnostics for audio sync troubleshooting. Both options are off by default
+              and intended for temporary use — they expose internal state to all visitors.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_debug_overlay_enabled"
+                     onchange="saveSetting('debug_overlay_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_debug_overlay_enabled" style="margin: 0;">Show sync debug overlay on viewer page</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 1rem 1.5rem;">
+              Displays a live readout (drift, FPP position, clock offset, calibration) pinned to
+              the top of the viewer page for every visitor. Equivalent to appending
+              <code>?debug=1</code> to the URL. Turn off when done.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_debug_mic_measure"
+                     onchange="saveSetting('debug_mic_measure', this.checked ? 1 : 0)" />
+              <label for="cfg_debug_mic_measure" style="margin: 0;">Microphone sync measurement</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+              Adds a "Measure sync" button to the viewer page while listening. Stand near the show speakers with the
+              phone playing: it records a few seconds with the phone playing and a few with it muted, and reports how
+              many milliseconds the speakers are behind or ahead of the phone, with the show offset to try. Needs the
+              normal <code>https://</code> page (browsers only allow the microphone there). Visible to every visitor while on,
+              so turn it off when you're done.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_debug_sync_probe"
+                     onchange="saveSetting('debug_sync_probe', this.checked ? 1 : 0)" />
+              <label for="cfg_debug_sync_probe" style="margin: 0;">Sync probe: compare relayed timing with FPP directly</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+              For measuring audio sync. The player also connects straight to the FPP audio daemon and reports how far
+              the relayed position is from FPP's own, in the debug overlay and the browser console. Browsers block this on
+              an <code>https://</code> page, so open the viewer page from this server's local <code>http://</code> address on
+              the same network as FPP. Turn it off when you're done.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_player_stats_enabled"
+                     onchange="saveSetting('player_stats_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_player_stats_enabled" style="margin: 0;">Show audio stats in player bar</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0 1.5rem;">
+              Shows the drift and calibration readout in the small status line inside the
+              Listen on Phone player bar. Useful for per-device sync tuning. Turn off when done.
+            </p>
+          </div>
         </div>
 
         <!-- BACKUP & RESTORE pane is inside the Settings card above. -->
@@ -3268,6 +3677,7 @@
         </div>
       </div>
 
+
       <!-- ============================================================
            TAB: USERS
            ============================================================ -->
@@ -3320,6 +3730,47 @@
        Auto-runs a search on open using the current display name as the
        initial query. User can edit + re-search. Clicking a result writes
        the title, artist, AND cover to the sequence atomically. -->
+  <!-- Language Variant Modal (v0.33.162+) -->
+  <div id="langVariantModal" style="display:none; position:fixed; inset:0; z-index:9000;
+       background:rgba(0,0,0,0.65); align-items:center; justify-content:center;">
+    <div style="background:var(--bg-elevated); border:1px solid var(--border);
+                border-radius:8px; padding:1.5rem; max-width:480px; width:calc(100% - 2rem);
+                max-height:90vh; overflow-y:auto; color:var(--text);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
+        <h3 id="langVariantModalTitle" style="margin:0; font-size:1rem; color:var(--text);">Language Variants</h3>
+        <button onclick="closeLanguageModal()" style="background:transparent; border:0;
+                color:var(--text-muted); cursor:pointer; font-size:1.2rem; line-height:1;
+                padding:4px;">✕</button>
+      </div>
+      <p style="font-size:0.83rem; color:var(--text-muted); margin:0 0 0.75rem;">
+        Upload alternate-language audio files for this sequence. Viewers with the player open
+        will see a language toggle when variants are available. Each file must be the
+        <strong>same duration</strong> as the default track for sync to work correctly.
+      </p>
+      <input type="hidden" id="langVariantSeqName" />
+      <div id="langVariantList" style="margin-bottom:1rem; min-height:2rem;"></div>
+      <hr style="border-color:var(--border); margin:0.75rem 0;" />
+      <div style="font-size:0.85rem; font-weight:600; margin-bottom:0.5rem; color:var(--text);">Upload new variant</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-bottom:0.5rem;">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="font-size:0.78rem; color:var(--text-muted);">Language code</label>
+          <input id="langVariantCode" type="text" placeholder="es" maxlength="10"
+                 style="width:60px; padding:0.35rem 0.5rem; font-size:0.9rem;
+                        background:var(--bg-input); border:1px solid var(--border);
+                        border-radius:4px; color:var(--text);" />
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:180px;">
+          <label style="font-size:0.78rem; color:var(--text-muted);">Audio file (MP3, M4A, etc.)</label>
+          <input id="langVariantFile" type="file" accept="audio/*"
+                 style="font-size:0.82rem; color:var(--text);" />
+        </div>
+        <button onclick="uploadLanguageVariant()"
+                style="padding:0.4rem 0.9rem; font-size:0.85rem; white-space:nowrap;">Upload</button>
+      </div>
+      <div id="langVariantStatus" style="font-size:0.82rem; min-height:1.2rem;"></div>
+    </div>
+  </div>
+
   <div id="trackSearchModal" class="of-modal hidden">
     <div class="of-modal-card" style="max-width: 720px; width: calc(100% - 2rem);">
       <h3 style="margin-top: 0;">Search for track</h3>
@@ -3940,6 +4391,256 @@
         refreshAudioCacheStats();
       } catch (e) {
         await showAlert('Clear error: ' + e.message);
+      }
+    }
+
+    // ============================================================
+    // Language variant management (v0.33.162+)
+    // ============================================================
+    // Admin can upload alternate-language audio files for any sequence
+    // that has a primary track in the cache. Uploaded via raw body POST
+    // (same pattern as the plugin upload endpoint).
+
+    // Show the language variant modal for a sequence.
+    async function openLanguageModal(sequenceName, displayName) {
+      const modal = document.getElementById('langVariantModal');
+      const modalTitle = document.getElementById('langVariantModalTitle');
+      const langList = document.getElementById('langVariantList');
+      const langSeqInput = document.getElementById('langVariantSeqName');
+
+      if (!modal) return;
+      modalTitle.textContent = 'Language Variants — ' + (displayName || sequenceName);
+      langSeqInput.value = sequenceName;
+      langList.innerHTML = '<span class="muted">Loading…</span>';
+      modal.style.display = 'flex';
+
+      await refreshLanguageVariantList(sequenceName);
+    }
+
+    function closeLanguageModal() {
+      const modal = document.getElementById('langVariantModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function refreshLanguageVariantList(sequenceName) {
+      const langList = document.getElementById('langVariantList');
+      try {
+        const res = await fetch('/api/admin/audio-cache/languages/' + encodeURIComponent(sequenceName), { credentials: 'include' });
+        const data = await res.json();
+        const langs = (data.languages || []).filter(l => l !== 'default');
+        langList.innerHTML = '';
+        if (langs.length === 0) {
+          const empty = document.createElement('span');
+          empty.className = 'muted';
+          empty.style.fontSize = '0.85rem';
+          empty.textContent = 'No language variants uploaded yet.';
+          langList.appendChild(empty);
+        } else {
+          langs.forEach(lang => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--border);';
+            const label = document.createElement('span');
+            label.style.cssText = 'font-size:0.85rem; font-weight:600; text-transform:uppercase; min-width:32px;';
+            label.textContent = lang;
+            const btn = document.createElement('button');
+            btn.className = 'danger';
+            btn.style.cssText = 'padding:2px 8px; font-size:0.8rem;';
+            btn.textContent = 'Remove';
+            btn.addEventListener('click', () => deleteLanguageVariant(sequenceName, lang));
+            row.appendChild(label);
+            row.appendChild(btn);
+            langList.appendChild(row);
+          });
+        }
+      } catch (e) {
+        langList.innerHTML = '<span class="muted">Error: ' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    async function uploadLanguageVariant() {
+      const seqName = document.getElementById('langVariantSeqName').value;
+      const langCode = (document.getElementById('langVariantCode').value || '').toLowerCase().trim();
+      const fileInput = document.getElementById('langVariantFile');
+      const statusEl = document.getElementById('langVariantStatus');
+
+      if (!langCode || !/^[a-z]{2,10}$/.test(langCode)) {
+        statusEl.textContent = 'Language code must be 2-10 lowercase letters (e.g. es, fr, de)';
+        statusEl.style.color = 'var(--status-danger)';
+        return;
+      }
+      if (!fileInput.files || !fileInput.files[0]) {
+        statusEl.textContent = 'Select an audio file first.';
+        statusEl.style.color = 'var(--status-danger)';
+        return;
+      }
+
+      statusEl.textContent = 'Computing hash…';
+      statusEl.style.color = '';
+
+      const file = fileInput.files[0];
+      const buf = await file.arrayBuffer();
+      // SHA-256 in browser
+      const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+      const hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+
+      statusEl.textContent = 'Uploading…';
+      try {
+        const res = await fetch(
+          '/api/admin/audio-cache/languages/' + encodeURIComponent(seqName) +
+          '?lang=' + encodeURIComponent(langCode) +
+          '&hash=' + encodeURIComponent(hash) +
+          '&mimeType=' + encodeURIComponent(file.type || 'audio/mpeg'),
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': file.type || 'audio/mpeg' },
+            body: buf,
+          }
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          statusEl.textContent = 'Upload failed: ' + (data.error || res.status);
+          statusEl.style.color = 'var(--status-danger)';
+          return;
+        }
+        statusEl.textContent = 'Uploaded ' + langCode.toUpperCase() + ' variant (' + formatBytes(data.sizeBytes || 0) + ')';
+        statusEl.style.color = 'var(--status-ok, green)';
+        fileInput.value = '';
+        document.getElementById('langVariantCode').value = '';
+        await refreshLanguageVariantList(seqName);
+      } catch (e) {
+        statusEl.textContent = 'Upload error: ' + e.message;
+        statusEl.style.color = 'var(--status-danger)';
+      }
+    }
+
+    async function deleteLanguageVariant(sequenceName, lang) {
+      const ok = await showConfirm('Remove ' + lang.toUpperCase() + ' variant?', 'Viewers will hear the default track for this language.');
+      if (!ok) return;
+      try {
+        const res = await fetch(
+          '/api/admin/audio-cache/languages/' + encodeURIComponent(sequenceName) + '/' + encodeURIComponent(lang),
+          { method: 'DELETE', credentials: 'include' }
+        );
+        if (!res.ok) { await showAlert('Delete failed (' + res.status + ')'); return; }
+        await refreshLanguageVariantList(sequenceName);
+      } catch (e) {
+        await showAlert('Delete error: ' + e.message);
+      }
+    }
+
+    // ============================================================
+    // Translation (v0.33.175+)
+    // ============================================================
+
+    // Called when the viewer-translation sub-tab is opened, and also on
+    // initial page load if translation was previously enabled. Loads the
+    // current translation settings into the form fields.
+    async function loadTranslationSettings() {
+      try {
+        const res = await fetch('/api/admin/config', { credentials: 'include' });
+        const c = await res.json();
+        setChk('cfg_translation_enabled', c.translation_enabled);
+        toggleTranslationSettings(c.translation_enabled === 1);
+        const backend = c.translation_backend || 'mymemory';
+        setVal('cfg_translation_backend', backend);
+        updateTranslationBackendUI();
+        setVal('cfg_translation_api_url', c.translation_api_url || 'https://libretranslate.com');
+        if (backend === 'deepl') {
+          document.getElementById('cfg_translation_api_key_deepl').value = c.translation_api_key || '';
+        } else {
+          document.getElementById('cfg_translation_api_key_libre').value = c.translation_api_key || '';
+        }
+        refreshTranslationCache();
+      } catch (e) { /* silent — tab may not be visible yet */ }
+    }
+
+    function toggleTranslationSettings(enabled) {
+      const panel = document.getElementById('translationSettingsPanel');
+      if (panel) panel.style.display = enabled ? 'block' : 'none';
+      if (enabled) refreshTranslationCache();
+    }
+
+    function updateTranslationBackendUI() {
+      const backend = document.getElementById('cfg_translation_backend').value;
+      const libreEl = document.getElementById('libreTranslateSettings');
+      const deeplEl = document.getElementById('deeplSettings');
+      if (libreEl) libreEl.style.display = backend === 'libretranslate' ? 'block' : 'none';
+      if (deeplEl) deeplEl.style.display = backend === 'deepl' ? 'block' : 'none';
+      // MyMemory needs no config — both panels hidden
+    }
+
+    async function testTranslation() {
+      const statusEl = document.getElementById('translationTestStatus');
+      statusEl.textContent = 'Testing…';
+      statusEl.style.color = '';
+      try {
+        const res = await fetch('/api/admin/translation/test', { credentials: 'include' });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = `✓ Working — "${data.input}" → "${data.output}" (${data.lang})`;
+          statusEl.style.color = 'var(--status-ok, green)';
+        } else {
+          statusEl.textContent = '✗ ' + (data.error || 'Test failed');
+          statusEl.style.color = 'var(--status-danger)';
+        }
+      } catch (e) {
+        statusEl.textContent = '✗ ' + e.message;
+        statusEl.style.color = 'var(--status-danger)';
+      }
+    }
+
+    async function refreshTranslationCache() {
+      const list = document.getElementById('translationCacheList');
+      if (!list) return;
+      try {
+        const res = await fetch('/api/admin/translation/cache', { credentials: 'include' });
+        const data = await res.json();
+        const rows = data.rows || [];
+        if (rows.length === 0) {
+          list.innerHTML = '<span class="muted">No cached translations yet.</span>';
+          return;
+        }
+        list.innerHTML = '<table style="width:100%; border-collapse:collapse;">' +
+          '<thead><tr>' +
+          '<th style="text-align:left; padding:4px 8px;">Template</th>' +
+          '<th style="text-align:left; padding:4px 8px;">Language</th>' +
+          '<th style="text-align:right; padding:4px 8px;">Size</th>' +
+          '<th style="text-align:left; padding:4px 8px;">Cached</th>' +
+          '<th style="width:60px;"></th>' +
+          '</tr></thead><tbody>' +
+          rows.map(r => '<tr style="border-top:1px solid var(--border);">' +
+            '<td style="padding:4px 8px;">' + escapeHtml(r.template_name || 'Template ' + r.template_id) + '</td>' +
+            '<td style="padding:4px 8px; text-transform:uppercase; font-weight:600;">' + escapeHtml(r.lang) + '</td>' +
+            '<td style="padding:4px 8px; text-align:right;">' + formatBytes(r.size_bytes) + '</td>' +
+            '<td style="padding:4px 8px; color:var(--text-muted); font-size:0.82rem;">' + escapeHtml(r.cached_at || '') + '</td>' +
+            '<td style="padding:4px 8px;">' +
+              '<button class="danger" style="padding:2px 8px; font-size:0.8rem;" onclick="clearTranslationCacheEntry(' + r.template_id + ',' + JSON.stringify(r.lang) + ')">Clear</button>' +
+            '</td>' +
+          '</tr>').join('') +
+          '</tbody></table>';
+      } catch (e) {
+        list.innerHTML = '<span class="muted">Error loading cache: ' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    async function clearTranslationCache() {
+      if (!await showConfirm('Clear all translation cache?', 'All cached translations will be rebuilt on next visitor request.')) return;
+      try {
+        await fetch('/api/admin/translation/cache', { method: 'DELETE', credentials: 'include' });
+        await refreshTranslationCache();
+      } catch (e) {
+        await showAlert('Error: ' + e.message);
+      }
+    }
+
+    async function clearTranslationCacheEntry(templateId, lang) {
+      try {
+        await fetch('/api/admin/translation/cache/' + templateId + '/' + encodeURIComponent(lang),
+          { method: 'DELETE', credentials: 'include' });
+        await refreshTranslationCache();
+      } catch (e) {
+        await showAlert('Error: ' + e.message);
       }
     }
 
@@ -4617,6 +5318,12 @@
     // delete-self button, header shows username).
     window._ofCurrentUser = null;
 
+    // v0.33.209: switch this user to the new admin layout (same page, restyled).
+    async function useNewAdminLayout() {
+      await api('/me/layout', { method: 'PUT', body: JSON.stringify({ layout: 'new' }) });
+      location.reload();
+    }
+
     async function checkAuth() {
       const r = await api('/me');
       if (r.ok) {
@@ -4625,6 +5332,13 @@
         renderHeaderUser();
         hide('loginView'); show('appView');
         await loadAll();
+        // v0.33.209: new layout (default) unless the user chose classic.
+        if (window.SPNew) window.SPNew.apply(r.data);
+        // /admin/?section=<tab> opens that tab.
+        {
+          const sec = (new URLSearchParams(location.search).get('section') || '').replace(/[^a-z-]/g, '');
+          if (sec && document.querySelector('.tab-btn[data-tab="' + sec + '"]')) switchMainTab(sec);
+        }
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
       } else {
         show('loginView'); hide('appView');
@@ -4716,6 +5430,8 @@
         renderHeaderUser();
         hide('loginView'); show('appView');
         await loadAll();
+        // v0.33.209: new layout (default) unless the user chose classic.
+        if (me.ok && window.SPNew) window.SPNew.apply(me.data);
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
         // Clear sensitive fields
         document.getElementById('loginPassword').value = '';
@@ -4749,6 +5465,12 @@
     }
 
     async function loadAll() {
+      // Populate version from server so we never have to edit two files per release
+      fetch('/health').then(r => r.json()).then(d => {
+        const el = document.querySelector('.app-version');
+        if (el && d.version) el.textContent = 'v' + d.version;
+      }).catch(() => {});
+
       await Promise.all([
         (window.loadConfig || loadConfig)(),
         (window.loadStats || loadStats)(),
@@ -4786,6 +5508,15 @@
       setChk('cfg_reset_votes_after_round', c.reset_votes_after_round);
       setChk('cfg_tiebreak_enabled', c.tiebreak_enabled);
       setVal('cfg_tiebreak_duration_sec', c.tiebreak_duration_sec || 60);
+      // Race settings (v0.33.156+)
+      setChk('cfg_race_end_on_sequence_end', c.race_end_on_sequence_end);
+      setVal('cfg_race_duration_seconds', c.race_duration_seconds || 60);
+      setVal('cfg_race_target_taps', c.race_target_taps || 0);
+      setChk('cfg_race_interrupt_winner', c.race_interrupt_winner);
+      setVal('cfg_race_instructions_text', c.race_instructions_text || '');
+      setVal('cfg_race_font_size', c.race_font_size || '0.9em');
+      setChk('cfg_race_use_template_css', c.race_use_template_css);
+      updateRaceDurationVisibility();
       setChk('cfg_play_psa_enabled', c.play_psa_enabled);
       setVal('cfg_psa_frequency', c.psa_frequency);
       // Trigger mode (v0.30.0+): drives which help block + label text shows.
@@ -4803,7 +5534,17 @@
       setChk('cfg_audio_gate_enabled', c.audio_gate_enabled);
       setVal('cfg_audio_gate_radius_miles', c.audio_gate_radius_miles || 0.5);
       setVal('cfg_audio_sync_offset_ms', c.audio_sync_offset_ms || 0);
+      setVal('cfg_audio_daemon_port', c.audio_daemon_port || 8090);
       setChk('cfg_viewer_source_obfuscate', c.viewer_source_obfuscate);
+      setChk('cfg_debug_overlay_enabled', c.debug_overlay_enabled);
+      setChk('cfg_player_stats_enabled', c.player_stats_enabled);
+      setChk('cfg_debug_sync_probe', c.debug_sync_probe === 1);
+      setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
+      setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
+      setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
+      setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);
+      setChk('cfg_player_tall_layout', c.player_tall_layout === 1);
+
       setChk('cfg_pwa_admin_enabled', c.pwa_admin_enabled);
       setChk('cfg_pwa_viewer_enabled', c.pwa_viewer_enabled);
       setVal('cfg_pwa_viewer_name', c.pwa_viewer_name || '');
@@ -4813,6 +5554,7 @@
       updateAudioGateVisibility();
       updateAllowVoteChangeVisibility();
       setVal('cfg_hide_sequence_after_played', c.hide_sequence_after_played);
+      setChk('cfg_cooldown_suppress_fpp_playlist', c.cooldown_suppress_fpp_playlist);
       setVal('cfg_blocked_ips', c.blocked_ips || '');
       setVal('cfg_public_base_url', c.public_base_url || '');
       setVal('cfg_player_decoration', c.player_decoration || 'none');
@@ -4826,6 +5568,11 @@
         : (c.page_snow_enabled ? 'snow' : 'none');
       setVal('cfg_page_effect', effectName);
       setVal('cfg_page_effect_color', c.page_effect_color || '');
+      // Song progress bar (v0.33.206+)
+      setChk('cfg_viewer_progress_bar', c.viewer_progress_bar);
+      setVal('cfg_viewer_progress_bar_position', c.viewer_progress_bar_position === 'screen-top' ? 'screen-top' : 'player');
+      setChk('cfg_viewer_progress_bar_show_time', c.viewer_progress_bar_show_time !== 0);
+      setVal('cfg_viewer_progress_bar_color', /^#[0-9a-f]{6}$/i.test(c.viewer_progress_bar_color || '') ? c.viewer_progress_bar_color : '#f5f5f5');
       setVal('cfg_page_effect_intensity', c.page_effect_intensity || 'medium');
       syncPageEffectColorPicker();
       updatePageEffectColorPlaceholder();
@@ -4838,6 +5585,71 @@
       updateLauncherIconPreview(c.launcher_icon_data || '');
       updateLauncherUI();
       updateLocationMap();
+      // QR card — update whenever config is reloaded in case public_base_url changed
+      loadQrCard(c.public_base_url || '');
+    }
+
+    // ----------------------------------------------------------------
+    // QR code card (dashboard)
+    // The QR image is generated server-side via GET /api/admin/qr-code
+    // so there's no client-side QR library needed. The card is hidden
+    // until public_base_url is configured; a prompt card is shown instead.
+    // ----------------------------------------------------------------
+    let _qrCurrentUrl = '';
+
+    async function loadQrCard(publicBaseUrl) {
+      const card     = document.getElementById('qrCard');
+      const noUrlCard = document.getElementById('qrNoUrlCard');
+      if (!card || !noUrlCard) return;
+
+      const url = (publicBaseUrl || '').trim();
+      if (!url) {
+        card.style.display     = 'none';
+        noUrlCard.style.display = 'block';
+        return;
+      }
+
+      noUrlCard.style.display = 'none';
+      card.style.display      = 'block';
+      _qrCurrentUrl = url;
+
+      document.getElementById('qrViewerUrl').textContent = url;
+
+      // Fetch the QR image; add a cache-buster only when the URL changes so
+      // repeat loadConfig calls don't re-request the same PNG.
+      const img = document.getElementById('qrImg');
+      const src = '/api/admin/qr-code?cb=' + encodeURIComponent(url);
+      if (img.dataset.url !== url) {
+        img.dataset.url = url;
+        img.data = src;  // <object> uses .data not .src
+      }
+    }
+
+    async function copyViewerUrl() {
+      if (!_qrCurrentUrl) return;
+      try {
+        await navigator.clipboard.writeText(_qrCurrentUrl);
+        const btn = document.getElementById('qrCopyBtn');
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      } catch (e) {
+        prompt('Copy this URL:', _qrCurrentUrl);
+      }
+    }
+
+    function downloadQr() {
+      if (!_qrCurrentUrl) return;
+      fetch('/api/admin/qr-code?cb=' + encodeURIComponent(_qrCurrentUrl))
+        .then(r => r.blob())
+        .then(blob => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'viewer-qr.svg';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        })
+        .catch(() => alert('Download failed. Try right-clicking the QR image and saving it.'));
     }
 
     function updateViewerRequestLimitVisibility() {
@@ -5328,6 +6140,15 @@
 
     // Update an input value WITHOUT clobbering what the user is currently typing.
     // Skip the field if it has focus (user is in the middle of editing it).
+    // ---- Audio sync offset helpers ----
+    function toggleAudioSyncSign() {
+      const el = document.getElementById('cfg_audio_sync_offset_ms');
+      const current = parseInt(el.value) || 0;
+      const next = -current;
+      el.value = next;
+      saveSetting('audio_sync_offset_ms', next);
+    }
+
     function setVal(id, v) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -5347,6 +6168,7 @@
       // Per-sub-tab data refresh hooks. Same pattern as switchMainTab —
       // refresh-on-open keeps the UI fresh without polling when not visible.
       if (name === 'public-access') loadCloudflaredStatus();
+      if (name === 'viewer-translation') loadTranslationSettings();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're
@@ -5355,6 +6177,13 @@
         refreshUpdateStatus({ force: false });
         updatesLoadedOnce = true;
       }
+    }
+
+    // Song progress bar color: '' means match the player theme (v0.33.207+).
+    function resetProgressBarColor() {
+      const el = document.getElementById('cfg_viewer_progress_bar_color');
+      if (el) el.value = '#f5f5f5';
+      saveSetting('viewer_progress_bar_color', '');
     }
 
     async function saveSetting(key, value) {
@@ -5554,6 +6383,9 @@
           setVcToggle(btn, true);
         }
       }
+      // Show Race Reset button only in RACE mode
+      const raceResetBtn = document.getElementById('raceResetBtn');
+      if (raceResetBtn) raceResetBtn.style.display = mode === 'RACE' ? '' : 'none';
       // Also update the header mode pill
       const pill = document.getElementById('modePill');
       if (pill) {
@@ -5818,7 +6650,167 @@
     // The functions that mutate this set are still defined further down.
     const _seqSelection = new Set();
 
+    // ======= Sequence categories =======
+    let categoriesCache = [];
+    const CATEGORY_NEW = '__sp_new_category__';
+
+    function fillCategorySelect(sel, current, noneLabel) {
+      sel.innerHTML = '';
+      const add = (value, text) => {
+        const o = document.createElement('option');
+        o.value = value; o.textContent = text;
+        sel.appendChild(o);
+        return o;
+      };
+      add('', noneLabel);
+      const cur = String(current || '').trim().toLowerCase();
+      let matched = !cur;
+      categoriesCache.forEach(c => {
+        const o = add(c.name, c.enabled ? c.name : c.name + ' (off)');
+        if (c.name.toLowerCase() === cur) { o.selected = true; matched = true; }
+      });
+      if (!matched) add(current, current).selected = true;
+      add(CATEGORY_NEW, '+ New category…');
+    }
+
+    async function loadCategories() {
+      const r = await api('/categories');
+      if (!r.ok) return;
+      categoriesCache = r.data || [];
+      renderCategoriesList();
+      const bulkSel = document.getElementById('seqBulkCategory');
+      if (bulkSel) fillCategorySelect(bulkSel, '', 'Set category…');
+    }
+
+    function renderCategoriesList() {
+      const host = document.getElementById('categoriesList');
+      if (!host) return;
+      host.innerHTML = '';
+      if (categoriesCache.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.fontSize = '0.85rem';
+        p.textContent = 'No categories yet. Add one below, or pick “+ New category…” on any sequence.';
+        host.appendChild(p);
+        return;
+      }
+      categoriesCache.forEach((c, idx) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.cssText = 'align-items:center; gap:0.6rem; margin:0; padding:0.35rem 0; border-bottom:1px solid var(--border);';
+
+        const tog = document.createElement('label');
+        tog.className = 'toggle';
+        tog.style.transform = 'scale(0.7)';
+        tog.title = c.enabled ? 'Enabled — click to hide this category from viewers' : 'Disabled — click to show this category to viewers';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = !!c.enabled;
+        cb.addEventListener('change', () => categoryAction('/categories/enabled', { name: c.name, enabled: cb.checked }));
+        const sl = document.createElement('span'); sl.className = 'slider';
+        tog.appendChild(cb); tog.appendChild(sl);
+
+        const name = document.createElement('span');
+        name.style.cssText = 'flex:1; font-weight:600;' + (c.enabled ? '' : ' opacity:0.55; text-decoration: line-through;');
+        name.textContent = c.name;
+
+        const count = document.createElement('span');
+        count.className = 'muted';
+        count.style.fontSize = '0.85rem';
+        count.textContent = c.sequence_count + (c.sequence_count === 1 ? ' sequence' : ' sequences');
+
+        const mkBtn = (text, title, fn, cls, disabled) => {
+          const b = document.createElement('button');
+          b.className = cls || 'secondary'; b.textContent = text; b.title = title;
+          b.disabled = !!disabled;
+          b.addEventListener('click', fn);
+          return b;
+        };
+        const up = mkBtn('↑', 'Move up (viewer page order)', () => moveCategory(idx, -1), 'secondary', idx === 0);
+        const down = mkBtn('↓', 'Move down (viewer page order)', () => moveCategory(idx, 1), 'secondary', idx === categoriesCache.length - 1);
+        const ren = mkBtn('Rename', 'Rename this category', async () => {
+          const nn = await showPrompt('Rename category', c.name);
+          if (nn && nn.trim() && nn.trim() !== c.name) categoryAction('/categories/rename', { name: c.name, new_name: nn.trim() });
+        });
+        const del = mkBtn('Delete', 'Delete this category (its sequences become uncategorized)', async () => {
+          const ok = await showConfirm(`Delete category “${c.name}”?\n\nIts ${c.sequence_count} sequence(s) are NOT deleted — they just become uncategorized.`, { danger: true, okLabel: 'Delete' });
+          if (ok) categoryAction('/categories/delete', { name: c.name });
+        }, 'danger');
+
+        [tog, name, count, up, down, ren, del].forEach(el => row.appendChild(el));
+        host.appendChild(row);
+      });
+    }
+
+    async function categoryAction(path, body) {
+      const r = await api(path, { method: 'POST', body: JSON.stringify(body) });
+      if (!r.ok) showAlert('Category update failed — the name may be empty or already in use.');
+      await loadSequences(); // also reloads categories
+    }
+
+    function moveCategory(idx, delta) {
+      const names = categoriesCache.map(c => c.name);
+      const j = idx + delta;
+      if (j < 0 || j >= names.length) return;
+      [names[idx], names[j]] = [names[j], names[idx]];
+      categoryAction('/categories/reorder', { names });
+    }
+
+    function addCategory() {
+      const input = document.getElementById('newCategoryName');
+      const name = input.value.trim();
+      if (!name) return;
+      input.value = '';
+      categoryAction('/categories', { name });
+    }
+
+    // Resolves a category <select> to a name; handles the "+ New category…" option.
+    // Returns undefined if the user cancelled.
+    async function resolveCategoryChoice(sel) {
+      if (sel.value !== CATEGORY_NEW) return sel.value;
+      const nn = await showPrompt('New category name', '');
+      if (!nn || !nn.trim()) return undefined;
+      return nn.trim();
+    }
+
+    async function onSeqCategoryChange(id, sel) {
+      const value = await resolveCategoryChoice(sel);
+      if (value === undefined) { loadSequences(); return; }
+      await updateSeqField(id, 'category', value);
+      loadSequences(); // refresh counts + pick up canonical spelling / new category
+    }
+
+    async function bulkSetCategory(sel) {
+      if (_seqSelection.size === 0) { sel.value = ''; return; }
+      const value = await resolveCategoryChoice(sel);
+      if (value === undefined) { sel.value = ''; return; }
+      await api('/sequences/bulk-category', { method: 'POST', body: JSON.stringify({ ids: Array.from(_seqSelection), category: value }) });
+      clearSeqSelection();
+      loadSequences();
+    }
+
+    async function loadCategoryDisplayOptions() {
+      const r = await api('/config');
+      if (!r.ok) return;
+      const cb = document.getElementById('cfgViewerShowCategories');
+      const lbl = document.getElementById('cfgUncategorizedLabel');
+      if (cb) cb.checked = r.data.viewer_show_categories !== 0;
+      if (lbl) lbl.value = r.data.uncategorized_label || 'Other';
+    }
+
+    async function saveCategoryDisplayOptions() {
+      const label = document.getElementById('cfgUncategorizedLabel').value.trim() || 'Other';
+      await api('/config', { method: 'PUT', body: JSON.stringify({
+        viewer_show_categories: document.getElementById('cfgViewerShowCategories').checked ? 1 : 0,
+        uncategorized_label: label,
+      }) });
+    }
+
+    let _categoryOptionsLoaded = false;
+
     async function loadSequences() {
+      // Categories first — each row's Category dropdown is built from the cache.
+      await loadCategories();
+      if (!_categoryOptionsLoaded) { _categoryOptionsLoaded = true; loadCategoryDisplayOptions(); }
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
@@ -5851,6 +6843,8 @@
       const tr = document.createElement('tr');
       tr.draggable = true;
       tr.dataset.id = seq.id;
+      tr.dataset.seqName = seq.name || '';
+      tr.dataset.seqDisplay = seq.display_name || seq.name || '';
 
       const art = seq.image_url
         ? `<img class="art-thumb" src="${escapeAttr(seq.image_url)}" onclick="promptImageUrl(${seq.id}, ${JSON.stringify(seq.image_url || '').replace(/"/g,'&quot;')})" title="Click to change artwork" />`
@@ -5865,6 +6859,7 @@
         <td><code>${escapeHtml(seq.name)}</code></td>
         <td><span class="editable" contenteditable="true"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
+        <td><select class="seq-category-select" style="width: 140px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -5876,9 +6871,25 @@
         <td style="white-space: nowrap;">
           <button class="secondary" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" style="margin-right: 0.4rem;">▶</button>
           <button class="secondary" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" style="margin-right: 0.4rem;">🔍 Search</button>
+          ${seq.media_name ? '<button class="secondary sp-lang-btn" style="margin-right: 0.4rem;" title="Manage alternate-language audio variants">🌐 Languages</button>' : ''}
           <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
         </td>
       `;
+
+      // Category select — built with DOM APIs so names with quotes are safe.
+      const catSel = tr.querySelector('.seq-category-select');
+      if (catSel) {
+        fillCategorySelect(catSel, seq.category || '', '— none —');
+        catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
+      }
+
+      // Language variants button — wired here to avoid inline onclick quoting issues
+      const langBtn = tr.querySelector('.sp-lang-btn');
+      if (langBtn) {
+        langBtn.addEventListener('click', () => {
+          openLanguageModal(tr.dataset.seqName, tr.dataset.seqDisplay);
+        });
+      }
 
       // Drag handlers
       tr.addEventListener('dragstart', onDragStart);
@@ -6291,6 +7302,19 @@
       if (!await showConfirm('Reset all votes for current round?', { okLabel: 'Reset' })) return;
       await api('/reset-votes', { method: 'POST' });
       loadStats();
+    }
+
+    async function resetRace() {
+      if (!await showConfirm('Reset race and start a new round? All current taps will be cleared.', { okLabel: 'Reset Race' })) return;
+      await api('/race/reset', { method: 'POST' });
+    }
+
+    function updateRaceDurationVisibility() {
+      const endOnSong = document.getElementById('cfg_race_end_on_sequence_end');
+      const durationRow = document.getElementById('race_duration_row');
+      if (endOnSong && durationRow) {
+        durationRow.style.display = endOnSong.checked ? 'none' : '';
+      }
     }
 
     async function purgeQueue() {
@@ -7048,11 +8072,21 @@
     let selectedTplId = null;
     let loadedContent = '';
 
+    let _monacoInitPromise = null;
     function initMonacoIfNeeded() {
       if (monacoEditor) return Promise.resolve();
-      return new Promise((resolve) => {
-        if (typeof require === 'undefined') return resolve();
-        require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.45.0/min/vs' } });
+      // `monacoEditor` is only assigned once the async require() below
+      // resolves. Several call sites (tab switch, PDF export, etc.) can
+      // each fire before that happens, and each would otherwise pass the
+      // guard above and re-issue require(['vs/editor/editor.main']),
+      // which is what produces AMD's "Duplicate definition of module"
+      // warning — harmless-looking but wasteful and a source of subtle
+      // double-init bugs. Caching the in-flight promise makes every
+      // caller await the same single load.
+      if (_monacoInitPromise) return _monacoInitPromise;
+      _monacoInitPromise = new Promise((resolve) => {
+        if (typeof require === 'undefined') { _monacoInitPromise = null; return resolve(); }
+        require.config({ paths: { vs: '/vendor/monaco/vs' } });
         require(['vs/editor/editor.main'], () => {
           monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
             value: '',
@@ -7872,6 +8906,9 @@
           badge.textContent = 'ON · ' + mode;
           setVcToggle(btn, true);
         }
+        // Show Reset Race button only in RACE mode
+        const raceResetBtn = document.getElementById('raceResetBtn');
+        if (raceResetBtn) raceResetBtn.style.display = mode === 'RACE' ? '' : 'none';
         updateModePill(mode);
       };
     }

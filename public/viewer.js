@@ -52,6 +52,8 @@
 
     state.mode = data.viewerControlMode;
     state.sequences = data.sequences;
+    state.categoryHeaders = data.categoryHeaders !== false;
+    state.uncategorizedLabel = data.uncategorizedLabel || 'Other';
     state.voteCounts = Object.fromEntries((data.voteCounts || []).map(v => [v.sequence_name, v.count]));
     state.queue = data.queue || [];
     state.allowVoteChange = data.allowVoteChange === true;
@@ -77,10 +79,34 @@
     if (data.viewerControlMode === 'JUKEBOX') renderJukeboxList();
   }
 
+  // Category headings. /api/state delivers sequences pre-grouped by
+  // category; emit a heading <li> whenever the category changes. Returns a
+  // function to call once per sequence, before appending its row.
+  function categoryHeaderEmitter(list, seqs) {
+    const on = state.categoryHeaders !== false &&
+      seqs.some(s => s.category && String(s.category).trim());
+    let prevKey = null;
+    return function (seq) {
+      if (!on) return;
+      const label = (seq.category && String(seq.category).trim()) || state.uncategorizedLabel || 'Other';
+      const key = label.toLowerCase();
+      if (key === prevKey) return;
+      prevKey = key;
+      const li = document.createElement('li');
+      li.className = 'sequence-category-header';
+      li.setAttribute('data-showpilot-category', label);
+      li.textContent = label;
+      list.appendChild(li);
+    };
+  }
+
   function renderVoteList() {
     const list = el('voteList');
     list.innerHTML = '';
-    state.sequences.filter(s => s.votable).forEach(seq => {
+    const votableSeqs = state.sequences.filter(s => s.votable);
+    const emitVoteHeader = categoryHeaderEmitter(list, votableSeqs);
+    votableSeqs.forEach(seq => {
+      emitVoteHeader(seq);
       const count = state.voteCounts[seq.name] || 0;
       const li = document.createElement('li');
       const btn = document.createElement('button');
@@ -105,7 +131,10 @@
     list.innerHTML = '';
     // Sequences in cooldown are filtered out server-side (in /state) so
     // we don't need to render them as disabled — they simply aren't here.
-    state.sequences.filter(s => s.jukeboxable).forEach(seq => {
+    const jukeboxSeqs = state.sequences.filter(s => s.jukeboxable);
+    const emitJukeboxHeader = categoryHeaderEmitter(list, jukeboxSeqs);
+    jukeboxSeqs.forEach(seq => {
+      emitJukeboxHeader(seq);
       const li = document.createElement('li');
       const btn = document.createElement('button');
       btn.innerHTML = `<span>${escapeHtml(seq.display_name)}${seq.artist ? ' — ' + escapeHtml(seq.artist) : ''}</span><span>+</span>`;

@@ -8,8 +8,11 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp } = require('../lib/db');
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp,
+        addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
+const categories = require('../lib/categories');
+const { progressBarConfig } = require('../lib/progress-bar');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -206,8 +209,10 @@ router.get('/state', (req, res) => {
   // state to anonymous users. last_played_at and plays_since_hidden
   // were already exposed to viewers pre-v0.29.2 and we keep them for
   // backward compat with custom templates.
+  //   3. disabled categories — applyCategoryView drops them and
+  //      groups the remainder into category order for header rendering.
   const sequences = bustSequenceCovers(
-    allSequences
+    categories.applyCategoryView(allSequences, cfg)
       .filter(s => !isSequenceHidden(s, cfg))
       .filter(s => !sequenceCooldownUntil(s))
       .map(({ cooldown_minutes, ...rest }) => rest)
@@ -261,9 +266,18 @@ router.get('/state', (req, res) => {
     nowPlaying: nowPlaying.sequence_name || null,
     nowPlayingStartedAtIso,
     nowPlayingDurationSeconds,
+    // v0.33.206: server clock (for the viewer page's clock-offset estimate,
+    // used by {NOW_PLAYING_TIMER} and the progress bar) and the progress
+    // bar settings, so admin changes reach open pages without a reload.
+    serverNowMs: Date.now(),
+    progressBar: progressBarConfig(cfg),
     nextScheduled: nextUp,
     activeViewers,
     sequences,
+    // Category headers: rf-compat emits a header row whenever
+    // `category` changes between consecutive sequences (list arrives pre-grouped).
+    categoryHeaders: categories.headersEnabled(cfg),
+    uncategorizedLabel: categories.uncategorizedLabel(cfg),
     voteCounts,
     queue,
     requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
@@ -290,6 +304,14 @@ router.get('/state', (req, res) => {
       // regardless of network/render lag.
       deadlineAtIso: cfg.tiebreak_deadline_at,
       startedAtIso: cfg.tiebreak_started_at,
+    } : null,
+    // Race mode state (v0.33.155+)
+    race: cfg.viewer_control_mode === 'RACE' ? {
+      active: cfg.race_active === 1,
+      endsAt: cfg.race_ends_at || null,
+      winner: cfg.race_winner || null,
+      targetTaps: cfg.race_target_taps || 0,
+      tapCounts: getRaceTapCounts(),
     } : null,
   });
 });
@@ -321,6 +343,9 @@ router.post('/vote', (req, res) => {
   const seq = getSequenceByName(sequenceName);
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
   if (!seq.votable || seq.is_psa) return res.status(400).json({ error: 'Sequence is not votable' });
+  if (categories.isCategoryDisabled(seq.category, cfg)) {
+    return res.status(400).json({ error: 'That sequence is not available right now.' });
+  }
   if (isSequenceHidden(seq, cfg)) {
     return res.status(400).json({ error: 'That sequence was recently played. Try another.' });
   }
@@ -509,6 +534,109 @@ router.post('/tiebreak-vote', (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================
+// Race mode tap (v0.33.155+)
+// POST /api/race/tap  { sequenceName }
+// No uniqueness restriction — one viewer can tap many times.
+// ============================================================
+
+// Race timer handle. One global per process — only one race can be active.
+let _raceTimerHandle = null;
+
+function clearRaceTimer() {
+  if (_raceTimerHandle) {
+    clearTimeout(_raceTimerHandle);
+    _raceTimerHandle = null;
+  }
+}
+
+// Called when a winner is decided (timer expiry or target hit).
+// Writes the winner to config, emits raceWinner socket event,
+// disables tap buttons client-side.
+function resolveRace(io, winnerName, winnerDisplayName, winnerArtist, tapCount) {
+  clearRaceTimer();
+  db.prepare(`UPDATE config SET race_active = 0, race_winner = ? WHERE id = 1`).run(winnerName);
+  if (io) {
+    io.emit('raceWinner', {
+      sequenceName: winnerName,
+      displayName:  winnerDisplayName,
+      artist:       winnerArtist || '',
+      tapCount,
+    });
+  }
+}
+
+// Start a new race: reset taps, write config timestamps, set race_active=1.
+// Called by admin reset-race endpoint and automatically on mode switch to RACE.
+function startRace(cfg) {
+  clearRaceTimer();
+  resetRaceTaps();
+  const now = new Date();
+  let endsAt = null;
+  if (!cfg.race_end_on_sequence_end && cfg.race_duration_seconds > 0) {
+    endsAt = new Date(now.getTime() + cfg.race_duration_seconds * 1000).toISOString();
+  }
+  db.prepare(`
+    UPDATE config SET
+      race_active = 1,
+      race_started_at = ?,
+      race_ends_at = ?,
+      race_winner = NULL
+    WHERE id = 1
+  `).run(now.toISOString(), endsAt);
+  return endsAt;
+}
+
+router.post('/race/tap', (req, res) => {
+  const cfg = runSafeguards(req, res, 'RACE');
+  if (!cfg) return;
+
+  // If a winner is already decided (race ended, waiting for song change), reject taps
+  if (cfg.race_winner || !cfg.race_active) {
+    return res.status(400).json({ error: 'Race is not active' });
+  }
+
+  const { sequenceName } = req.body || {};
+  if (!sequenceName) return res.status(400).json({ error: 'sequenceName required' });
+
+  const seq = getSequenceByName(sequenceName);
+  if (!seq || !seq.visible) return res.status(404).json({ error: 'Sequence not found' });
+  if (categories.isCategoryDisabled(seq.category, cfg)) {
+    return res.status(404).json({ error: 'Sequence not found' });
+  }
+
+  const viewerToken = ensureViewerToken(req, res);
+  addRaceTap(sequenceName, viewerToken);
+
+  const counts = getRaceTapCounts();
+  const io = req.app.get('io');
+
+  // Compute bars: highest tap count is 100%, others scale from that
+  const maxTaps = counts.length > 0 ? counts[0].count : 1;
+  const bars = {};
+  counts.forEach(r => { bars[r.sequence_name] = Math.round((r.count / maxTaps) * 100); });
+
+  if (io) {
+    io.emit('raceTapUpdate', { counts, bars, leadingSequence: counts[0]?.sequence_name || null });
+  }
+
+  // Check target-taps win condition
+  const targetTaps = cfg.race_target_taps || 0;
+  if (targetTaps > 0) {
+    const leader = counts[0];
+    if (leader && leader.count >= targetTaps) {
+      const winSeq = getSequenceByName(leader.sequence_name);
+      resolveRace(io, leader.sequence_name, winSeq?.display_name || leader.sequence_name, winSeq?.artist || '', leader.count);
+      return res.json({ ok: true, winner: leader.sequence_name });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+// POST /api/race/start  (admin only via viewer route guard would be wrong — see admin route)
+// POST /api/race/reset  (admin-only; see routes/admin.js)
+
 router.post('/jukebox/add', (req, res) => {
   const cfg = runSafeguards(req, res, 'JUKEBOX');
   if (!cfg) return;
@@ -520,6 +648,9 @@ router.post('/jukebox/add', (req, res) => {
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
   if (!seq.jukeboxable || seq.is_psa) {
     return res.status(400).json({ error: 'Sequence is not available via jukebox' });
+  }
+  if (categories.isCategoryDisabled(seq.category, cfg)) {
+    return res.status(400).json({ error: 'That sequence is not available right now.' });
   }
   if (isSequenceHidden(seq, cfg)) {
     return res.status(400).json({ error: 'That sequence was recently played. Try another.' });
@@ -597,6 +728,12 @@ router.post('/jukebox/add', (req, res) => {
     }
   }
 
+  // Check emptiness BEFORE the insert so we know if this is the first song
+  // added to an otherwise-idle queue (the "clean queue" case).
+  const queueWasEmpty = db.prepare(
+    `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`
+  ).get().n === 0;
+
   db.prepare(`
     INSERT INTO jukebox_queue (sequence_id, sequence_name, viewer_token)
     VALUES (?, ?, ?)
@@ -604,8 +741,38 @@ router.post('/jukebox/add', (req, res) => {
 
   db.prepare(`UPDATE config SET interactions_since_last_psa = interactions_since_last_psa + 1 WHERE id = 1`).run();
 
+  // Snapshot the main-playlist return point as the jukebox baseline so
+  // "Up Next" shows the correct song while the jukebox queue plays through.
+  const npNow = getNowPlaying();
+  if (cfg.interrupt_schedule) {
+    // Interrupt mode: FPP resumes the currently-playing song after the queue
+    // drains, so the currently-playing song IS the return point.
+    // Always overwrite (no queueWasEmpty guard) so a stale baseline from a
+    // prior non-interrupt session never silently shows the wrong song.
+    if (npNow.sequence_name) setBaselineNext(npNow.sequence_name);
+  } else if (queueWasEmpty) {
+    // Non-interrupt mode: jukebox songs play AFTER the current song finishes,
+    // so the return point is the next main-playlist song (Song B), not the
+    // currently-playing one (Song A, which will have already played).
+    // Only set once per session (when the queue was idle) — subsequent adds
+    // should not move the return point.
+    const npState = db.prepare(
+      'SELECT next_sequence_name FROM now_playing WHERE id = 1'
+    ).get();
+    if (npState && npState.next_sequence_name) {
+      setBaselineNext(npState.next_sequence_name);
+    }
+  }
+
   const io = req.app.get('io');
-  if (io) io.emit('queueUpdated');
+  if (io) {
+    io.emit('queueUpdated');
+    // Push the new "Up Next" immediately so viewers don't wait for the next
+    // state poll to see the queue entry appear in the up-next section.
+    const np = getNowPlaying();
+    const nextUp = getNextUp(cfg, np ? np.sequence_name : null);
+    if (nextUp) io.emit('nextScheduled', { sequenceName: nextUp });
+  }
 
   res.json({ ok: true });
 });
@@ -755,17 +922,51 @@ router.get('/now-playing-audio', (req, res) => {
     audioGateBlocked,
     audioGateReason,
   };
-  if (!np || !np.sequence_name) {
+  // v0.33.205: real-time override from FPP's own live messages (via the
+  // position relay). The listener updates now_playing on a ~1s poll, so a
+  // song change or Stop/Next used to reach viewers 1-3s late, clipping the
+  // start of songs. While the live state is fresh (< 3s), trust it.
+  // Read-only: this changes only what this endpoint answers.
+  let liveOverride = null; // { seq, elapsedSec }
+  try {
+    const { getLiveFpp } = require('../lib/audio-position-relay');
+    const live = getLiveFpp && getLiveFpp();
+    if (live && Date.now() - live.receivedAt < 3000) {
+      if (!live.playing) {
+        return res.json({ playing: false, liveStopped: true, ...visualConfig });
+      }
+      if (live.filename) {
+        const npSeq = np && np.sequence_name ? getSequenceByName(np.sequence_name) : null;
+        if (!npSeq || (npSeq.media_name || '').toLowerCase() !== live.filename.toLowerCase()) {
+          const liveSeq = db.prepare(
+            'SELECT * FROM sequences WHERE media_name = ? COLLATE NOCASE LIMIT 1'
+          ).get(live.filename);
+          if (liveSeq) {
+            const ageSec = Math.max(0, (Date.now() - (live.serverTs || live.receivedAt)) / 1000);
+            liveOverride = { seq: liveSeq, elapsedSec: live.positionSec + Math.min(ageSec, 3) };
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // Relay unavailable — fall back to the listener-reported state.
+  }
+
+  if (!liveOverride && (!np || !np.sequence_name)) {
     return res.json({ playing: false, ...visualConfig });
   }
-  const seq = getSequenceByName(np.sequence_name);
+  const seq = liveOverride ? liveOverride.seq : getSequenceByName(np.sequence_name);
   if (!seq || !seq.media_name) {
-    return res.json({ playing: true, hasAudio: false, sequenceName: np.sequence_name, ...visualConfig });
+    return res.json({ playing: true, hasAudio: false, sequenceName: liveOverride ? seq.name : np.sequence_name, ...visualConfig });
   }
 
   // How long has this song been playing? Used to seek the listener forward.
-  const startedAtMs = np.started_at ? new Date(np.started_at.replace(' ', 'T') + 'Z').getTime() : null;
+  const startedAtMs = liveOverride
+    ? Date.now() - liveOverride.elapsedSec * 1000
+    : (np.started_at ? new Date(np.started_at.replace(' ', 'T') + 'Z').getTime() : null);
   const elapsedSec = startedAtMs ? Math.max(0, (Date.now() - startedAtMs) / 1000) : 0;
+  const npSequenceName = liveOverride ? seq.name : np.sequence_name;
+  const npStartedAt = liveOverride ? new Date(startedAtMs).toISOString().replace('T', ' ').slice(0, 19) : np.started_at;
 
   // Look up the cached audio's hash and append it to the stream URL as a
   // cache buster. Without this, the browser may serve stale bytes from
@@ -793,13 +994,13 @@ router.get('/now-playing-audio', (req, res) => {
   res.json({
     playing: true,
     hasAudio: true,
-    sequenceName: np.sequence_name,
-    displayName: seq.display_name || np.sequence_name,
+    sequenceName: npSequenceName,
+    displayName: seq.display_name || npSequenceName,
     artist: seq.artist || '',
     imageUrl: bustCoverUrl(seq.image_url) || null,
     durationSec: seq.duration_seconds || null,
     elapsedSec: Math.round(elapsedSec * 10) / 10,
-    startedAt: np.started_at,
+    startedAt: npStartedAt,
     // Timestamp-anchored sync — Web Audio API uses these for sample-precise scheduling
     trackStartedAtMs: startedAtMs,
     serverNowMs: Date.now(),
@@ -815,7 +1016,7 @@ router.get('/now-playing-audio', (req, res) => {
       try {
         const { getLivePosition } = require('./plugin');
         const lp = getLivePosition && getLivePosition();
-        if (lp && lp.sequence === np.sequence_name) {
+        if (lp && lp.sequence === npSequenceName) {
           return {
             position: lp.position,
             updatedAt: lp.updatedAt,
@@ -834,10 +1035,33 @@ router.get('/now-playing-audio', (req, res) => {
     publicStreamUrl: cfg.public_base_url
       ? `${String(cfg.public_base_url).replace(/\/+$/, '')}/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`
       : '',
+    // Language variants available for this sequence. Empty array means only
+    // the default track exists and the language picker should stay hidden.
+    // When two or more entries exist (e.g. ['default','es']), rf-compat shows
+    // a language toggle in the player bar so viewers can switch.
+    languages: (() => {
+      try {
+        const audioCache = require('../lib/audio-cache');
+        return audioCache.getLanguagesForSequence(seq.name);
+      } catch (_) { return []; }
+    })(),
     // Relay URL — try this first for live sync. Falls back to streamUrl if relay
     // is not active (503 response). Relay is same-origin only (LAN/local listeners);
     // external listeners use publicStreamUrl which goes through the cache path.
+    // Raw filename on FPP (e.g. "08 - Bloody Mary.mp3"). Used by the
+    // client to match incoming fppSyncPoint events, which carry the
+    // filename not the sequence name.
+    mediaName: seq.media_name,
     relayUrl: `/api/audio-relay/${encodeURIComponent(seq.name)}`,
+    relayActive: (() => {
+      try {
+        const a = require('../lib/audio-relay').getActiveSequence();
+        // Also true if FPP host is configured — viewer will use fallback daemon proxy
+        const cfg = getConfig();
+        return !!(a && a.toLowerCase() === seq.name.toLowerCase()) ||
+               !!(cfg.plugin_fpp_host && seq.media_name);
+      } catch(_) { return false; }
+    })(),
     // Per-show sync offset in milliseconds. Positive = play audio LATER
     // (compensates for audio arriving too early — the typical case after
     // the cache change, since cache delivery is faster than the previous
@@ -854,40 +1078,64 @@ router.get('/now-playing-audio', (req, res) => {
 // ============================================================
 // GET /api/audio-relay/:sequence
 // ============================================================
-// Live broadcast relay endpoint. The server maintains one open
-// connection to FPP per playing song and fans the bytes to every
-// connected listener simultaneously. All listeners hear the same
-// bytes at the same wall-clock moment → automatic sync, no offset.
-//
-// Falls back to the cache/proxy endpoint if no relay is active for
-// this sequence (song not currently playing, relay not started yet,
-// or audio is disabled).
-router.get('/audio-relay/:sequence', (req, res) => {
+// Primary: shared relay — one daemon connection fanned to all viewers
+// simultaneously. All viewers get the same bytes at the same moment = sync.
+// Fallback: per-viewer daemon proxy if shared relay isn't active yet.
+router.head('/audio-relay/:sequence', (req, res) => {
   const cfg = getConfig();
-  if (cfg.audio_enabled === 0) {
-    return res.status(404).send('Audio is disabled for this show.');
-  }
+  if (cfg.audio_enabled === 0 || !cfg.plugin_fpp_host) return res.status(503).end();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.status(200).end();
+});
+
+router.get('/audio-relay/:sequence', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const cfg = getConfig();
+  if (cfg.audio_enabled === 0) return res.status(404).send('Audio is disabled.');
+  if (!cfg.plugin_fpp_host) return res.status(503).json({ error: 'no_fpp_host' });
 
   const reqName = String(req.params.sequence || '');
-  const { addListener, getActiveSequence } = require('../lib/audio-relay');
-
-  // Normalize: look up the canonical sequence name the same way audio-stream does.
   let seq = getSequenceByName(reqName);
-  if (!seq) {
-    seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
-  }
-  if (!seq) return res.status(404).send('Sequence not found');
+  if (!seq) seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
+  if (!seq || !seq.media_name) return res.status(404).send('Sequence not found');
 
+  // Try shared relay first — all viewers get identical bytes = automatic sync
+  const { addListener, getActiveSequence } = require('../lib/audio-relay');
   const activeSeq = getActiveSequence();
   if (activeSeq && activeSeq.toLowerCase() === seq.name.toLowerCase()) {
-    // Relay is live for this sequence — add this viewer to the broadcast.
     const added = addListener(seq.name, res);
-    if (added) return; // response stays open, relay drives it from here
+    if (added) return;
   }
 
-  // No active relay (song not playing, between songs, relay not started yet).
-  // Return 503 so the viewer falls back to the cache endpoint.
-  res.status(503).json({ error: 'relay_not_active', fallback: true });
+  // Fallback: direct per-viewer daemon connection.
+  // Less ideal for sync but better than silence.
+  const http = require('http');
+  const daemonReq = http.get({
+    hostname: cfg.plugin_fpp_host,
+    port: cfg.audio_daemon_port || 8090,
+    path: `/audio/${encodeURIComponent(seq.media_name)}`,
+  }, (daemonRes) => {
+    if (daemonRes.statusCode !== 200) {
+      if (!res.headersSent) res.status(daemonRes.statusCode).send('Daemon error');
+      return;
+    }
+    res.setHeader('Content-Type', daemonRes.headers['content-type'] || 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Audio-Source', 'daemon-direct');
+    res.status(200);
+    daemonRes.pipe(res);
+    res.on('close', () => daemonRes.destroy());
+  });
+
+  daemonReq.on('error', (err) => {
+    console.error('[audio-relay] fallback daemon error:', err.message);
+    if (!res.headersSent) res.status(503).json({ error: 'daemon_unreachable' });
+  });
+
+  daemonReq.setTimeout(5000, () => {
+    daemonReq.destroy();
+    if (!res.headersSent) res.status(503).json({ error: 'daemon_timeout' });
+  });
 });
 
 router.get('/audio-stream/:sequence', async (req, res) => {
@@ -925,7 +1173,11 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   // with installs that haven't upgraded their plugin yet.
   try {
     const audioCache = require('../lib/audio-cache');
-    const cachedFile = audioCache.getCachedFileForSequence(seq.name);
+    // Accept ?lang=XX for multi-language audio variants. 'default' and
+    // absent both resolve to the primary track. Unknown languages fall
+    // back to the default track automatically inside getCachedFileForSequence.
+    const requestedLang = req.query.lang ? String(req.query.lang).toLowerCase().slice(0, 10) : 'default';
+    const cachedFile = audioCache.getCachedFileForSequence(seq.name, requestedLang);
     if (cachedFile) {
       // Aggressive caching for cellular listeners. Audio file bytes are
       // immutable — same hash, same content. Cloudflare or other edge
@@ -943,6 +1195,9 @@ router.get('/audio-stream/:sequence', async (req, res) => {
       // in browser dev tools without server log access. Visible under
       // the Network tab → click request → Response Headers.
       res.setHeader('X-Audio-Source', 'cache');
+      // Tell the viewer which language is actually being served — useful
+      // when a fallback to 'default' occurred (requested lang wasn't found).
+      res.setHeader('X-Audio-Language', cachedFile.language || 'default');
       // sendFile handles Range/304/Accept-Ranges automatically. Browser
       // gets sample-precise seeking exactly as it would from FPP.
       return res.sendFile(cachedFile.path, (err) => {
@@ -1069,3 +1324,16 @@ router.get('/audio-stream/:sequence', async (req, res) => {
 });
 
 module.exports = router;
+// Attach race helpers directly on the router object so admin.js can
+// destructure them via require('./viewer'). Module caching means this
+// is safe — the same object is returned every time.
+router.startRace = startRace;
+router.clearRaceTimer = clearRaceTimer;
+router.resolveRace = resolveRace;
+// Expose timer handle so admin.js can store setTimeout handles here
+// and clearRaceTimer() can cancel them correctly via the shared variable.
+Object.defineProperty(router, '_raceTimerHandle', {
+  get: () => _raceTimerHandle,
+  set: (v) => { _raceTimerHandle = v; },
+  configurable: true,
+});

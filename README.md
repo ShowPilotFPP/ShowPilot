@@ -397,6 +397,7 @@ For Docker secrets / Kubernetes environments, you can inject `SHOWPILOT_JWT_SECR
 - For HTTPS, put the container behind your existing reverse proxy (Nginx Proxy Manager, Traefik, Caddy). HTTPS termination at the proxy is the supported pattern — no built-in TLS in the container.
 - Updating: `docker compose pull && docker compose up -d`. Schema migrations run automatically on container start.
 - Pin to a specific version by editing `image:` in `docker-compose.yml` from `:latest` to a specific tag like `:0.18.5`. See available tags at [ghcr.io/ShowPilotFPP/ShowPilot](https://github.com/ShowPilotFPP/ShowPilot/pkgs/container/showpilot).
+- **Testing a beta (debugging only):** beta builds are unstable test versions — don't use them unless you know what you're doing. Download a backup first (Settings → Backup & Restore), then change `image:` to `ghcr.io/showpilotfpp/showpilot:beta` and run `docker compose pull && docker compose up -d`. Watchtower keeps a `:beta` container on the latest beta. To return, change the tag back to `:latest` and pull again; your data volume carries over.
 - Want to build the image yourself instead of pulling? See the alternative `build:` block in `docker-compose.yml.example`.
 
 ---

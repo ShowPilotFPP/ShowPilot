@@ -31,6 +31,11 @@ async function buildStatusResponse({ force }) {
   const updateAvailable = latestTag
     ? updater.compareVersions(latestTag, current) > 0
     : false;
+  // Beta channel (v0.33.219+). A beta build can be numerically newer than
+  // the latest stable, so the normal check never offers stable again —
+  // returnToStable does, whenever this install runs a prerelease.
+  const betaCheck = await updater.checkBeta({ force });
+  const onBeta = updater.isPrerelease(current);
 
   return {
     currentVersion: current,
@@ -43,6 +48,10 @@ async function buildStatusResponse({ force }) {
     isDemoMode: !!config.demoMode,
     lastCheckAt: check.at ? new Date(check.at).toISOString() : null,
     lastCheckError: check.error || null,
+    onBeta,
+    returnToStable: (onBeta && latestTag && !updateAvailable) ? latestTag : null,
+    beta: betaCheck.beta,
+    betaCheckError: betaCheck.error || null,
     rollback: (updateState && updateState.previous_version_sha && snapshotMeta) ? {
       previousVersionTag: updateState.previous_version_tag,
       snapshotVersion: snapshotMeta.version,
@@ -132,6 +141,43 @@ router.post('/apply', async (req, res) => {
         preflightErrors: err.preflightErrors,
       });
     }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------------------------
+// POST /api/admin/updates/apply-beta  (v0.33.219+)
+// ------------------------------------------------------------
+// Installs the latest beta build — debugging and testing only. Body:
+// { sha: string, acknowledged: true, force?: boolean }. `acknowledged`
+// must be sent explicitly (the UI's "I understand" box), and the sha must
+// still be the tip of the beta branch.
+router.post('/apply-beta', async (req, res) => {
+  if (!updater.isUpdaterAvailable()) {
+    return res.status(503).json({
+      error: supervisor.detectSupervisor() === 'docker'
+        ? 'In-app updates are disabled in Docker. To test a beta, run the :beta image instead.'
+        : 'In-app updates are disabled.'
+    });
+  }
+  const { sha, acknowledged, force } = req.body || {};
+  if (acknowledged !== true) {
+    return res.status(400).json({ error: 'Beta builds are for debugging and testing only; acknowledgement is required.' });
+  }
+  if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/.test(sha)) {
+    return res.status(400).json({ error: 'sha is required' });
+  }
+  const check = await updater.checkBeta({ force: true });
+  if (!check.beta || check.beta.sha !== sha) {
+    return res.status(409).json({ error: 'The beta build changed since this page loaded; please refresh.', latestSha: check.beta && check.beta.sha });
+  }
+  try {
+    const result = await updater.applyBetaUpdate(sha, { force: force === true });
+    res.json({ ok: true, message: 'Beta installed. Restarting now…', previousVersion: result.previousVersion, target: result.target });
+    updater.scheduleCleanExit('apply beta ' + result.target);
+  } catch (err) {
+    console.error('[updates/apply-beta] failed:', err);
+    if (err.preflightErrors) return res.status(409).json({ error: 'Pre-flight checks failed', preflightErrors: err.preflightErrors });
     res.status(500).json({ error: err.message });
   }
 });

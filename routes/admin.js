@@ -309,6 +309,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'listener_timing_enabled',
     'listener_timing_min_ms',
     'listener_timing_max_ms',
+    'listener_timing_tip',
     'player_tall_layout',
     'pwa_admin_enabled',
     'pwa_viewer_enabled',

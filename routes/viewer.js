@@ -865,6 +865,29 @@ router.get('/visual-config', (req, res) => {
   });
 });
 
+// Look up a sequence's cached audio hash and return it as a `?v=` cache
+// buster for its stream URL. Without this, the browser may serve stale
+// bytes from its HTTP cache when the underlying file changes (e.g. the
+// plugin re-syncs after we fix a format bug). The /api/audio-stream/<seq>
+// URL itself doesn't change when bytes change — so we add ?v=<hash-prefix>.
+// When the hash changes, the URL changes, browser fetches fresh.
+//
+// Returns '' when the file isn't cached (FPP-proxy path) — there's no hash
+// to anchor to. The route ignores unknown query params, so adding ?v=...
+// is always safe.
+function audioVersionParam(sequenceName) {
+  try {
+    const audioCache = require('../lib/audio-cache');
+    // Look up via sequence name (resolves to sequence's audio_hash if
+    // set, falls back to media_name for legacy installs).
+    const cached = audioCache.getCachedFileForSequence(sequenceName);
+    if (cached && cached.hash) return '?v=' + cached.hash.slice(0, 8);
+  } catch (_) {
+    // Non-fatal — proceed without cache busting.
+  }
+  return '';
+}
+
 // Lightweight metadata endpoint — viewer page polls this to know what to play
 router.get('/now-playing-audio', (req, res) => {
   const np = getNowPlaying();
@@ -968,27 +991,24 @@ router.get('/now-playing-audio', (req, res) => {
   const npSequenceName = liveOverride ? seq.name : np.sequence_name;
   const npStartedAt = liveOverride ? new Date(startedAtMs).toISOString().replace('T', ' ').slice(0, 19) : np.started_at;
 
-  // Look up the cached audio's hash and append it to the stream URL as a
-  // cache buster. Without this, the browser may serve stale bytes from
-  // its HTTP cache when the underlying file changes (e.g. the plugin
-  // re-syncs after we fix a format bug). The /api/audio-stream/<seq> URL
-  // itself doesn't change when bytes change — so we add ?v=<hash-prefix>.
-  // When the hash changes, the URL changes, browser fetches fresh.
-  //
-  // Falls back to no version param when the file isn't cached (FPP-proxy
-  // path) — there's no hash to anchor to. The route ignores unknown
-  // query params, so adding ?v=... is always safe.
-  let versionParam = '';
+  const versionParam = audioVersionParam(seq.name);
+
+  // v0.33.226: the song after this one, so the player can download and
+  // decode it mid-song instead of at the song change (the gap listeners
+  // heard). Same URL shape as streamUrl — including ?v= — so it shares the
+  // browser/Cloudflare cache entry and the player's buffer cache key. A
+  // wrong guess (e.g. a vote leader that changes) only costs a download.
+  let nextScheduled = null;
+  let nextStreamUrl = null;
   try {
-    const audioCache = require('../lib/audio-cache');
-    // Look up via sequence name (resolves to sequence's audio_hash if
-    // set, falls back to media_name for legacy installs).
-    const cached = audioCache.getCachedFileForSequence(seq.name);
-    if (cached && cached.hash) {
-      versionParam = '?v=' + cached.hash.slice(0, 8);
+    const nextName = getNextUp(cfg, npSequenceName);
+    const nextSeq = nextName ? getSequenceByName(nextName) : null;
+    if (nextSeq && nextSeq.media_name && nextSeq.name !== seq.name) {
+      nextScheduled = nextSeq.name;
+      nextStreamUrl = `/api/audio-stream/${encodeURIComponent(nextSeq.name)}${audioVersionParam(nextSeq.name)}`;
     }
   } catch (_) {
-    // Non-fatal — proceed without cache busting.
+    // Non-fatal — the player just loads the next song when it starts.
   }
 
   res.json({
@@ -1032,6 +1052,8 @@ router.get('/now-playing-audio', (req, res) => {
     // works; the public URL is for cellular/external listeners hitting through
     // the public domain.
     streamUrl: `/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`,
+    nextScheduled,
+    nextStreamUrl,
     publicStreamUrl: cfg.public_base_url
       ? `${String(cfg.public_base_url).replace(/\/+$/, '')}/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`
       : '',

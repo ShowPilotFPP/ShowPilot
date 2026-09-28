@@ -3274,11 +3274,9 @@
           langBtns.querySelectorAll('.of-lang-btn').forEach(b => {
             b.classList.toggle('of-lang-active', b.dataset.lang === selectedLang);
           });
-          // Force a track reload with the new language.
-          // Wipe the buffer cache for the current sequence so handleTrackChange
-          // fetches fresh bytes with ?lang=XX instead of playing the cached default.
-          if (currentSequence) decodedBufferCache.delete(currentSequence);
-          prefetchedSeq = null;
+          // Force a track reload with the new language. The buffer cache is
+          // keyed by stream URL, which includes ?lang=, so handleTrackChange
+          // fetches the new language rather than replaying the cached one.
           currentSequence = null; // triggers handleTrackChange on next poll
         });
         langBtns.appendChild(btn);
@@ -3460,9 +3458,15 @@
     let currentSource = null;     // AudioBufferSourceNode of currently playing
     let currentSequence = null;
     let currentMediaName = null;
-    let prefetchPromise = null;   // pending fetch for next track
-    let prefetchedSeq = null;     // seq name we pre-fetched
-    const decodedBufferCache = new Map(); // sequenceName → AudioBuffer, avoids re-fetch on repeat
+    // v0.33.226: decoded audio, keyed by stream URL (path + ?v= + ?lang=) so
+    // a new file version or a different language is never mistaken for the
+    // cached one. Holds only the current and next songs: a decoded song is
+    // ~75 MB, and more than two got phones' tabs killed.
+    const decodedBufferCache = new Map(); // stream URL → AudioBuffer
+    const prefetchInFlight = new Map();   // stream URL → Promise<AudioBuffer|null>
+    const prefetchRetryAt = new Map();    // stream URL → ms timestamp; backoff after a failed prefetch
+    let currentStreamKey = null;  // stream URL of the song playing now
+    let nextStreamKey = null;     // stream URL of the song the server says is next
     let clockOffset = 0;          // serverNow - clientNow at last sync
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
@@ -3513,6 +3517,45 @@
       } finally {
         if (timer) clearTimeout(timer);
       }
+    }
+
+    // Drop decoded songs that are neither playing nor next.
+    function pruneBufferCache() {
+      for (const key of decodedBufferCache.keys()) {
+        if (key !== currentStreamKey && key !== nextStreamKey) decodedBufferCache.delete(key);
+      }
+    }
+
+    // Download + decode a song in the background (v0.33.226). Before this,
+    // the next song was only fetched when it started, so listeners heard
+    // silence for the download + decode and then missed its opening. One
+    // request per URL: a song change while this is still running awaits it
+    // (see handleTrackChange) instead of downloading the file again.
+    // Resolves to the AudioBuffer, or null on failure.
+    function prefetchAudio(key) {
+      if (!key || !audioCtx) return Promise.resolve(null);
+      if (decodedBufferCache.has(key)) return Promise.resolve(decodedBufferCache.get(key));
+      if (prefetchInFlight.has(key)) return prefetchInFlight.get(key);
+      if (Date.now() < (prefetchRetryAt.get(key) || 0)) return Promise.resolve(null);
+      const ctx = audioCtx;
+      const p = fetchAudioWithTimeout(window.location.origin + key, 60000)
+        .then(buf => new Promise((resolve, reject) => ctx.decodeAudioData(buf, resolve, reject)))
+        .then(decoded => {
+          if (audioCtx !== ctx) return null; // player closed meanwhile
+          prefetchRetryAt.delete(key);
+          decodedBufferCache.set(key, decoded);
+          pruneBufferCache();
+          console.info('[ShowPilot] prefetch complete:', key);
+          return decoded;
+        })
+        .catch(e => {
+          prefetchRetryAt.set(key, Date.now() + 30000);
+          console.warn('[ShowPilot] prefetch failed:', key, e && e.message);
+          return null;
+        })
+        .finally(() => { if (prefetchInFlight.get(key) === p) prefetchInFlight.delete(key); });
+      prefetchInFlight.set(key, p);
+      return p;
     }
 
     // Multi-language audio: the viewer's chosen language code, persisted to
@@ -4541,8 +4584,12 @@
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       currentBuffer = null;
-      prefetchPromise = null;
-      prefetchedSeq = null;
+      // Buffers were decoded for the context just closed; free the memory.
+      decodedBufferCache.clear();
+      prefetchInFlight.clear();
+      prefetchRetryAt.clear();
+      currentStreamKey = null;
+      nextStreamKey = null;
       currentSequence = null;
       currentMediaName = null;
       currentTrackMediaName = null;
@@ -4729,6 +4776,10 @@
             const sep2 = data.publicStreamUrl.includes('?') ? '&' : '?';
             data.publicStreamUrl = data.publicStreamUrl + sep2 + 'lang=' + encodeURIComponent(selectedLang);
           }
+          if (data.nextStreamUrl) {
+            const sep3 = data.nextStreamUrl.includes('?') ? '&' : '?';
+            data.nextStreamUrl = data.nextStreamUrl + sep3 + 'lang=' + encodeURIComponent(selectedLang);
+          }
         }
 
         // Track changed?
@@ -4747,43 +4798,16 @@
           trackChangeAt = 0;
           handleTrackChange(data);
         } else {
-          // Same track — prefetch CURRENT song's audio if not already cached
-          if (data.streamUrl && data.sequenceName && audioCtx &&
-              !decodedBufferCache.has(data.sequenceName) &&
-              prefetchedSeq !== data.sequenceName) {
-            prefetchedSeq = data.sequenceName;
-            const prefetchUrl = window.location.origin + data.streamUrl;
-            prefetchPromise = fetch(prefetchUrl)
-              .then(r => r.ok ? r.arrayBuffer() : null)
-              .then(buf => buf ? audioCtx.decodeAudioData(buf) : null)
-              .then(decoded => {
-                if (decoded) {
-                  decodedBufferCache.set(data.sequenceName, decoded);
-                  console.info('[ShowPilot] prefetch complete:', data.sequenceName);
-                }
-              })
-              .catch(() => { prefetchedSeq = null; }); // reset on error so we retry
+          // Prefetch the NEXT song so it's decoded and ready when the song
+          // changes. Waits until the current song has loaded so the two
+          // downloads don't compete. If the server's guess changes (e.g. a
+          // new vote leader), the old guess is dropped from the cache.
+          const newNextKey = data.nextStreamUrl || null;
+          if (newNextKey !== nextStreamKey) {
+            nextStreamKey = newNextKey;
+            pruneBufferCache();
           }
-          // Prefetch NEXT scheduled sequence in background so it's decoded and
-          // ready before the song change fires — eliminates fetch+decode delay
-          // at song-change time, making the snap cut happen sooner.
-          if (data.nextScheduled && audioCtx &&
-              !decodedBufferCache.has(data.nextScheduled) &&
-              prefetchedSeq !== data.nextScheduled) {
-            prefetchedSeq = data.nextScheduled;
-            const nextUrl = window.location.origin +
-              '/api/audio-stream/' + encodeURIComponent(data.nextScheduled);
-            fetch(nextUrl)
-              .then(r => r.ok ? r.arrayBuffer() : null)
-              .then(buf => buf ? audioCtx.decodeAudioData(buf) : null)
-              .then(decoded => {
-                if (decoded) {
-                  decodedBufferCache.set(data.nextScheduled, decoded);
-                  console.info('[ShowPilot] prefetch complete (next):', data.nextScheduled);
-                }
-              })
-              .catch(() => { prefetchedSeq = null; });
-          }
+          if (nextStreamKey && currentBuffer) prefetchAudio(nextStreamKey);
           // Same track — just update timing anchor in case server has new info
           if (data.trackStartedAtMs) trackStartedAtMs = data.trackStartedAtMs;
           if (data.durationSec) trackDuration = data.durationSec;
@@ -4797,8 +4821,6 @@
           }
           // Refresh metadata in case admin changed it
           if (data.imageUrl && coverEl.src !== data.imageUrl) coverEl.src = data.imageUrl;
-
-          // Pre-fetch logic — could fetch upcoming tracks here in the future
         }
 
         // Update minimized pill text
@@ -4901,8 +4923,20 @@
         console.info('[ShowPilot] audio source: CACHE (WebAudio)', chosenUrl);
         statusEl.textContent = 'Loading audio…';
 
-        // Use pre-decoded buffer if available, otherwise fetch+decode
-        let audioBuffer = decodedBufferCache.get(currentSequence) || null;
+        // Use the prefetched buffer if there is one (or wait for a prefetch
+        // of this song that's still running), otherwise fetch+decode now.
+        // The result is kept as the current song's cache entry so polls
+        // never download the song that's already playing.
+        const streamKey = data.streamUrl || null;
+        currentStreamKey = streamKey;
+        if (streamKey === nextStreamKey) nextStreamKey = null; // the "next" song is now playing
+        pruneBufferCache();
+        let audioBuffer = streamKey ? (decodedBufferCache.get(streamKey) || null) : null;
+        if (!audioBuffer && streamKey && prefetchInFlight.has(streamKey)) {
+          console.info('[ShowPilot] waiting for in-progress prefetch of', currentSequence);
+          audioBuffer = await prefetchInFlight.get(streamKey);
+          if (myTrackToken !== trackChangeToken) return; // a newer track change took over
+        }
         if (audioBuffer) {
           console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
@@ -4911,6 +4945,7 @@
           audioBuffer = await new Promise((resolve, reject) => {
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
           });
+          if (streamKey && streamKey === currentStreamKey) decodedBufferCache.set(streamKey, audioBuffer);
         }
         if (myTrackToken !== trackChangeToken) return; // a newer track change took over
 
@@ -5334,14 +5369,8 @@
       fppStatus = null;
       smoothedDriftMs = 0;
       calibrationSamples = []; // recalibrate every song
-      prefetchPromise = null;
-      prefetchedSeq = null;
-      // Keep decoded buffer cache — avoids re-fetch if same song plays again
-      // Cap at 3 entries to avoid memory bloat
-      if (decodedBufferCache.size > 3) {
-        const firstKey = decodedBufferCache.keys().next().value;
-        decodedBufferCache.delete(firstKey);
-      }
+      // Decoded buffers are kept: the cache holds only the current and next
+      // songs (see pruneBufferCache), and handleTrackChange updates both.
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}

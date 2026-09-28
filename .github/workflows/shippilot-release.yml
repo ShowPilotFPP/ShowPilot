@@ -1,4 +1,5 @@
-# Ship this repo through ShipPilot (ShipPilot v0.4.0+). Run it from the Actions
+# Ship this repo through ShipPilot (ShipPilot v0.4.0+). Approving a pull request
+# from a claude/* branch ships it automatically; or run it from the Actions
 # tab on the branch you want to ship (e.g. a pull request's branch), after
 # bumping the version there. ShipPilot runs its normal pipeline: preflight
 # checks, commit to the target branch, tag, GitHub Release, auto-deploy; this
@@ -22,19 +23,38 @@ on:
         description: "Release message (first line becomes the GitHub Release title)"
         required: true
 
+  # Approving a pull request from a claude/* branch ships it (v2).
+  pull_request_review:
+    types: [submitted]
+
 permissions:
-  contents: read
+  contents: write        # delete the release branch after shipping
+  pull-requests: write   # comment on / close the release PR and its source
+  issues: write          # close the source issue
 
 jobs:
   ship:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.review.state == 'approved' &&
+       startsWith(github.event.pull_request.head.ref, 'claude/') &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association))
     runs-on: ubuntu-latest
+    concurrency:
+      group: shippilot-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Work out the target and version
         run: |
           set -euo pipefail
-          if [ "${{ inputs.target }}" = "beta" ]; then
+          TARGET_INPUT="${{ inputs.target }}"
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then TARGET_INPUT="${{ github.event.pull_request.base.ref }}"; fi
+          if [ "$TARGET_INPUT" = "beta" ]; then
             REPO_SLUG=showpilot-beta; TARGET_BRANCH=beta; WITH_TAG=false
           else
             REPO_SLUG=showpilot; TARGET_BRANCH=main; WITH_TAG=true
@@ -45,20 +65,29 @@ jobs:
             beta:*-beta.*) ;;
             beta:*) echo "::error::Beta releases need a version like 1.2.3-beta.1 (got $VERSION)."; exit 1 ;;
           esac
-          if [ "${GITHUB_REF_NAME}" = "$TARGET_BRANCH" ]; then
+          SHIP_FROM="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then SHIP_FROM="${{ github.event.pull_request.head.ref }}"; fi
+          if [ "$SHIP_FROM" = "$TARGET_BRANCH" ]; then
             echo "::error::Run this on the branch you want to ship (e.g. a PR branch), not $TARGET_BRANCH."
             exit 1
           fi
           echo "REPO_SLUG=$REPO_SLUG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "WITH_TAG=$WITH_TAG" >> "$GITHUB_ENV"
-          echo "Shipping $REPO_SLUG $VERSION from ${GITHUB_REF_NAME} to $TARGET_BRANCH"
+          echo "Shipping $REPO_SLUG $VERSION from $SHIP_FROM to $TARGET_BRANCH"
 
       - name: Build the release tarball
         env:
-          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+          INPUT_MESSAGE: ${{ inputs.commit_message }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            export COMMIT_MESSAGE="$(printf '%s\n\n%s' "$PR_TITLE" "$PR_BODY")"
+          else
+            export COMMIT_MESSAGE="$INPUT_MESSAGE"
+          fi
           mkdir -p out
           # git archive = tracked files only: no .git, node_modules, config.js or data/.
           git archive --format=tar --prefix="${REPO_SLUG}/" HEAD | tar -x -C out
@@ -111,3 +140,24 @@ jobs:
             fi
           done
           echo "::warning::Deploys still running after 15 minutes; check ShipPilot."
+
+      - name: Close the release PR and its source
+        if: success() && github.event_name == 'pull_request_review'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -uo pipefail
+          gh pr comment "$PR_NUMBER" --body "Shipped as v${VERSION} through ShipPilot. Thanks!"
+          gh pr close "$PR_NUMBER" --delete-branch || true
+          SRC=$(printf '%s' "$PR_BODY" | sed -n 's/^Source: #\([0-9][0-9]*\).*/\1/p' | head -1)
+          if [ -n "$SRC" ] && [ "$SRC" != "$PR_NUMBER" ]; then
+            if gh pr view "$SRC" --json state -q .state >/dev/null 2>&1; then
+              gh pr comment "$SRC" --body "Shipped in v${VERSION} (via #${PR_NUMBER}). Thank you for the contribution!" || true
+              gh pr close "$SRC" || true
+            else
+              gh issue comment "$SRC" --body "Fixed in v${VERSION} (via #${PR_NUMBER}). Thanks for the report!" || true
+              gh issue close "$SRC" --reason completed || true
+            fi
+          fi

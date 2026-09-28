@@ -2589,6 +2589,11 @@
         --of-border: rgba(254,202,202,0.8);
         --of-glow: rgba(239,68,68,0.5);
       }
+      #of-listen-panel.of-theme-christmas-live {
+        --of-bg: linear-gradient(180deg, rgba(127,29,29,0.97), rgba(20,83,45,0.97));
+        --of-border: rgba(254,202,202,0.8);
+        --of-glow: rgba(239,68,68,0.5);
+            }
       #of-listen-panel.of-theme-halloween {
         --of-bg: linear-gradient(180deg, rgba(88,28,135,0.97), rgba(154,52,18,0.97));
         --of-border: rgba(253,186,116,0.8);
@@ -5749,6 +5754,88 @@
     let currentCustomColor = null;
     let decoLayer = null;
 
+    // ---- "Live" decorations (v0.33.225-beta) ----
+    // Theme 'christmas-live': while this listener's audio plays, an
+    // AnalyserNode tapped off gainNode (after mute) splits the sound into one
+    // log-spaced band per bulb (45 Hz - 9 kHz). Each bulb gets --lvl 0..1 with
+    // a quick flare and an incandescent-like fade, auto-levelled per band so
+    // quiet songs still animate. Frames are shown when they're HEARD: delayed
+    // by getOutputLatencySec() (output delay + the listener's timing offset).
+    // Paused / muted / hidden page / no phone audio: .ofd-live-on is removed
+    // and the bulbs fall back to their normal twinkle. ~30 fps; stops when the
+    // theme changes or animations are off.
+    let liveOn = false, liveRaf = 0, liveAnalyser = null, liveBuf = null, liveBands = null;
+    let liveEls = [], liveLvls = [], livePeaks = [], liveMeans = [], liveQueue = [], liveLastT = 0;
+    function liveDecoUpdate(theme, animate) {
+      liveOn = !!animate && theme === 'christmas-live';
+      liveEls = (liveOn && decoLayer) ? Array.from(decoLayer.querySelectorAll('.ofd-lb')) : [];
+      liveLvls = liveEls.map(() => 0);
+      livePeaks = liveEls.map(() => 0);
+      liveMeans = liveEls.map(() => -1);
+      liveQueue = []; liveBands = null;
+      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      if (liveOn && !liveRaf) liveRaf = requestAnimationFrame(liveFrame);
+    }
+    function liveEnsureAnalyser() {
+      if (!audioCtx || !gainNode) return false;
+      if (liveAnalyser && liveAnalyser.context === audioCtx) return true;   // re-attach after the engine is rebuilt
+      try {
+        liveAnalyser = audioCtx.createAnalyser();
+        liveAnalyser.fftSize = 1024;
+        liveAnalyser.smoothingTimeConstant = 0.35;
+        gainNode.connect(liveAnalyser);
+        liveBuf = new Uint8Array(liveAnalyser.frequencyBinCount);
+        liveBands = null;
+        return true;
+      } catch (_) { liveAnalyser = null; return false; }
+    }
+    function liveComputeBands(n) {
+      const nyq = audioCtx.sampleRate / 2, bins = liveAnalyser.frequencyBinCount, lo = 45, hi = 9000, out = [];
+      for (let i = 0; i < n; i++) {
+        const f0 = lo * Math.pow(hi / lo, i / n), f1 = lo * Math.pow(hi / lo, (i + 1) / n);
+        const b0 = Math.max(1, Math.floor((f0 / nyq) * bins));
+        const b1 = Math.min(bins, Math.max(b0 + 1, Math.ceil((f1 / nyq) * bins)));
+        out.push([b0, b1]);
+      }
+      return out;
+    }
+    function liveFrame(t) {
+      liveRaf = 0;
+      if (!liveOn) return;
+      liveRaf = requestAnimationFrame(liveFrame);
+      if (t - liveLastT < 30) return;
+      liveLastT = t;
+      const playing = !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
+      if (!playing || !liveEls.length || !liveEnsureAnalyser()) {
+        if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+        liveQueue = [];
+        return;
+      }
+      if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
+      liveAnalyser.getByteFrequencyData(liveBuf);
+      const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
+      const now = performance.now();
+      liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      let frame = null;
+      while (liveQueue.length && liveQueue[0][0] <= now) frame = liveQueue.shift()[1];
+      if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);
+      if (!frame) return;
+      decoLayer.classList.add('ofd-live-on');
+      for (let i = 0; i < liveEls.length; i++) {
+        // React to CHANGE, not loudness: each band tracks its running average
+        // (~1 s) and lights by how far it rises above it, relative to its
+        // recent peak excursion. Steady sound (hiss, a held note) settles to a
+        // calm glow; hits (drums, new notes, cymbals) flare. Near-silence stays dark.
+        const x = frame[i];
+        if (liveMeans[i] < 0) liveMeans[i] = x;
+        liveMeans[i] = liveMeans[i] * 0.97 + x * 0.03;
+        livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
+        const v = x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
+        liveLvls[i] = Math.max(v, liveLvls[i] * 0.84);
+        liveEls[i].style.setProperty('--lvl', liveLvls[i].toFixed(3));
+      }
+    }
+
     function applyDecoration(theme, animated, customColor) {
       theme = theme || 'none';
       animated = (animated !== false);
@@ -5809,6 +5896,7 @@
       const animate = animated && !prefersReduced;
 
       decoLayer.innerHTML = renderDecoration(theme, animate);
+      liveDecoUpdate(theme, animate);
       // Reset panel padding-top in case previous decoration needed extra room
       panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
 
@@ -5889,6 +5977,7 @@
       const A = animate ? ' ofd-anim' : '';
       switch (theme) {
         case 'christmas':    return decoChristmas(A);
+        case 'christmas-live': return decoChristmas(A, true);   // v0.33.225-beta: reacts to the music
         case 'halloween':    return decoHalloween(A);
         case 'easter':       return decoEaster(A);
         case 'stpatricks':   return decoStPatricks(A);
@@ -5918,7 +6007,7 @@
     `;
 
     // ---------- Christmas: C9 bulbs on a scalloped green wire ----------
-    function decoChristmas(A) {
+    function decoChristmas(A, live) {
       const N = 16;
       const palette = [
         ['#ff3b3b', '#b91c1c'], ['#22c55e', '#15803d'], ['#3b82f6', '#1d4ed8'],
@@ -5939,7 +6028,7 @@
         const twinkle = (i % 5 === 2) ? ' ofd-twinkle' : '';
         const tilt = ((r() - 0.5) * 16).toFixed(1);
         bulbs += `
-          <div class="ofd ofd-bulb${A}${twinkle}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;transform:translateX(-50%) rotate(${tilt}deg)">
+          <div class="ofd ofd-bulb${A}${twinkle}${live ? ' ofd-lb' : ''}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;--lvl:0;transform:translateX(-50%) rotate(${tilt}deg)">
             <div class="ofd-halo"></div>
             <svg viewBox="0 0 20 36" width="15" height="27" aria-hidden="true">
               <defs><linearGradient id="ofdB${i}" x1="0" x2="1">
@@ -5966,6 +6055,9 @@
         @keyframes ofdGlow { from { opacity:.38; transform:scale(.85); } to { opacity:.75; transform:scale(1.08); } }
         @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
         @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
+        /* "Live": while music plays, each bulb follows its frequency band (--lvl, set by the player). */
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity: calc(.14 + var(--lvl) * .86); transform: scale(calc(.72 + var(--lvl) * .62)); }
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity: calc(.03 + var(--lvl) * .52); }
       </style>
       <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
         <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>

@@ -39,8 +39,15 @@ async function buildStatusResponse({ force }) {
   // The beta channel is only offered when a beta NEWER than this install
   // exists (v0.33.222+). Betas are published only when there's something to
   // test, so most of the time there's none and the section stays hidden.
-  const betaAvailable = !!(betaCheck.beta && betaCheck.beta.version &&
+  // Also offered when this install runs a beta and the beta branch holds
+  // different code under the same version number (a rebuilt beta).
+  let betaAvailable = !!(betaCheck.beta && betaCheck.beta.version &&
     updater.compareVersions(betaCheck.beta.version, current) > 0);
+  if (!betaAvailable && onBeta && betaCheck.beta && betaCheck.beta.version &&
+      updater.compareVersions(betaCheck.beta.version, current) === 0) {
+    const head = await updater.readHeadSha();
+    if (head && head !== betaCheck.beta.sha) betaAvailable = true;
+  }
 
   return {
     currentVersion: current,
@@ -177,7 +184,14 @@ router.post('/apply-beta', async (req, res) => {
   if (!check.beta || check.beta.sha !== sha) {
     return res.status(409).json({ error: 'The beta build changed since this page loaded; please refresh.', latestSha: check.beta && check.beta.sha });
   }
-  if (!check.beta.version || updater.compareVersions(check.beta.version, updater.readPackageVersion()) <= 0) {
+  const installed = updater.readPackageVersion();
+  const cmp = check.beta.version ? updater.compareVersions(check.beta.version, installed) : -1;
+  let allowed = cmp > 0;
+  if (!allowed && cmp === 0 && updater.isPrerelease(installed)) {
+    const head = await updater.readHeadSha();
+    allowed = !!(head && head !== check.beta.sha);   // same version, rebuilt beta
+  }
+  if (!allowed) {
     return res.status(409).json({ error: 'No beta newer than this version is available.' });
   }
   try {

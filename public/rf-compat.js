@@ -2629,6 +2629,36 @@
         --of-border: rgba(186,230,253,0.85);
         --of-glow: rgba(186,230,253,0.5);
       }
+      #of-listen-panel.of-theme-newyear {
+        --of-bg: linear-gradient(180deg, rgba(15,23,42,0.97), rgba(49,46,129,0.97));
+        --of-border: rgba(250,204,21,0.8);
+        --of-glow: rgba(250,204,21,0.45);
+      }
+      #of-listen-panel.of-theme-dayofthedead {
+        --of-bg: linear-gradient(180deg, rgba(157,23,77,0.97), rgba(76,29,149,0.97));
+        --of-border: rgba(251,146,60,0.85);
+        --of-glow: rgba(236,72,153,0.5);
+      }
+      #of-listen-panel.of-theme-diwali {
+        --of-bg: linear-gradient(180deg, rgba(127,29,29,0.97), rgba(49,46,129,0.97));
+        --of-border: rgba(251,191,36,0.85);
+        --of-glow: rgba(251,191,36,0.5);
+      }
+      #of-listen-panel.of-theme-kwanzaa {
+        --of-bg: linear-gradient(180deg, rgba(20,83,45,0.97), rgba(17,24,39,0.97));
+        --of-border: rgba(220,38,38,0.8);
+        --of-glow: rgba(34,197,94,0.45);
+      }
+      #of-listen-panel.of-theme-lunarnewyear {
+        --of-bg: linear-gradient(180deg, rgba(185,28,28,0.97), rgba(127,29,29,0.97));
+        --of-border: rgba(250,204,21,0.85);
+        --of-glow: rgba(239,68,68,0.5);
+      }
+      #of-listen-panel.of-theme-mardigras {
+        --of-bg: linear-gradient(180deg, rgba(88,28,135,0.97), rgba(21,128,61,0.97));
+        --of-border: rgba(234,179,8,0.85);
+        --of-glow: rgba(168,85,247,0.5);
+      }
 
       /* Player button polish — hover feedback that works regardless of theme */
       #of-listen-panel button {
@@ -5812,390 +5842,723 @@
     // last appearance.
     window.ShowPilotApplyPlayerThemeToToast = applyPlayerThemeToToast;
 
+    // ---- Player decorations (v0.33.224 redesign) ----
+    // Each theme returns HTML (with its own <style>) for the decoration layer
+    // (#of-deco) inside the Listen-on-Phone player. Design rules:
+    // - Things that fly or perch (bats, pumpkins, fireworks, menorah, eggs)
+    //   live on/above the player's top edge, never over its controls or text.
+    // - Only transform/opacity are animated (cheap on phones); no animated
+    //   filters.
+    // - Every element gets its own timing/size/path (seeded, so it's the same
+    //   on every load), and each theme also looks deliberate when static
+    //   (animations off or prefers-reduced-motion).
     function renderDecoration(theme, animate) {
-      const animClass = animate ? ' of-deco-animate' : '';
+      const A = animate ? ' ofd-anim' : '';
       switch (theme) {
-        case 'christmas':       return christmasLights(animClass);
-        case 'halloween':       return halloweenSpooky(animClass);
-        case 'easter':          return easterEggs(animClass);
-        case 'stpatricks':      return stPatricksClovers(animClass);
-        case 'independence':    return independenceFireworks(animClass);
-        case 'valentines':      return valentinesHearts(animClass);
-        case 'hanukkah':        return hanukkahStars(animClass);
-        case 'thanksgiving':    return thanksgivingLeaves(animClass);
-        case 'snow':            return snowFall(animClass);
-        default:                return '';
+        case 'christmas':    return decoChristmas(A);
+        case 'halloween':    return decoHalloween(A);
+        case 'easter':       return decoEaster(A);
+        case 'stpatricks':   return decoStPatricks(A);
+        case 'independence': return decoIndependence(A);
+        case 'valentines':   return decoValentines(A);
+        case 'hanukkah':     return decoHanukkah(A);
+        case 'thanksgiving': return decoThanksgiving(A);
+        case 'snow':         return decoSnow(A);
+        case 'newyear':      return decoNewYear(A);
+        case 'dayofthedead': return decoDayOfDead(A);
+        case 'diwali':       return decoDiwali(A);
+        case 'kwanzaa':      return decoKwanzaa(A);
+        case 'lunarnewyear': return decoLunarNewYear(A);
+        case 'mardigras':    return decoMardiGras(A);
+        default:             return '';
       }
     }
 
-    // ---- Decoration renderers (each returns HTML string) ----
+    // Deterministic pseudo-random (same layout every load).
+    function decoRand(seed) {
+      let s = seed >>> 0;
+      return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    }
+    const decoBase = `
+      #of-deco .ofd { position:absolute; pointer-events:none; }
+      #of-deco .ofd svg { display:block; overflow:visible; }
+    `;
 
-    function christmasLights(animClass) {
-      // String of bulbs across the TOP edge of the player, hanging down slightly.
-      // Wire sits at top:0 (player edge), bulbs hang from it into the player area.
-      const colors = [
-        { core: '#fff5f0', mid: '#ef4444', edge: '#7f1d1d' }, // red
-        { core: '#fffbeb', mid: '#facc15', edge: '#854d0e' }, // gold
-        { core: '#f0fdf4', mid: '#22c55e', edge: '#14532d' }, // green
-        { core: '#eff6ff', mid: '#3b82f6', edge: '#1e3a8a' }, // blue
-        { core: '#faf5ff', mid: '#a855f7', edge: '#581c87' }, // purple
+    // ---------- Christmas: C9 bulbs on a scalloped green wire ----------
+    function decoChristmas(A) {
+      const N = 16;
+      const palette = [
+        ['#ff3b3b', '#b91c1c'], ['#22c55e', '#15803d'], ['#3b82f6', '#1d4ed8'],
+        ['#ff9f1a', '#c2410c'], ['#ffe14d', '#ca8a04'],
       ];
-      const count = 18;
-      let bulbs = '';
-      for (let i = 0; i < count; i++) {
-        const left = (i / (count - 1)) * 100;
-        const c = colors[i % colors.length];
-        const delay = ((i * 0.23) % 2.0).toFixed(2);
-        const id = 'ofg' + i;
+      const r = decoRand(12);
+      let wire = '';
+      for (let i = 0; i < N; i++) {
+        const x0 = (i / N) * 1000, x1 = ((i + 1) / N) * 1000;
+        wire += `${i ? '' : 'M' + x0 + ',3 '}Q${(x0 + x1) / 2},20 ${x1},3 `;
+      }
+      let clips = '', bulbs = '';
+      for (let i = 0; i <= N; i++) clips += `<circle cx="${(i / N) * 1000}" cy="3" r="2.2"/>`;
+      for (let i = 0; i < N; i++) {
+        const [hi, lo] = palette[i % palette.length];
+        const dur = (2.6 + r() * 3.4).toFixed(2);
+        const delay = (-r() * 6).toFixed(2);
+        const twinkle = (i % 5 === 2) ? ' ofd-twinkle' : '';
+        const tilt = ((r() - 0.5) * 16).toFixed(1);
         bulbs += `
-          <svg class="of-bulb${animClass}" viewBox="0 0 14 22" width="18" height="28"
-               style="left:${left}%;animation-delay:${delay}s;--bulb-color:${c.mid};">
-            <defs>
-              <radialGradient id="${id}" cx="35%" cy="40%" r="60%">
-                <stop offset="0%" stop-color="${c.core}"/>
-                <stop offset="40%" stop-color="${c.mid}"/>
-                <stop offset="100%" stop-color="${c.edge}"/>
-              </radialGradient>
-            </defs>
-            <rect x="5" y="0" width="4" height="3" fill="#1f2937" rx="0.5"/>
-            <rect x="4" y="2" width="6" height="2" fill="#374151"/>
-            <ellipse cx="7" cy="13" rx="5" ry="7" fill="url(#${id})"/>
-            <ellipse cx="5" cy="10" rx="1.5" ry="2.5" fill="rgba(255,255,255,0.6)"/>
-          </svg>`;
+          <div class="ofd ofd-bulb${A}${twinkle}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;transform:translateX(-50%) rotate(${tilt}deg)">
+            <div class="ofd-halo"></div>
+            <svg viewBox="0 0 20 36" width="15" height="27" aria-hidden="true">
+              <defs><linearGradient id="ofdB${i}" x1="0" x2="1">
+                <stop offset="0" stop-color="${lo}"/><stop offset=".45" stop-color="${hi}"/><stop offset="1" stop-color="${lo}"/>
+              </linearGradient></defs>
+              <rect x="6.5" y="0" width="7" height="8" rx="1.2" fill="#166534"/>
+              <rect x="6.5" y="1.5" width="7" height="1" fill="#14532d"/>
+              <rect x="6.5" y="4" width="7" height="1" fill="#14532d"/>
+              <path d="M4,11 C4,8.5 16,8.5 16,11 C18.5,18 14,27 10,35 C6,27 1.5,18 4,11 Z" fill="url(#ofdB${i})"/>
+              <path d="M6.2,12 C6,17 7.2,23 8.8,28" stroke="rgba(255,255,255,.55)" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+              <path class="ofd-hot" d="M4,11 C4,8.5 16,8.5 16,11 C18.5,18 14,27 10,35 C6,27 1.5,18 4,11 Z" fill="#fff"/>
+            </svg>
+          </div>`;
       }
-      return `
-        <style>
-          #of-deco .of-wire {
-            position:absolute; top:6px; left:0; right:0; height:2px;
-            background: linear-gradient(180deg, #1f2937 0%, #0f172a 100%);
-            border-radius: 1px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.5);
-          }
-          #of-deco .of-bulb {
-            position:absolute; top:0; transform:translateX(-50%);
-            filter: drop-shadow(0 0 6px var(--bulb-color));
-          }
-          #of-deco .of-bulb.of-deco-animate {
-            animation: ofTwinkle 1.6s ease-in-out infinite;
-          }
-          @keyframes ofTwinkle {
-            0%, 100% { filter: drop-shadow(0 0 1px rgba(0,0,0,0)) brightness(0.55); }
-            50%      { filter: drop-shadow(0 0 12px var(--bulb-color)) brightness(1.4); }
-          }
-        </style>
-        <div class="of-wire"></div>
-        ${bulbs}
-      `;
+      return `<style>${decoBase}
+        #of-deco .ofd-wire { left:0; right:0; top:0; height:24px; width:100%; }
+        #of-deco .ofd-bulb { top:9px; }
+        #of-deco .ofd-bulb .ofd-halo { position:absolute; left:50%; top:62%; width:34px; height:34px; margin:-17px 0 0 -17px;
+          border-radius:50%; background: radial-gradient(circle, var(--c) 0%, transparent 68%); opacity:.55; }
+        #of-deco .ofd-bulb .ofd-hot { opacity:.18; }
+        #of-deco .ofd-bulb.ofd-anim .ofd-halo { animation: ofdGlow var(--dur) ease-in-out var(--delay) infinite alternate; }
+        #of-deco .ofd-bulb.ofd-anim .ofd-hot  { animation: ofdHot  var(--dur) ease-in-out var(--delay) infinite alternate; }
+        #of-deco .ofd-bulb.ofd-twinkle.ofd-anim .ofd-halo, #of-deco .ofd-bulb.ofd-twinkle.ofd-anim .ofd-hot { animation-name: ofdTwinkle; animation-direction: normal; animation-duration: calc(var(--dur) * 1.6); }
+        @keyframes ofdGlow { from { opacity:.38; transform:scale(.85); } to { opacity:.75; transform:scale(1.08); } }
+        @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
+        @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
+      </style>
+      <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
+        <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
+        <path d="${wire}" fill="none" stroke="rgba(134,239,172,.25)" stroke-width=".8" vector-effect="non-scaling-stroke" transform="translate(0,-.6)"/>
+        <g fill="#0f3d21">${clips}</g>
+      </svg>
+      ${bulbs}`;
     }
 
-    function halloweenSpooky(animClass) {
-      const batSvg = `
-        <svg viewBox="0 0 40 24" width="42" height="25">
-          <g fill="#0a0a0a">
-            <ellipse cx="20" cy="14" rx="3.5" ry="4"/>
-            <path class="of-wing-l" d="M 17,12 Q 8,6 0,8 Q 4,11 6,16 Q 2,18 4,22 Q 10,18 14,18 Q 17,18 17,16 Z"
-                  style="transform-origin:17px 13px"/>
-            <path class="of-wing-r" d="M 23,12 Q 32,6 40,8 Q 36,11 34,16 Q 38,18 36,22 Q 30,18 26,18 Q 23,18 23,16 Z"
-                  style="transform-origin:23px 13px"/>
-            <path d="M 18,10 L 17,7 L 19,9 Z M 22,10 L 23,7 L 21,9 Z"/>
-            <circle cx="18.5" cy="13" r="0.6" fill="#dc2626"/>
-            <circle cx="21.5" cy="13" r="0.6" fill="#dc2626"/>
+    // ---------- Halloween: realistic bats + perched jack-o'-lanterns ----------
+    function decoBatSvg(id) {
+      // viewBox 0 0 100 60; shoulders at (46,26) and (54,26).
+      const wingR = 'M54,25 L70,15 Q77,11 83,14 L99,23 Q91,27 89,37 Q82,33 75,41 Q68,36 57,38 Q55,33 54,25 Z';
+      const bonesR = 'M70,15 L89,37 M70,15 L75,41 M70,15 L99,23 M63,20 L57,38';
+      const mirror = (d) => d.replace(/(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)/g, (m, x, y) => (100 - parseFloat(x)) + ',' + y);
+      const wingL = mirror(wingR), bonesL = mirror(bonesR);
+      return `
+        <svg viewBox="0 0 100 60" aria-hidden="true">
+          <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#2a1f33"/><stop offset="1" stop-color="#0c0810"/>
+          </linearGradient></defs>
+          <g class="ofd-bat-body">
+            <g class="ofd-wing ofd-wing-l">
+              <path d="${wingL}" fill="url(#${id})"/>
+              <path d="${bonesL}" stroke="#3b2d47" stroke-width=".9" fill="none" stroke-linecap="round"/>
+              <path d="M30,15 l-2,-3 l3,1 Z" fill="#0c0810"/>
+            </g>
+            <g class="ofd-wing ofd-wing-r">
+              <path d="${wingR}" fill="url(#${id})"/>
+              <path d="${bonesR}" stroke="#3b2d47" stroke-width=".9" fill="none" stroke-linecap="round"/>
+              <path d="M70,15 l2,-3 l-3,1 Z" fill="#0c0810"/>
+            </g>
+            <path d="M50,20 C55,20 56.5,26 55.5,32 C54.8,38 52,43 50,44 C48,43 45.2,38 44.5,32 C43.5,26 45,20 50,20 Z" fill="#1c1422"/>
+            <path d="M46.2,21.5 L44.8,14.5 L48.6,19.6 Z M53.8,21.5 L55.2,14.5 L51.4,19.6 Z" fill="#1c1422"/>
+            <circle cx="48.3" cy="23.2" r=".75" fill="#f59e0b" opacity=".85"/>
+            <circle cx="51.7" cy="23.2" r=".75" fill="#f59e0b" opacity=".85"/>
+            <path d="M47.5,43 L46,48 M52.5,43 L54,48" stroke="#1c1422" stroke-width="1.3" stroke-linecap="round"/>
           </g>
         </svg>`;
-      const pumpkinSvg = `
-        <svg viewBox="0 0 24 22" width="34" height="32">
+    }
+    function decoPumpkinSvg(id) {
+      return `
+        <svg viewBox="0 0 60 48" aria-hidden="true">
           <defs>
-            <radialGradient id="ofPump" cx="40%" cy="40%" r="60%">
-              <stop offset="0%" stop-color="#fb923c"/>
-              <stop offset="60%" stop-color="#ea580c"/>
-              <stop offset="100%" stop-color="#7c2d12"/>
+            <radialGradient id="${id}" cx="45%" cy="38%" r="65%">
+              <stop offset="0" stop-color="#ffb347"/><stop offset=".55" stop-color="#f06d0e"/><stop offset="1" stop-color="#9a3406"/>
+            </radialGradient>
+            <radialGradient id="${id}g" cx="50%" cy="55%" r="60%">
+              <stop offset="0" stop-color="#fff7c2"/><stop offset=".45" stop-color="#ffd23f"/><stop offset="1" stop-color="#ff8c00"/>
             </radialGradient>
           </defs>
-          <path d="M 11,2 Q 11,5 12,5 Q 13,5 13,2 L 13,4 Q 14,3 15,4" stroke="#15803d" stroke-width="1.2" fill="none"/>
-          <ellipse cx="6" cy="13" rx="4" ry="7" fill="url(#ofPump)" opacity="0.85"/>
-          <ellipse cx="18" cy="13" rx="4" ry="7" fill="url(#ofPump)" opacity="0.85"/>
-          <ellipse cx="12" cy="13" rx="6" ry="8" fill="url(#ofPump)"/>
-          <path d="M 8,11 L 10,13 L 8,13 Z" fill="#fde047"/>
-          <path d="M 16,11 L 14,13 L 16,13 Z" fill="#fde047"/>
-          <path d="M 9,16 Q 12,18 15,16 L 14,17 L 13,16 L 12,17 L 11,16 L 10,17 Z" fill="#fde047"/>
+          <path d="M29,9 C28,4 30,1 34,0.5 C33,3 32,6 32.5,9 Z" fill="#4d5d2a"/>
+          <path d="M33,4 C37,2 41,3 42,6" stroke="#5c7a2e" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+          <ellipse cx="14" cy="28" rx="12" ry="17" fill="url(#${id})"/>
+          <ellipse cx="46" cy="28" rx="12" ry="17" fill="url(#${id})"/>
+          <ellipse cx="22" cy="28" rx="11" ry="19" fill="url(#${id})"/>
+          <ellipse cx="38" cy="28" rx="11" ry="19" fill="url(#${id})"/>
+          <ellipse cx="30" cy="28" rx="10" ry="19.5" fill="url(#${id})"/>
+          <path d="M22,11 C19,20 19,37 22,46 M38,11 C41,20 41,37 38,46 M14,12 C9,20 9,37 14,45 M46,12 C51,20 51,37 46,45" stroke="rgba(110,35,0,.45)" stroke-width="1" fill="none"/>
+          <g class="ofd-carve" fill="url(#${id}g)">
+            <path d="M17,22 L24,21 L21,15 Z"/>
+            <path d="M43,22 L36,21 L39,15 Z"/>
+            <path d="M28.2,27 L31.8,27 L30,24 Z"/>
+            <path d="M14,31 C19,39 41,39 46,31 L42,32 L40,35 L37,32.5 L34,36 L31,33 L28,36.5 L25,33 L22,35.5 L19.5,32.5 Z"/>
+          </g>
         </svg>`;
-      return `
-        <style>
-          #of-deco .of-bat {
-            position:absolute; top:8px; left:-50px;
-            filter: drop-shadow(0 0 5px rgba(168,85,247,0.7));
-          }
-          #of-deco .of-bat.of-deco-animate { animation: ofBatFly 9s linear infinite; }
-          #of-deco .of-bat.of-deco-animate .of-wing-l { animation: ofWingL 0.25s ease-in-out infinite; }
-          #of-deco .of-bat.of-deco-animate .of-wing-r { animation: ofWingR 0.25s ease-in-out infinite; }
-          @keyframes ofBatFly {
-            0%   { transform: translateX(0)    translateY(0)  scale(0.8); opacity:0; }
-            5%   { opacity: 1; }
-            25%  { transform: translateX(28vw) translateY(-6px) scale(0.95); }
-            50%  { transform: translateX(55vw) translateY(8px)  scale(1.05); }
-            75%  { transform: translateX(80vw) translateY(-4px) scale(0.95); }
-            95%  { opacity: 1; }
-            100% { transform: translateX(110vw) translateY(0)   scale(0.8); opacity:0; }
-          }
-          @keyframes ofWingL { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(0.4); } }
-          @keyframes ofWingR { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(0.4); } }
-          #of-deco .of-pumpkin {
-            position:absolute; bottom:6px;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
-          }
-          #of-deco .of-pumpkin.left  { left: 8px;  }
-          #of-deco .of-pumpkin.right { right: 8px; }
-          #of-deco .of-pumpkin.of-deco-animate { animation: ofPumpBob 2.8s ease-in-out infinite; }
-          @keyframes ofPumpBob {
-            0%, 100% { transform: translateY(0) rotate(-5deg); }
-            50%      { transform: translateY(-4px) rotate(5deg); }
-          }
-        </style>
-        <span class="of-pumpkin left${animClass}">${pumpkinSvg}</span>
-        <span class="of-pumpkin right${animClass}" style="animation-delay:1.4s;">${pumpkinSvg}</span>
-        <span class="of-bat${animClass}" style="animation-delay:0s;">${batSvg}</span>
-        <span class="of-bat${animClass}" style="animation-delay:3.2s;">${batSvg}</span>
-        <span class="of-bat${animClass}" style="animation-delay:6.5s;">${batSvg}</span>
-      `;
     }
-
-    function easterEggs(animClass) {
-      const eggColors = [
-        { body: '#fbcfe8', stripe: '#ec4899' },
-        { body: '#bae6fd', stripe: '#0284c7' },
-        { body: '#bbf7d0', stripe: '#16a34a' },
-        { body: '#fef08a', stripe: '#ca8a04' },
-        { body: '#ddd6fe', stripe: '#7c3aed' },
+    function decoHalloween(A) {
+      const r = decoRand(31);
+      const bats = [
+        { top: -44, size: 58, dur: 13, dir: 'ltr', flap: .19, glide: true },
+        { top: -30, size: 40, dur: 17, dir: 'rtl', flap: .16, glide: false },
+        { top: -58, size: 32, dur: 21, dir: 'ltr', flap: .15, glide: true },
+        { top: -22, size: 48, dur: 15, dir: 'rtl', flap: .18, glide: true },
       ];
-      let html = `<style>
-        #of-deco .of-egg {
-          position:absolute; top:6px; transform:translateX(-50%);
-          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
-        }
-        #of-deco .of-egg.of-deco-animate { animation: ofEggWiggle 2.6s ease-in-out infinite; }
-        @keyframes ofEggWiggle {
-          0%,100% { transform: translateX(-50%) rotate(-12deg) translateY(0); }
-          50%     { transform: translateX(-50%) rotate(12deg) translateY(-4px); }
-        }
-      </style>`;
-      const count = 9;
-      for (let i = 0; i < count; i++) {
-        const left = 6 + (i * 88 / (count - 1));
-        const c = eggColors[i % eggColors.length];
-        const delay = ((i * 0.32) % 2.6).toFixed(2);
+      let html = '';
+      bats.forEach((b, i) => {
+        const far = b.size < 42 ? `opacity:${b.size < 36 ? .7 : .85};` : '';
         html += `
-          <svg class="of-egg${animClass}" viewBox="0 0 12 16" width="22" height="28"
-               style="left:${left}%;animation-delay:${delay}s;">
-            <ellipse cx="6" cy="9" rx="5" ry="6.5" fill="${c.body}"/>
-            <path d="M 1.5,8 Q 6,7 10.5,8" stroke="${c.stripe}" stroke-width="0.8" fill="none"/>
-            <path d="M 1.5,11 Q 6,12 10.5,11" stroke="${c.stripe}" stroke-width="0.8" fill="none"/>
-            <circle cx="4" cy="6" r="0.7" fill="${c.stripe}"/>
-            <circle cx="8" cy="13" r="0.7" fill="${c.stripe}"/>
-            <ellipse cx="4.5" cy="6" rx="1.5" ry="1.2" fill="rgba(255,255,255,0.5)"/>
-          </svg>`;
-      }
-      return html;
+          <div class="ofd ofd-bat ${b.dir}${A}" style="top:${b.top}px;--dur:${b.dur}s;--delay:${(-r() * b.dur).toFixed(2)}s;${far}${A ? '' : `left:${14 + i * 22}%;`}">
+            <div class="ofd-bat-bob" style="--bob:${(2.1 + r() * 1.4).toFixed(2)}s">
+              <div class="ofd-bat-flap ${b.glide ? 'glide' : ''}" style="width:${b.size}px;height:${(b.size * .6).toFixed(0)}px;--flap:${b.flap}s;--cycle:${(b.flap * 7).toFixed(2)}s">
+                ${decoBatSvg('ofdBat' + i)}
+              </div>
+            </div>
+          </div>`;
+      });
+      html += `
+        <div class="ofd ofd-pumpkin${A}" style="left:10px;width:46px;--fl:1.7s">${decoPumpkinSvg('ofdPk1')}</div>
+        <div class="ofd ofd-pumpkin${A}" style="right:12px;width:36px;--fl:2.3s">${decoPumpkinSvg('ofdPk2')}</div>`;
+      return `<style>${decoBase}
+        #of-deco .ofd-bat { left:0; }
+        #of-deco .ofd-bat.rtl .ofd-bat-flap { transform: scaleX(-1); }
+        #of-deco .ofd-bat.ofd-anim.ltr { animation: ofdBatL var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-bat.ofd-anim.rtl { animation: ofdBatR var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-bat.ofd-anim .ofd-bat-bob { animation: ofdBatBob var(--bob) ease-in-out infinite alternate; }
+        #of-deco .ofd-bat-flap svg { width:100%; height:100%; }
+        #of-deco .ofd-bat .ofd-wing { transform-box: view-box; }
+        #of-deco .ofd-bat .ofd-wing-l { transform-origin: 46px 25px; transform: rotate(8deg); }
+        #of-deco .ofd-bat .ofd-wing-r { transform-origin: 54px 25px; transform: rotate(-8deg); }
+        #of-deco .ofd-bat.ofd-anim .ofd-wing-l { animation: ofdFlapL var(--flap) cubic-bezier(.45,0,.55,1) infinite; }
+        #of-deco .ofd-bat.ofd-anim .ofd-wing-r { animation: ofdFlapR var(--flap) cubic-bezier(.45,0,.55,1) infinite; }
+        #of-deco .ofd-bat.ofd-anim .ofd-bat-body { transform-box: view-box; animation: ofdLift var(--flap) ease-in-out infinite; }
+        #of-deco .ofd-bat.ofd-anim .glide .ofd-wing-l { animation: ofdGlideL var(--cycle) linear infinite; }
+        #of-deco .ofd-bat.ofd-anim .glide .ofd-wing-r { animation: ofdGlideR var(--cycle) linear infinite; }
+        #of-deco .ofd-bat.ofd-anim .glide .ofd-bat-body { animation: ofdGlideLift var(--cycle) linear infinite; }
+        /* Quick downstroke (0-38%), slower upstroke. Up = wing tips raised. */
+        @keyframes ofdFlapR { 0% { transform: rotate(-38deg); } 38% { transform: rotate(30deg) scaleY(.92); } 100% { transform: rotate(-38deg); } }
+        @keyframes ofdFlapL { 0% { transform: rotate(38deg); }  38% { transform: rotate(-30deg) scaleY(.92); } 100% { transform: rotate(38deg); } }
+        @keyframes ofdLift  { 0%,100% { transform: translateY(1.5px); } 45% { transform: translateY(-2px); } }
+        /* Four flaps, then a short glide with wings held slightly raised. */
+        @keyframes ofdGlideR {
+          0% { transform: rotate(-38deg); } 8% { transform: rotate(30deg); } 15% { transform: rotate(-38deg); }
+          23% { transform: rotate(30deg); } 30% { transform: rotate(-38deg); } 38% { transform: rotate(30deg); }
+          45% { transform: rotate(-38deg); } 53% { transform: rotate(30deg); } 60% { transform: rotate(-12deg); }
+          95% { transform: rotate(-10deg); } 100% { transform: rotate(-38deg); } }
+        @keyframes ofdGlideL {
+          0% { transform: rotate(38deg); } 8% { transform: rotate(-30deg); } 15% { transform: rotate(38deg); }
+          23% { transform: rotate(-30deg); } 30% { transform: rotate(38deg); } 38% { transform: rotate(-30deg); }
+          45% { transform: rotate(38deg); } 53% { transform: rotate(-30deg); } 60% { transform: rotate(12deg); }
+          95% { transform: rotate(10deg); } 100% { transform: rotate(38deg); } }
+        @keyframes ofdGlideLift { 0%,60% { transform: translateY(0); } 80% { transform: translateY(2.5px); } 100% { transform: translateY(0); } }
+        @keyframes ofdBatL { from { transform: translateX(-90px); } to { transform: translateX(calc(100vw + 90px)); } }
+        @keyframes ofdBatR { from { transform: translateX(calc(100vw + 90px)); } to { transform: translateX(-90px); } }
+        @keyframes ofdBatBob {
+          0% { transform: translateY(0) rotate(-3deg); } 30% { transform: translateY(-9px) rotate(4deg); }
+          55% { transform: translateY(4px) rotate(-5deg); } 80% { transform: translateY(-5px) rotate(2deg); } 100% { transform: translateY(6px) rotate(-2deg); } }
+        #of-deco .ofd-pumpkin { bottom:100%; margin-bottom:-6px; }
+        #of-deco .ofd-pumpkin svg { width:100%; height:auto; filter: drop-shadow(0 2px 3px rgba(0,0,0,.55)); }
+        #of-deco .ofd-pumpkin.ofd-anim .ofd-carve { animation: ofdFlicker var(--fl) steps(1) infinite; }
+        @keyframes ofdFlicker { 0% { opacity:1; } 12% { opacity:.78; } 19% { opacity:.96; } 41% { opacity:.84; } 47% { opacity:1; } 68% { opacity:.72; } 74% { opacity:.93; } 90% { opacity:.86; } }
+      </style>${html}`;
     }
 
-    function stPatricksClovers(animClass) {
-      const cloverSvg = `
-        <svg viewBox="0 0 16 16" width="22" height="22">
-          <g fill="#16a34a" stroke="#14532d" stroke-width="0.4">
-            <path d="M 8,8 Q 4,4 5,2 Q 7,1 8,4 Z"/>
-            <path d="M 8,8 Q 12,4 11,2 Q 9,1 8,4 Z"/>
-            <path d="M 8,8 Q 4,12 5,14 Q 7,15 8,12 Z"/>
-            <path d="M 8,8 Q 12,12 11,14 Q 9,15 8,12 Z"/>
-            <path d="M 8,12 L 9,16" stroke="#15803d" stroke-width="0.7"/>
+    // ---------- Snow: crystal flakes drifting down + a snow cap ----------
+    function decoFlakeSvg(arms) {
+      let d = '';
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI) / 3, c = Math.cos(a), s = Math.sin(a);
+        const pt = (x, y) => `${(10 + x * c - y * s).toFixed(2)},${(10 + x * s + y * c).toFixed(2)}`;
+        d += `M${pt(0, 0)} L${pt(9, 0)} M${pt(5, 0)} L${pt(7.2, arms)} M${pt(5, 0)} L${pt(7.2, -arms)} `;
+      }
+      return `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="${d}" stroke="#fff" stroke-width="1.1" stroke-linecap="round" fill="none"/></svg>`;
+    }
+    function decoSnow(A) {
+      const r = decoRand(7);
+      let flakes = '';
+      for (let i = 0; i < 14; i++) {
+        const size = 7 + Math.round(r() * 9);
+        flakes += `
+          <div class="ofd ofd-flake${A}" style="left:${(3 + r() * 94).toFixed(1)}%;${A ? '' : `top:${(12 + r() * 50).toFixed(0)}%;`}width:${size}px;height:${size}px;--dur:${(7 + r() * 7).toFixed(2)}s;--delay:${(-r() * 14).toFixed(2)}s;--sway:${(2.5 + r() * 2.5).toFixed(2)}s;opacity:${(.55 + r() * .45).toFixed(2)}">
+            <div class="ofd-flake-sway">${decoFlakeSvg(1.6 + r() * 1.8)}</div>
+          </div>`;
+      }
+      let cap = 'M0,0 L0,5 ';
+      for (let x = 0; x <= 1000; x += 40) cap += `Q${x + 20},${10 + ((x / 40) % 3) * 2.2} ${x + 40},5 `;
+      cap += 'L1000,0 Z';
+      return `<style>${decoBase}
+        #of-deco .ofd-cap { left:0; right:0; top:-3px; width:100%; height:14px; filter: drop-shadow(0 1px 1.5px rgba(30,64,175,.35)); }
+        #of-deco .ofd-flake { top:-24px; }
+        #of-deco .ofd-flake svg { width:100%; height:100%; }
+        #of-deco .ofd-flake.ofd-anim { animation: ofdFall var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-flake.ofd-anim .ofd-flake-sway { animation: ofdSway var(--sway) ease-in-out infinite alternate; }
+        @keyframes ofdFall { 0% { transform: translateY(0) rotate(0); opacity:0; } 8% { opacity:1; } 85% { opacity:1; } 100% { transform: translateY(150px) rotate(200deg); opacity:0; } }
+        @keyframes ofdSway { from { transform: translateX(-10px); } to { transform: translateX(10px); } }
+      </style>
+      <svg class="ofd ofd-cap" viewBox="0 0 1000 14" preserveAspectRatio="none" aria-hidden="true"><path d="${cap}" fill="#f8fbff"/></svg>
+      ${flakes}`;
+    }
+
+    // ---------- Thanksgiving: maple + oak leaves tumbling down ----------
+    function decoThanksgiving(A) {
+      const maple = 'M10,1 L11.6,5.4 L14.6,3.6 L14,7.6 L18.4,7 L16.2,10 L19,11.4 L14.2,13.4 L14.8,15.2 L11,14.2 L10.6,19 L9.4,19 L9,14.2 L5.2,15.2 L5.8,13.4 L1,11.4 L3.8,10 L1.6,7 L6,7.6 L5.4,3.6 L8.4,5.4 Z';
+      const oak = 'M10,1 C12,2 11,4 13,4.5 C15.5,5 14,7.5 15.5,8.5 C17.5,10 15,12 16,13.5 C17,15.5 13.5,15.5 12,17 C11.2,18 10.6,19 10,19 C9.4,19 8.8,18 8,17 C6.5,15.5 3,15.5 4,13.5 C5,12 2.5,10 4.5,8.5 C6,7.5 4.5,5 7,4.5 C9,4 8,2 10,1 Z';
+      const colors = ['#c2410c', '#b45309', '#d97706', '#9a3412', '#a16207', '#dc2626', '#ca8a04'];
+      const r = decoRand(55);
+      let leaves = '';
+      for (let i = 0; i < 10; i++) {
+        const size = 13 + Math.round(r() * 8), c = colors[i % colors.length];
+        leaves += `
+          <div class="ofd ofd-leaf${A}" style="left:${(4 + r() * 92).toFixed(1)}%;${A ? '' : `top:${(8 + r() * 55).toFixed(0)}%;transform:rotate(${Math.round(r() * 360)}deg);`}width:${size}px;height:${size}px;--dur:${(8 + r() * 6).toFixed(2)}s;--delay:${(-r() * 14).toFixed(2)}s;--sway:${(2 + r() * 2).toFixed(2)}s">
+            <div class="ofd-leaf-sway"><div class="ofd-leaf-tumble" style="--tum:${(2.4 + r() * 2).toFixed(2)}s">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="${i % 3 ? maple : oak}" fill="${c}"/><path d="M10,19 L10,6" stroke="rgba(60,20,0,.55)" stroke-width=".8"/></svg>
+            </div></div>
+          </div>`;
+      }
+      return `<style>${decoBase}
+        #of-deco .ofd-leaf { top:-26px; }
+        #of-deco .ofd-leaf svg { width:100%; height:100%; }
+        #of-deco .ofd-leaf.ofd-anim { animation: ofdLeafFall var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-leaf.ofd-anim .ofd-leaf-sway { animation: ofdLeafSway var(--sway) ease-in-out infinite alternate; }
+        #of-deco .ofd-leaf.ofd-anim .ofd-leaf-tumble { animation: ofdTumble var(--tum) linear infinite; }
+        @keyframes ofdLeafFall { 0% { transform: translateY(0); opacity:0; } 8% { opacity:1; } 88% { opacity:1; } 100% { transform: translateY(150px); opacity:0; } }
+        @keyframes ofdLeafSway { from { transform: translateX(-16px) rotate(-18deg); } to { transform: translateX(16px) rotate(18deg); } }
+        @keyframes ofdTumble { from { transform: rotateX(0) rotateY(0) rotate(0); } to { transform: rotateX(360deg) rotateY(180deg) rotate(90deg); } }
+      </style>${leaves}`;
+    }
+
+    // ---------- St. Patrick's: shamrocks drifting + gold glints ----------
+    function decoStPatricks(A) {
+      const leaf = 'M10,10 C7.5,7 4,6.5 4.2,4 C4.4,1.8 7.4,1.6 8.5,3.4 C9.2,1.4 12.4,1.6 12.6,3.8 C12.8,6.2 11.5,7.6 10,10 Z';
+      const shamrock = (fill) => `<svg viewBox="0 0 20 22" aria-hidden="true"><g fill="${fill}">
+          <path d="${leaf}"/><path d="${leaf}" transform="rotate(120 10 10)"/><path d="${leaf}" transform="rotate(240 10 10)"/></g>
+          <path d="M10,11 C10.5,15 12,18 13.5,21" stroke="${fill}" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>`;
+      const greens = ['#16a34a', '#22c55e', '#15803d', '#4ade80'];
+      const r = decoRand(17);
+      let html = '';
+      for (let i = 0; i < 9; i++) {
+        const size = 13 + Math.round(r() * 8);
+        html += `
+          <div class="ofd ofd-leaf${A}" style="left:${(4 + r() * 92).toFixed(1)}%;${A ? '' : `top:${(8 + r() * 55).toFixed(0)}%;`}width:${size}px;height:${(size * 1.1).toFixed(0)}px;--dur:${(9 + r() * 6).toFixed(2)}s;--delay:${(-r() * 15).toFixed(2)}s;--sway:${(2.2 + r() * 2).toFixed(2)}s">
+            <div class="ofd-leaf-sway"><div class="ofd-leaf-tumble" style="--tum:${(3 + r() * 2).toFixed(2)}s">${shamrock(greens[i % greens.length])}</div></div>
+          </div>`;
+      }
+      for (let i = 0; i < 6; i++) {
+        html += `<div class="ofd ofd-glint${A}" style="left:${(8 + i * 16 + r() * 6).toFixed(1)}%;top:${(-6 + r() * 10).toFixed(0)}px;--delay:${(-r() * 3).toFixed(2)}s">
+          <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M5,0 L6,4 L10,5 L6,6 L5,10 L4,6 L0,5 L4,4 Z" fill="#fde047"/></svg></div>`;
+      }
+      return `<style>${decoBase}
+        #of-deco .ofd-leaf { top:-26px; }
+        #of-deco .ofd-leaf svg { width:100%; height:100%; }
+        #of-deco .ofd-leaf.ofd-anim { animation: ofdCloverFall var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-leaf.ofd-anim .ofd-leaf-sway { animation: ofdCloverSway var(--sway) ease-in-out infinite alternate; }
+        #of-deco .ofd-leaf.ofd-anim .ofd-leaf-tumble { animation: ofdCloverTumble var(--tum) linear infinite; }
+        @keyframes ofdCloverFall { 0% { transform: translateY(0); opacity:0; } 8% { opacity:1; } 88% { opacity:1; } 100% { transform: translateY(150px); opacity:0; } }
+        @keyframes ofdCloverSway { from { transform: translateX(-14px) rotate(-15deg); } to { transform: translateX(14px) rotate(15deg); } }
+        @keyframes ofdCloverTumble { from { transform: rotateY(0) rotate(0); } to { transform: rotateY(360deg) rotate(60deg); } }
+        #of-deco .ofd-glint { opacity:.7; }
+        #of-deco .ofd-glint.ofd-anim { animation: ofdGlint 3s ease-in-out var(--delay) infinite; }
+        @keyframes ofdGlint { 0%,70%,100% { opacity:0; transform: scale(.4) rotate(0); } 82% { opacity:1; transform: scale(1.1) rotate(45deg); } }
+      </style>${html}`;
+    }
+
+    // ---------- Valentine's: hearts rising and fading ----------
+    function decoValentines(A) {
+      const heart = 'M10,17.5 C10,17.5 1.5,12 1.5,6.5 C1.5,3.6 3.6,1.8 6,1.8 C7.8,1.8 9.2,2.9 10,4.4 C10.8,2.9 12.2,1.8 14,1.8 C16.4,1.8 18.5,3.6 18.5,6.5 C18.5,12 10,17.5 10,17.5 Z';
+      const colors = [['#f43f5e', '#be123c'], ['#fb7185', '#e11d48'], ['#ec4899', '#be185d'], ['#fda4af', '#f43f5e']];
+      const r = decoRand(14);
+      let html = '';
+      for (let i = 0; i < 10; i++) {
+        const size = 11 + Math.round(r() * 10), [a, b] = colors[i % colors.length];
+        html += `
+          <div class="ofd ofd-heart${A}" style="left:${(4 + r() * 92).toFixed(1)}%;${A ? '' : `bottom:${(20 + r() * 60).toFixed(0)}%;`}width:${size}px;height:${size}px;--dur:${(6 + r() * 5).toFixed(2)}s;--delay:${(-r() * 11).toFixed(2)}s;--sway:${(1.8 + r() * 1.6).toFixed(2)}s">
+            <div class="ofd-heart-sway"><svg viewBox="0 0 20 20" aria-hidden="true">
+              <defs><linearGradient id="ofdH${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>
+              <path d="${heart}" fill="url(#ofdH${i})"/><ellipse cx="6.2" cy="5.6" rx="2" ry="1.3" fill="rgba(255,255,255,.55)" transform="rotate(-25 6.2 5.6)"/></svg></div>
+          </div>`;
+      }
+      return `<style>${decoBase}
+        #of-deco .ofd-heart { bottom:0; }
+        #of-deco .ofd-heart svg { width:100%; height:100%; }
+        #of-deco .ofd-heart.ofd-anim { animation: ofdRise var(--dur) ease-out var(--delay) infinite; }
+        #of-deco .ofd-heart.ofd-anim .ofd-heart-sway { animation: ofdHeartSway var(--sway) ease-in-out infinite alternate; }
+        @keyframes ofdRise { 0% { transform: translateY(10px) scale(.6); opacity:0; } 12% { opacity:.95; } 70% { opacity:.85; } 100% { transform: translateY(-150px) scale(1.05); opacity:0; } }
+        @keyframes ofdHeartSway { from { transform: translateX(-8px) rotate(-10deg); } to { transform: translateX(8px) rotate(10deg); } }
+      </style>${html}`;
+    }
+
+    // ---------- Easter: patterned eggs nestled in grass on the top edge ----------
+    function decoEaster(A) {
+      const eggs = [
+        ['#fbcfe8', '#db2777', 'zig'], ['#bae6fd', '#0284c7', 'dots'], ['#fef08a', '#ca8a04', 'bands'],
+        ['#bbf7d0', '#16a34a', 'zig'], ['#ddd6fe', '#7c3aed', 'dots'], ['#fed7aa', '#ea580c', 'bands'], ['#a5f3fc', '#0891b2', 'zig'],
+      ];
+      const pattern = (kind, c) => kind === 'zig'
+        ? `<path d="M2,12 L4.5,9.5 L7,12 L9.5,9.5 L12,12 L14.5,9.5 L17,12" stroke="${c}" stroke-width="1.4" fill="none"/><path d="M3,16 H17" stroke="${c}" stroke-width="1.2"/>`
+        : kind === 'dots'
+          ? `<g fill="${c}"><circle cx="7" cy="9" r="1.3"/><circle cx="13" cy="9" r="1.3"/><circle cx="10" cy="13" r="1.3"/><circle cx="6" cy="16" r="1.1"/><circle cx="14" cy="16" r="1.1"/></g>`
+          : `<path d="M3.2,9 Q10,11 16.8,9 M2.4,13 Q10,15.2 17.6,13" stroke="${c}" stroke-width="1.8" fill="none"/>`;
+      const r = decoRand(3);
+      let html = '';
+      eggs.forEach(([base, c, kind], i) => {
+        html += `
+          <div class="ofd ofd-egg${A}" style="left:${(6 + i * 14.2).toFixed(1)}%;--delay:${(-r() * 7).toFixed(2)}s">
+            <svg viewBox="0 0 20 24" width="16" height="20" aria-hidden="true">
+              <defs><clipPath id="ofdE${i}"><path d="M10,1 C15,1 18.5,9 18.5,14.5 C18.5,20 14.8,23 10,23 C5.2,23 1.5,20 1.5,14.5 C1.5,9 5,1 10,1 Z"/></clipPath></defs>
+              <path d="M10,1 C15,1 18.5,9 18.5,14.5 C18.5,20 14.8,23 10,23 C5.2,23 1.5,20 1.5,14.5 C1.5,9 5,1 10,1 Z" fill="${base}"/>
+              <g clip-path="url(#ofdE${i})">${pattern(kind, c)}</g>
+              <ellipse cx="6.8" cy="7" rx="1.8" ry="3" fill="rgba(255,255,255,.55)" transform="rotate(20 6.8 7)"/>
+            </svg>
+          </div>`;
+      });
+      let grass = '';
+      for (let x = 0; x <= 1000; x += 9) grass += `M${x},18 Q${x + 2},${6 + (x % 27) / 3} ${x + 4},${2 + (x % 13) / 2} Q${x + 3},${10 + (x % 7)} ${x + 7},18 Z `;
+      return `<style>${decoBase}
+        #of-deco .ofd-grass { left:0; right:0; top:-14px; width:100%; height:18px; }
+        #of-deco .ofd-egg { top:-16px; transform-origin: 50% 100%; }
+        #of-deco .ofd-egg.ofd-anim { animation: ofdWobble 7s ease-in-out var(--delay) infinite; }
+        @keyframes ofdWobble { 0%,78%,100% { transform: rotate(0); } 82% { transform: rotate(-12deg); } 86% { transform: rotate(10deg); } 90% { transform: rotate(-6deg); } 94% { transform: rotate(3deg); } }
+      </style>
+      ${html}
+      <svg class="ofd ofd-grass" viewBox="0 0 1000 18" preserveAspectRatio="none" aria-hidden="true"><path d="${grass}" fill="#4ade80"/><path d="M0,16 H1000 V18 H0 Z" fill="#22c55e"/></svg>`;
+    }
+
+    // ---------- Hanukkah: menorah with flickering flames + stars ----------
+    function decoHanukkah(A) {
+      let candles = '', flames = '';
+      for (let i = 0; i < 9; i++) {
+        const x = 8 + i * 9, shamash = i === 4, top = shamash ? 4 : 10;
+        candles += `<rect x="${x - 1.6}" y="${top + 6}" width="3.2" height="${shamash ? 14 : 8}" rx=".8" fill="${shamash ? '#e0f2fe' : (i % 2 ? '#93c5fd' : '#f8fafc')}"/>`;
+        flames += `<g class="ofd-flame" style="transform-origin:${x}px ${top + 6}px;--fd:${(0.9 + ((i * 37) % 7) / 10).toFixed(2)}s"><path d="M${x},${top} C${x + 2.4},${top + 3} ${x + 2},${top + 6} ${x},${top + 6.4} C${x - 2},${top + 6} ${x - 2.4},${top + 3} ${x},${top} Z" fill="#fbbf24"/><path d="M${x},${top + 2.4} C${x + 1},${top + 4} ${x + .8},${top + 5.6} ${x},${top + 5.8} C${x - .8},${top + 5.6} ${x - 1},${top + 4} ${x},${top + 2.4} Z" fill="#fff7d6"/></g>`;
+      }
+      const menorah = `
+        <svg viewBox="0 0 88 46" aria-hidden="true">
+          <defs><linearGradient id="ofdGold" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#b45309"/></linearGradient></defs>
+          ${candles}
+          <g fill="none" stroke="url(#ofdGold)" stroke-width="2.2" stroke-linecap="round">
+            <path d="M44,20 V40"/>
+            ${[1, 2, 3, 4].map(k => `<path d="M${44 - k * 9},18 V${20 + k * 1.5} Q${44 - k * 9},${30 + k * 2} 44,${30 + k * 2}"/><path d="M${44 + k * 9},18 V${20 + k * 1.5} Q${44 + k * 9},${30 + k * 2} 44,${30 + k * 2}"/>`).join('')}
           </g>
+          <path d="M34,44 H54 L50,40 H38 Z" fill="url(#ofdGold)"/>
+          ${flames}
         </svg>`;
-      let html = `<style>
-        #of-deco .of-clover {
-          position:absolute; top:8px; transform:translateX(-50%);
-          filter: drop-shadow(0 0 4px rgba(34,197,94,0.7));
-        }
-        #of-deco .of-clover.of-deco-animate { animation: ofCloverSpin 5s linear infinite; }
-        @keyframes ofCloverSpin {
-          0%   { transform: translateX(-50%) rotate(0deg)   scale(1); }
-          50%  { transform: translateX(-50%) rotate(180deg) scale(1.15); }
-          100% { transform: translateX(-50%) rotate(360deg) scale(1); }
-        }
-      </style>`;
-      const count = 8;
-      for (let i = 0; i < count; i++) {
-        const left = 7 + (i * 86 / (count - 1));
-        const delay = ((i * 0.5) % 5).toFixed(2);
-        html += `<span class="of-clover${animClass}" style="left:${left}%;animation-delay:${delay}s;">${cloverSvg}</span>`;
+      const r = decoRand(8);
+      let stars = '';
+      for (let i = 0; i < 7; i++) {
+        stars += `<div class="ofd ofd-star${A}" style="left:${(26 + i * 11 + r() * 4).toFixed(1)}%;top:${(-20 + r() * 16).toFixed(0)}px;--delay:${(-r() * 4).toFixed(2)}s;--sz:${(9 + r() * 6).toFixed(0)}px">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="${i % 2 ? '#bfdbfe' : '#e5e7eb'}" stroke-width="1.4" stroke-linejoin="round"><path d="M10,2 L17,14 H3 Z"/><path d="M10,18 L3,6 H17 Z"/></g></svg></div>`;
       }
-      return html;
+      return `<style>${decoBase}
+        #of-deco .ofd-menorah { left:12px; bottom:100%; margin-bottom:-4px; width:78px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+        #of-deco .ofd-menorah svg { width:100%; height:auto; }
+        #of-deco .ofd-flame { transform-box: view-box; }
+        #of-deco .ofd-menorah.ofd-anim .ofd-flame { animation: ofdFlame var(--fd) ease-in-out infinite alternate; }
+        @keyframes ofdFlame { 0% { transform: scale(1,1) skewX(0); } 40% { transform: scale(.92,1.12) skewX(4deg); } 70% { transform: scale(1.05,.94) skewX(-3deg); } 100% { transform: scale(.97,1.06) skewX(2deg); } }
+        #of-deco .ofd-star { width:var(--sz); height:var(--sz); opacity:.75; }
+        #of-deco .ofd-star svg { width:100%; height:100%; }
+        #of-deco .ofd-star.ofd-anim { animation: ofdStar 4s ease-in-out var(--delay) infinite; }
+        @keyframes ofdStar { 0%,100% { opacity:.25; transform: scale(.85); } 50% { opacity:.95; transform: scale(1.05); } }
+      </style>
+      <div class="ofd ofd-menorah${A}">${menorah}</div>${stars}`;
     }
 
-    function independenceFireworks(animClass) {
-      const colors = ['#ef4444','#3b82f6','#ffffff','#facc15'];
-      let html = `<style>
-        #of-deco .of-burst {
-          position:absolute; top:14px; width:50px; height:50px;
-          transform:translateX(-50%);
-        }
-        #of-deco .of-burst .of-ray {
-          position:absolute; top:50%; left:50%;
-          width:24px; height:2px;
-          transform-origin: 0 50%;
-          border-radius: 1px;
-        }
-        #of-deco .of-burst.of-deco-animate { animation: ofBurst 2.6s ease-out infinite; }
-        @keyframes ofBurst {
-          0%   { transform: translateX(-50%) scale(0); opacity:1; }
-          40%  { transform: translateX(-50%) scale(1); opacity:1; }
-          100% { transform: translateX(-50%) scale(1.4); opacity:0; }
-        }
-      </style>`;
-      const burstCount = 6;
-      for (let b = 0; b < burstCount; b++) {
-        const left = 8 + (b * 84 / (burstCount - 1));
-        const color = colors[b % colors.length];
-        const delay = ((b * 0.45) % 2.6).toFixed(2);
+    // ---------- Independence Day: rockets bursting above the player ----------
+    function decoIndependence(A) {
+      const bursts = [
+        { x: 12, y: -52, c: '#ef4444', c2: '#fecaca' }, { x: 34, y: -64, c: '#f8fafc', c2: '#bfdbfe' },
+        { x: 57, y: -48, c: '#3b82f6', c2: '#dbeafe' }, { x: 78, y: -60, c: '#ef4444', c2: '#fde68a' },
+        { x: 92, y: -46, c: '#f8fafc', c2: '#fecaca' },
+      ];
+      const r = decoRand(4);
+      let html = '';
+      bursts.forEach((b, i) => {
         let rays = '';
-        for (let r = 0; r < 12; r++) {
-          const angle = r * 30;
-          rays += `<div class="of-ray" style="background:linear-gradient(90deg,${color},transparent);transform:translate(0,-50%) rotate(${angle}deg);box-shadow:0 0 6px ${color};"></div>`;
+        const n = 14;
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2 + r() * .15, len = 18 + r() * 6;
+          const x2 = (30 + Math.cos(a) * len).toFixed(1), y2 = (30 + Math.sin(a) * len).toFixed(1);
+          const x1 = (30 + Math.cos(a) * len * .45).toFixed(1), y1 = (30 + Math.sin(a) * len * .45).toFixed(1);
+          rays += `<path d="M${x1},${y1} L${x2},${y2}" stroke="${k % 2 ? b.c : b.c2}"/><circle cx="${x2}" cy="${y2}" r="1.5" fill="${b.c2}"/>`;
         }
-        html += `<div class="of-burst${animClass}" style="left:${left}%;animation-delay:${delay}s;">${rays}</div>`;
+        const d = (-r() * 4.5).toFixed(2), dur = (3.8 + r() * 1.6).toFixed(2);
+        html += `
+          <div class="ofd ofd-rocket${A}" style="left:${b.x}%;--d:${d}s;--dur:${dur}s"></div>
+          <div class="ofd ofd-burst${A}" style="left:${b.x}%;top:${b.y}px;--d:${d}s;--dur:${dur}s">
+            <svg viewBox="0 0 60 60" width="60" height="60" aria-hidden="true"><g stroke-width="1.6" stroke-linecap="round">${rays}</g></svg></div>`;
+      });
+      return `<style>${decoBase}
+        #of-deco .ofd-burst { margin-left:-30px; opacity:.9; transform: scale(.9); }
+        #of-deco .ofd-rocket { bottom:100%; width:2px; height:16px; margin-left:-1px; border-radius:1px; opacity:0;
+          background: linear-gradient(to top, rgba(253,230,138,0), #fde68a); }
+        #of-deco .ofd-burst.ofd-anim  { opacity:0; animation: ofdBurst  var(--dur) ease-out var(--d) infinite; }
+        #of-deco .ofd-rocket.ofd-anim { animation: ofdRocket var(--dur) ease-in var(--d) infinite; }
+        @keyframes ofdRocket { 0% { transform: translateY(20px); opacity:0; } 5% { opacity:1; } 30% { transform: translateY(-34px); opacity:.9; } 34%,100% { transform: translateY(-40px); opacity:0; } }
+        @keyframes ofdBurst  { 0%,32% { transform: scale(.1); opacity:0; } 36% { opacity:1; } 60% { transform: scale(1); opacity:.9; } 78% { transform: scale(1.12) translateY(4px); opacity:0; } 100% { opacity:0; } }
+      </style>${html}`;
+    }
+
+    // ---------- shared helpers for the newer themes ----------
+    // A candle/lamp flame (outer + inner) centred at (x, y = flame tip).
+    function decoFlame(x, y, h, cls) {
+      return `<g class="${cls}" style="transform-origin:${x}px ${y + h}px;--fd:${(0.8 + ((x * 13) % 7) / 10).toFixed(2)}s">
+        <path d="M${x},${y} C${x + h * .38},${y + h * .45} ${x + h * .32},${y + h * .95} ${x},${y + h} C${x - h * .32},${y + h * .95} ${x - h * .38},${y + h * .45} ${x},${y} Z" fill="#fbbf24"/>
+        <path d="M${x},${y + h * .38} C${x + h * .16},${y + h * .62} ${x + h * .13},${y + h * .9} ${x},${y + h * .93} C${x - h * .13},${y + h * .9} ${x - h * .16},${y + h * .62} ${x},${y + h * .38} Z" fill="#fff7d6"/>
+      </g>`;
+    }
+    // Falling confetti pieces (rectangles and curls) in the given colours.
+    function decoConfetti(A, colors, count, seed, prefix) {
+      const r = decoRand(seed);
+      let html = '';
+      for (let i = 0; i < count; i++) {
+        const c = colors[i % colors.length], curl = i % 4 === 3;
+        const w = curl ? 10 : 5 + Math.round(r() * 3), h = curl ? 10 : 8 + Math.round(r() * 4);
+        const shape = curl
+          ? `<svg viewBox="0 0 10 10" width="${w}" height="${h}" aria-hidden="true"><path d="M1,8 C3,1 6,9 9,2" stroke="${c}" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>`
+          : `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><rect width="${w}" height="${h}" rx="1" fill="${c}"/></svg>`;
+        html += `<div class="ofd ${prefix}-bit${A}" style="left:${(2 + r() * 96).toFixed(1)}%;${A ? '' : `top:${(10 + r() * 60).toFixed(0)}%;transform:rotate(${Math.round(r() * 180)}deg);`}--dur:${(5 + r() * 5).toFixed(2)}s;--delay:${(-r() * 10).toFixed(2)}s;--sway:${(1.2 + r() * 1.6).toFixed(2)}s;--spin:${(0.9 + r() * 1.4).toFixed(2)}s">
+          <div class="${prefix}-sway"><div class="${prefix}-spin">${shape}</div></div></div>`;
       }
       return html;
     }
-
-    function valentinesHearts(animClass) {
-      const heartSvg = `
-        <svg viewBox="0 0 16 14" width="22" height="20">
-          <defs>
-            <radialGradient id="ofHeart" cx="35%" cy="35%" r="65%">
-              <stop offset="0%" stop-color="#fbcfe8"/>
-              <stop offset="50%" stop-color="#ec4899"/>
-              <stop offset="100%" stop-color="#9f1239"/>
-            </radialGradient>
-          </defs>
-          <path d="M 8,13 C 8,13 1,8.5 1,4.5 C 1,2 2.8,1 4.5,1 C 6,1 7,2 8,3.5 C 9,2 10,1 11.5,1 C 13.2,1 15,2 15,4.5 C 15,8.5 8,13 8,13 Z"
-                fill="url(#ofHeart)"/>
-          <ellipse cx="5.5" cy="4" rx="1.5" ry="1" fill="rgba(255,255,255,0.5)"/>
-        </svg>`;
-      let html = `<style>
-        #of-deco .of-heart {
-          position:absolute; top:8px; transform:translateX(-50%);
-          filter: drop-shadow(0 0 4px rgba(236,72,153,0.7));
-        }
-        #of-deco .of-heart.of-deco-animate { animation: ofHeartPulse 1.4s ease-in-out infinite; }
-        @keyframes ofHeartPulse {
-          0%, 100% { transform: translateX(-50%) scale(1); }
-          50%      { transform: translateX(-50%) scale(1.3); }
-        }
-      </style>`;
-      const count = 9;
-      for (let i = 0; i < count; i++) {
-        const left = 6 + (i * 88 / (count - 1));
-        const delay = ((i * 0.18) % 1.4).toFixed(2);
-        html += `<span class="of-heart${animClass}" style="left:${left}%;animation-delay:${delay}s;">${heartSvg}</span>`;
-      }
-      return html;
+    function decoConfettiCss(prefix) {
+      return `
+        #of-deco .${prefix}-bit { top:-18px; }
+        #of-deco .${prefix}-bit.ofd-anim { animation: ${prefix}Fall var(--dur) linear var(--delay) infinite; }
+        #of-deco .${prefix}-bit.ofd-anim .${prefix}-sway { animation: ${prefix}Sway var(--sway) ease-in-out infinite alternate; }
+        #of-deco .${prefix}-bit.ofd-anim .${prefix}-spin { animation: ${prefix}Spin var(--spin) linear infinite; }
+        @keyframes ${prefix}Fall { 0% { transform: translateY(0); opacity:0; } 6% { opacity:1; } 88% { opacity:1; } 100% { transform: translateY(150px); opacity:0; } }
+        @keyframes ${prefix}Sway { from { transform: translateX(-9px); } to { transform: translateX(9px); } }
+        @keyframes ${prefix}Spin { from { transform: rotateX(0) rotateY(0) rotate(0); } to { transform: rotateX(360deg) rotateY(180deg) rotate(180deg); } }`;
     }
 
-    function hanukkahStars(animClass) {
-      const starSvg = `
-        <svg viewBox="0 0 16 16" width="22" height="22">
-          <defs>
-            <linearGradient id="ofStar" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#dbeafe"/>
-              <stop offset="50%" stop-color="#3b82f6"/>
-              <stop offset="100%" stop-color="#1e3a8a"/>
-            </linearGradient>
-          </defs>
-          <path d="M 8,1 L 14,12 L 2,12 Z" fill="url(#ofStar)" stroke="#1e3a8a" stroke-width="0.5"/>
-          <path d="M 8,15 L 2,4 L 14,4 Z" fill="url(#ofStar)" stroke="#1e3a8a" stroke-width="0.5" opacity="0.85"/>
-        </svg>`;
-      let html = `<style>
-        #of-deco .of-hstar {
-          position:absolute; top:8px; transform:translateX(-50%);
+    // ---------- New Year's: confetti, a glittering ball, sparkle bursts ----------
+    function decoNewYear(A) {
+      const confetti = decoConfetti(A, ['#facc15', '#e5e7eb', '#fde68a', '#f59e0b', '#cbd5e1', '#fef3c7'], 18, 101, 'ofdny');
+      let facets = '';
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 8; col++) {
+          const x = 6 + col * 5.2 - (row % 2) * 2.6, y = 6 + row * 4.6;
+          if ((x - 24) ** 2 + (y - 22) ** 2 > 16.5 ** 2) continue;
+          facets += `<rect class="ofd-facet" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="4.4" height="3.8" rx=".5" style="--fa:${((row * 3 + col * 5) % 9) * 0.22}s" fill="${(row + col) % 3 ? '#e2e8f0' : '#fef3c7'}"/>`;
         }
-        #of-deco .of-hstar.of-deco-animate { animation: ofStarShine 2.2s ease-in-out infinite; }
-        @keyframes ofStarShine {
-          0%, 100% { filter: drop-shadow(0 0 2px #60a5fa) brightness(0.9); }
-          50%      { filter: drop-shadow(0 0 12px #60a5fa) brightness(1.3); }
-        }
-      </style>`;
-      const count = 7;
-      for (let i = 0; i < count; i++) {
-        const left = 8 + (i * 84 / (count - 1));
-        const delay = ((i * 0.35) % 2.2).toFixed(2);
-        html += `<span class="of-hstar${animClass}" style="left:${left}%;animation-delay:${delay}s;">${starSvg}</span>`;
       }
-      return html;
+      const ball = `
+        <svg viewBox="0 0 48 46" aria-hidden="true">
+          <defs><radialGradient id="ofdNyBall" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#94a3b8"/><stop offset="1" stop-color="#1e293b"/></radialGradient>
+            <clipPath id="ofdNyClip"><circle cx="24" cy="22" r="17"/></clipPath></defs>
+          <path d="M24,0 V5" stroke="#cbd5e1" stroke-width="1.2"/>
+          <circle cx="24" cy="22" r="17" fill="url(#ofdNyBall)"/>
+          <g clip-path="url(#ofdNyClip)" opacity=".85">${facets}</g>
+          <circle cx="18" cy="15" r="3.4" fill="#fff" opacity=".8"/>
+        </svg>`;
+      const r = decoRand(66);
+      let sparks = '';
+      for (let i = 0; i < 5; i++) {
+        sparks += `<div class="ofd ofd-nyspark${A}" style="left:${(10 + i * 19 + r() * 6).toFixed(1)}%;top:${(-30 + r() * 20).toFixed(0)}px;--delay:${(-r() * 3.5).toFixed(2)}s">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><g stroke="${i % 2 ? '#fde68a' : '#f8fafc'}" stroke-width="1.4" stroke-linecap="round">
+            <path d="M12,2 V7 M12,17 V22 M2,12 H7 M17,12 H22 M5,5 L8.5,8.5 M15.5,15.5 L19,19 M19,5 L15.5,8.5 M8.5,15.5 L5,19"/></g></svg></div>`;
+      }
+      return `<style>${decoBase}${decoConfettiCss('ofdny')}
+        #of-deco .ofd-nyball { right:18%; bottom:100%; margin-bottom:6px; width:40px; filter: drop-shadow(0 0 8px rgba(250,204,21,.45)); }
+        #of-deco .ofd-nyball svg { width:100%; height:auto; }
+        #of-deco .ofd-nyball.ofd-anim { transform-origin: 50% 0; animation: ofdNySwing 5s ease-in-out infinite alternate; }
+        #of-deco .ofd-nyball.ofd-anim .ofd-facet { animation: ofdNyFacet 2s ease-in-out var(--fa) infinite; }
+        @keyframes ofdNySwing { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
+        @keyframes ofdNyFacet { 0%,100% { opacity:.55; } 50% { opacity:1; fill:#fff; } }
+        #of-deco .ofd-nyspark { opacity:.8; }
+        #of-deco .ofd-nyspark.ofd-anim { animation: ofdNySpark 3.5s ease-out var(--delay) infinite; }
+        @keyframes ofdNySpark { 0%,60% { opacity:0; transform: scale(.2) rotate(0); } 70% { opacity:1; } 90% { opacity:0; transform: scale(1.2) rotate(30deg); } 100% { opacity:0; } }
+      </style>
+      <div class="ofd ofd-nyball${A}">${ball}</div>${sparks}${confetti}`;
     }
 
-    function thanksgivingLeaves(animClass) {
-      const leafColors = ['#dc2626','#ea580c','#ca8a04','#78350f'];
-      const leafSvg = (color) => `
-        <svg viewBox="0 0 16 18" width="22" height="25">
-          <path d="M 8,1 Q 5,3 5,5 Q 2,5 2,8 Q 4,9 4,11 Q 2,12 3,14 Q 5,14 6,15 L 8,17 L 10,15 Q 11,14 13,14 Q 14,12 12,11 Q 12,9 14,8 Q 14,5 11,5 Q 11,3 8,1 Z"
-                fill="${color}" stroke="#451a03" stroke-width="0.4"/>
-          <path d="M 8,17 L 8,5" stroke="#451a03" stroke-width="0.5"/>
-        </svg>`;
-      let html = `<style>
-        #of-deco .of-leaf {
-          position:absolute; top:-6px; transform:translateX(-50%);
-          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
-        }
-        #of-deco .of-leaf.of-deco-animate { animation: ofLeafFall 6s ease-in-out infinite; }
-        @keyframes ofLeafFall {
-          0%   { transform: translateX(-50%) translateY(-12px) rotate(-30deg); opacity:0; }
-          15%  { opacity: 1; }
-          50%  { transform: translateX(-30%) translateY(30px)  rotate(60deg);  opacity:0.9; }
-          100% { transform: translateX(-70%) translateY(80px)  rotate(220deg); opacity:0; }
-        }
-      </style>`;
-      const count = 8;
-      for (let i = 0; i < count; i++) {
-        const left = 6 + (i * 88 / (count - 1));
-        const delay = ((i * 0.7) % 6).toFixed(2);
-        const color = leafColors[i % leafColors.length];
-        html += `<span class="of-leaf${animClass}" style="left:${left}%;animation-delay:${delay}s;">${leafSvg(color)}</span>`;
+    // ---------- Día de los Muertos: papel picado banner + marigold petals ----------
+    function decoDayOfDead(A) {
+      const flagColors = ['#ec4899', '#f97316', '#facc15', '#22c55e', '#06b6d4', '#a855f7', '#ef4444'];
+      const N = 12;
+      let cord = 'M0,3 ';
+      for (let i = 0; i < N; i++) cord += `Q${((i + 0.5) / N) * 1000},9 ${((i + 1) / N) * 1000},3 `;
+      const patterns = [
+        'M6,7 h8 v2 h-8 Z M10,11 m-2.4,0 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z M5,15 l2,-1.5 l2,1.5 l2,-1.5 l2,1.5 l2,-1.5 v1.4 l-2,1.5 l-2,-1.5 l-2,1.5 l-2,-1.5 l-2,1.5 Z',
+        'M10,5 l1.6,3.4 l3.6,.4 l-2.7,2.5 l.8,3.6 l-3.3,-1.9 l-3.3,1.9 l.8,-3.6 l-2.7,-2.5 l3.6,-.4 Z M5,17 h10 v1.4 h-10 Z',
+        'M7,8 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 M13,8 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 M10,12 l-1.2,2 h2.4 Z M6,16 q4,2.6 8,0 v1.2 q-4,2.6 -8,0 Z',
+      ];
+      let flags = '';
+      for (let i = 0; i < N; i++) {
+        const c = flagColors[i % flagColors.length];
+        flags += `<div class="ofd ofd-picado${A}" style="left:${((i + 0.5) / N) * 100}%;--delay:${(-(i * 0.37) % 3).toFixed(2)}s;--dur:${(2.6 + (i % 4) * 0.35).toFixed(2)}s">
+          <svg viewBox="0 0 20 24" width="20" height="24" aria-hidden="true">
+            <path fill-rule="evenodd" fill="${c}" d="M0,0 H20 V20 L17.5,22.5 L15,20 L12.5,22.5 L10,20 L7.5,22.5 L5,20 L2.5,22.5 L0,20 Z ${patterns[i % patterns.length]}"/>
+          </svg></div>`;
       }
-      return html;
+      const r = decoRand(91);
+      let petals = '';
+      for (let i = 0; i < 12; i++) {
+        const c = i % 3 ? '#f97316' : '#facc15', s = 7 + Math.round(r() * 5);
+        petals += `<div class="ofd ofd-petal${A}" style="left:${(3 + r() * 94).toFixed(1)}%;${A ? '' : `top:${(20 + r() * 50).toFixed(0)}%;`}--dur:${(7 + r() * 5).toFixed(2)}s;--delay:${(-r() * 12).toFixed(2)}s;--sway:${(1.8 + r() * 1.6).toFixed(2)}s">
+          <div class="ofd-petal-sway"><svg viewBox="0 0 10 12" width="${s}" height="${(s * 1.2).toFixed(0)}" aria-hidden="true"><path d="M5,0 C8.5,2 9.5,7 5,12 C0.5,7 1.5,2 5,0 Z" fill="${c}"/><path d="M5,2 V10" stroke="rgba(154,52,18,.5)" stroke-width=".6"/></svg></div></div>`;
+      }
+      return `<style>${decoBase}
+        #of-deco .ofd-cord { left:0; right:0; top:0; width:100%; height:12px; }
+        #of-deco .ofd-picado { top:5px; margin-left:-10px; transform-origin: 50% 0; opacity:.95; }
+        #of-deco .ofd-picado.ofd-anim { animation: ofdPicado var(--dur) ease-in-out var(--delay) infinite alternate; }
+        @keyframes ofdPicado { from { transform: rotate(-5deg) skewX(-3deg); } to { transform: rotate(5deg) skewX(3deg); } }
+        #of-deco .ofd-petal { top:-20px; }
+        #of-deco .ofd-petal.ofd-anim { animation: ofdPetalFall var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-petal.ofd-anim .ofd-petal-sway { animation: ofdPetalSway var(--sway) ease-in-out infinite alternate; }
+        @keyframes ofdPetalFall { 0% { transform: translateY(0) rotate(0); opacity:0; } 8% { opacity:1; } 88% { opacity:1; } 100% { transform: translateY(150px) rotate(240deg); opacity:0; } }
+        @keyframes ofdPetalSway { from { transform: translateX(-12px); } to { transform: translateX(12px); } }
+      </style>
+      <svg class="ofd ofd-cord" viewBox="0 0 1000 12" preserveAspectRatio="none" aria-hidden="true"><path d="${cord}" fill="none" stroke="#fde68a" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>
+      ${flags}${petals}`;
     }
 
-    function snowFall(animClass) {
-      const flakeSvg = `
-        <svg viewBox="0 0 14 14" width="18" height="18">
-          <g stroke="#e0f2fe" stroke-width="0.8" stroke-linecap="round" fill="none" opacity="0.95">
-            <line x1="7" y1="1" x2="7" y2="13"/>
-            <line x1="1" y1="7" x2="13" y2="7"/>
-            <line x1="2.5" y1="2.5" x2="11.5" y2="11.5"/>
-            <line x1="2.5" y1="11.5" x2="11.5" y2="2.5"/>
-            <path d="M 7,2 L 6,3 M 7,2 L 8,3"/>
-            <path d="M 7,12 L 6,11 M 7,12 L 8,11"/>
-            <path d="M 2,7 L 3,6 M 2,7 L 3,8"/>
-            <path d="M 12,7 L 11,6 M 12,7 L 11,8"/>
-          </g>
+    // ---------- Diwali: diya lamps on the edge + rising embers ----------
+    function decoDiwali(A) {
+      const diya = (i) => `
+        <svg viewBox="0 0 40 30" aria-hidden="true">
+          <defs><linearGradient id="ofdDiya${i}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#d9772b"/><stop offset="1" stop-color="#7c2d12"/></linearGradient>
+            <radialGradient id="ofdDiyaG${i}"><stop offset="0" stop-color="rgba(255,200,80,.85)"/><stop offset="1" stop-color="rgba(255,160,40,0)"/></radialGradient></defs>
+          <circle class="ofd-diya-glow" cx="30" cy="8" r="13" fill="url(#ofdDiyaG${i})"/>
+          <path d="M3,15 C8,27 30,29 37,15 C37,13 33,12.5 30,13 L6,13 C4,13 3,13.5 3,15 Z" fill="url(#ofdDiya${i})"/>
+          <path d="M3.5,14.5 C10,17 30,17 36.5,14.5" stroke="#fbbf24" stroke-width="1.1" fill="none"/>
+          <g fill="#fcd34d"><circle cx="12" cy="20" r="1"/><circle cx="20" cy="21.5" r="1"/><circle cx="28" cy="20" r="1"/></g>
+          <path d="M29,13 C30,11 32,11 33,13" stroke="#3f2a12" stroke-width="1" fill="none"/>
+          ${decoFlame(31, 1, 11, 'ofd-flame')}
         </svg>`;
-      let html = `<style>
-        #of-deco .of-flake {
-          position:absolute; top:-8px; transform:translateX(-50%);
-          filter: drop-shadow(0 0 3px rgba(255,255,255,0.7));
-        }
-        #of-deco .of-flake.of-deco-animate { animation: ofFlakeFall 7s linear infinite; }
-        @keyframes ofFlakeFall {
-          0%   { transform: translateX(-50%) translateY(-12px) rotate(0); opacity:0; }
-          15%  { opacity: 1; }
-          85%  { opacity: 1; }
-          100% { transform: translateX(-30%) translateY(85px) rotate(360deg); opacity:0; }
-        }
-      </style>`;
-      const count = 14;
-      for (let i = 0; i < count; i++) {
-        const left = (i / (count - 1)) * 100;
-        const delay = ((i * 0.5) % 7).toFixed(2);
-        const scale = (0.7 + ((i * 7) % 6) / 10).toFixed(2);
-        html += `<span class="of-flake${animClass}" style="left:${left}%;animation-delay:${delay}s;transform:translateX(-50%) scale(${scale});">${flakeSvg}</span>`;
+      const spots = [8, 30, 52, 74, 92];
+      let html = '';
+      spots.forEach((x, i) => { html += `<div class="ofd ofd-diya${A}" style="left:${x}%">${diya(i)}</div>`; });
+      const r = decoRand(23);
+      const ember = ['#fde047', '#fb923c', '#f472b6', '#a78bfa', '#34d399'];
+      for (let i = 0; i < 12; i++) {
+        html += `<div class="ofd ofd-ember${A}" style="left:${(4 + r() * 92).toFixed(1)}%;${A ? '' : `top:${(-40 + r() * 30).toFixed(0)}px;`}--dur:${(4 + r() * 4).toFixed(2)}s;--delay:${(-r() * 8).toFixed(2)}s;--c:${ember[i % ember.length]}"></div>`;
       }
-      return html;
+      return `<style>${decoBase}
+        #of-deco .ofd-diya { bottom:100%; margin-bottom:-5px; width:38px; margin-left:-19px; filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)); }
+        #of-deco .ofd-diya svg { width:100%; height:auto; }
+        #of-deco .ofd-flame { transform-box: view-box; }
+        #of-deco .ofd-diya.ofd-anim .ofd-flame { animation: ofdFlame var(--fd) ease-in-out infinite alternate; }
+        #of-deco .ofd-diya.ofd-anim .ofd-diya-glow { animation: ofdDiyaGlow 1.9s ease-in-out infinite alternate; }
+        @keyframes ofdFlame { 0% { transform: scale(1,1) skewX(0); } 40% { transform: scale(.92,1.12) skewX(4deg); } 70% { transform: scale(1.05,.94) skewX(-3deg); } 100% { transform: scale(.97,1.06) skewX(2deg); } }
+        @keyframes ofdDiyaGlow { from { opacity:.65; } to { opacity:1; } }
+        #of-deco .ofd-ember { bottom:100%; width:3px; height:3px; border-radius:50%; background: var(--c); box-shadow: 0 0 4px var(--c); opacity:.8; }
+        #of-deco .ofd-ember.ofd-anim { animation: ofdEmber var(--dur) ease-out var(--delay) infinite; }
+        @keyframes ofdEmber { 0% { transform: translate(0,0); opacity:0; } 15% { opacity:1; } 100% { transform: translate(10px,-70px); opacity:0; } }
+      </style>${html}`;
+    }
+
+    // ---------- Kwanzaa: kinara with seven candles + kente-inspired band ----------
+    function decoKwanzaa(A) {
+      const colors = ['#dc2626', '#dc2626', '#dc2626', '#111827', '#16a34a', '#16a34a', '#16a34a'];
+      let candles = '', flames = '';
+      colors.forEach((c, i) => {
+        const x = 9 + i * 10, h = i === 3 ? 16 : 13 - Math.abs(3 - i) * 0.6, top = 26 - h;
+        candles += `<rect x="${x - 2.2}" y="${top}" width="4.4" height="${h}" rx="1" fill="${c}" stroke="${c === '#111827' ? '#4b5563' : 'none'}" stroke-width=".6"/>`;
+        flames += decoFlame(x, top - 7.5, 7, 'ofd-flame');
+      });
+      const kinara = `
+        <svg viewBox="0 0 88 40" aria-hidden="true">
+          <defs><linearGradient id="ofdWood" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#a16207"/><stop offset="1" stop-color="#57300d"/></linearGradient></defs>
+          ${candles}
+          <path d="M4,26 H84 L80,31 H8 Z" fill="url(#ofdWood)"/>
+          <path d="M20,31 L16,39 H72 L68,31 Z" fill="url(#ofdWood)" opacity=".92"/>
+          <path d="M8,28.5 H80" stroke="rgba(0,0,0,.25)" stroke-width=".8"/>
+          ${flames}
+        </svg>`;
+      let band = '';
+      const bc = ['#dc2626', '#111827', '#16a34a', '#eab308'];
+      for (let x = 0, k = 0; x < 1000; x += 25, k++) {
+        band += `<rect x="${x}" y="0" width="25" height="5" fill="${bc[k % 4]}"/><rect x="${x + 7}" y="1.5" width="11" height="2" fill="${bc[(k + 2) % 4]}"/>`;
+      }
+      return `<style>${decoBase}
+        #of-deco .ofd-kente { left:0; right:0; top:0; width:100%; height:5px; opacity:.9; }
+        #of-deco .ofd-kinara { left:12px; bottom:100%; margin-bottom:-4px; width:82px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+        #of-deco .ofd-kinara svg { width:100%; height:auto; }
+        #of-deco .ofd-flame { transform-box: view-box; }
+        #of-deco .ofd-kinara.ofd-anim .ofd-flame { animation: ofdFlame var(--fd) ease-in-out infinite alternate; }
+        @keyframes ofdFlame { 0% { transform: scale(1,1) skewX(0); } 40% { transform: scale(.92,1.12) skewX(4deg); } 70% { transform: scale(1.05,.94) skewX(-3deg); } 100% { transform: scale(.97,1.06) skewX(2deg); } }
+      </style>
+      <svg class="ofd ofd-kente" viewBox="0 0 1000 5" preserveAspectRatio="none" aria-hidden="true">${band}</svg>
+      <div class="ofd ofd-kinara${A}">${kinara}</div>`;
+    }
+
+    // ---------- Lunar New Year: red lanterns on a gold cord + blossom petals ----------
+    function decoLunarNewYear(A) {
+      const N = 7;
+      let cord = 'M0,2 ';
+      for (let i = 0; i < N; i++) cord += `Q${((i + 0.5) / N) * 1000},12 ${((i + 1) / N) * 1000},2 `;
+      const r = decoRand(88);
+      let lanterns = '';
+      for (let i = 0; i < N; i++) {
+        lanterns += `<div class="ofd ofd-lantern${A}" style="left:${((i + 0.5) / N) * 100}%;--dur:${(2.8 + r() * 1.6).toFixed(2)}s;--delay:${(-r() * 3).toFixed(2)}s">
+          <svg viewBox="0 0 24 40" width="17" height="28" aria-hidden="true">
+            <defs><radialGradient id="ofdLan${i}" cx="40%" cy="45%" r="65%"><stop offset="0" stop-color="#ff6b5b"/><stop offset=".6" stop-color="#dc2626"/><stop offset="1" stop-color="#7f1d1d"/></radialGradient></defs>
+            <path d="M12,0 V5" stroke="#eab308" stroke-width="1"/>
+            <rect x="7" y="4" width="10" height="3" rx="1" fill="#eab308"/>
+            <ellipse cx="12" cy="17" rx="10" ry="10.5" fill="url(#ofdLan${i})"/>
+            <path d="M12,6.5 C7,10 7,24 12,27.5 M12,6.5 C17,10 17,24 12,27.5 M4,12 C8,15 16,15 20,12 M4,22 C8,19 16,19 20,22" stroke="rgba(120,20,20,.55)" stroke-width=".8" fill="none"/>
+            <rect x="7" y="26.5" width="10" height="3" rx="1" fill="#eab308"/>
+            <path d="M10,29.5 V39 M12,29.5 V40 M14,29.5 V39" stroke="#eab308" stroke-width="1" stroke-linecap="round"/>
+          </svg></div>`;
+      }
+      let petals = '';
+      for (let i = 0; i < 10; i++) {
+        const s = 7 + Math.round(r() * 4);
+        petals += `<div class="ofd ofd-bloom${A}" style="left:${(3 + r() * 94).toFixed(1)}%;${A ? '' : `top:${(20 + r() * 50).toFixed(0)}%;`}--dur:${(8 + r() * 5).toFixed(2)}s;--delay:${(-r() * 13).toFixed(2)}s;--sway:${(2 + r() * 1.5).toFixed(2)}s">
+          <div class="ofd-bloom-sway"><svg viewBox="0 0 10 10" width="${s}" height="${s}" aria-hidden="true"><path d="M5,0.5 C8,1.5 9.5,5 5,9.5 C0.5,5 2,1.5 5,0.5 Z" fill="${i % 2 ? '#fbcfe8' : '#f9a8d4'}"/></svg></div></div>`;
+      }
+      return `<style>${decoBase}
+        #of-deco .ofd-lcord { left:0; right:0; top:0; width:100%; height:14px; }
+        #of-deco .ofd-lantern { top:4px; margin-left:-8.5px; transform-origin: 50% 0; filter: drop-shadow(0 0 5px rgba(239,68,68,.55)); }
+        #of-deco .ofd-lantern.ofd-anim { animation: ofdLantern var(--dur) ease-in-out var(--delay) infinite alternate; }
+        @keyframes ofdLantern { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+        #of-deco .ofd-bloom { top:-18px; }
+        #of-deco .ofd-bloom.ofd-anim { animation: ofdBloomFall var(--dur) linear var(--delay) infinite; }
+        #of-deco .ofd-bloom.ofd-anim .ofd-bloom-sway { animation: ofdBloomSway var(--sway) ease-in-out infinite alternate; }
+        @keyframes ofdBloomFall { 0% { transform: translateY(0) rotate(0); opacity:0; } 8% { opacity:1; } 88% { opacity:1; } 100% { transform: translateY(150px) rotate(220deg); opacity:0; } }
+        @keyframes ofdBloomSway { from { transform: translateX(-11px); } to { transform: translateX(11px); } }
+      </style>
+      <svg class="ofd ofd-lcord" viewBox="0 0 1000 14" preserveAspectRatio="none" aria-hidden="true"><path d="${cord}" fill="none" stroke="#eab308" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>
+      ${lanterns}${petals}`;
+    }
+
+    // ---------- Mardi Gras: draped beads, a feathered mask, confetti ----------
+    function decoMardiGras(A) {
+      const beadColors = ['#7e22ce', '#16a34a', '#eab308'];
+      let beads = '';
+      const strands = 4;
+      for (let s = 0; s < strands; s++) {
+        const x0 = (s / strands) * 1000, x1 = ((s + 1) / strands) * 1000, sag = 16 + (s % 2) * 4;
+        for (let k = 0; k <= 26; k++) {
+          const t = k / 26, x = x0 + (x1 - x0) * t, y = 3 + sag * 4 * t * (1 - t);
+          beads += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="4.2" ry="3.2" fill="${beadColors[(s + k) % 3]}"/><ellipse cx="${(x - 1.2).toFixed(1)}" cy="${(y - 1).toFixed(1)}" rx="1.2" ry=".9" fill="rgba(255,255,255,.6)"/>`;
+        }
+      }
+      const mask = `
+        <svg viewBox="0 0 56 40" aria-hidden="true">
+          <defs><linearGradient id="ofdMask" x1="0" x2="1"><stop offset="0" stop-color="#7e22ce"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#7e22ce"/></linearGradient></defs>
+          <path class="ofd-plume" d="M40,18 C44,6 50,1 54,0 C52,6 49,12 43,19 Z" fill="#16a34a"/>
+          <path class="ofd-plume" d="M38,18 C39,7 43,2 47,-1 C46,6 45,12 41,19 Z" fill="#eab308"/>
+          <path d="M4,22 C8,14 20,14 28,19 C36,14 48,14 52,22 C50,32 38,34 28,27 C18,34 6,32 4,22 Z" fill="url(#ofdMask)" stroke="#eab308" stroke-width="1.2"/>
+          <path fill="#1f0f2e" d="M11,22 C14,18.5 20,18.5 22.5,22.5 C19,25.5 14,25.5 11,22 Z M45,22 C42,18.5 36,18.5 33.5,22.5 C37,25.5 42,25.5 45,22 Z"/>
+          <g fill="#fde68a"><circle cx="28" cy="23" r="1.2"/><circle cx="8" cy="20" r=".9"/><circle cx="48" cy="20" r=".9"/></g>
+        </svg>`;
+      const confetti = decoConfetti(A, ['#7e22ce', '#16a34a', '#eab308', '#a855f7', '#22c55e', '#facc15'], 14, 202, 'ofdmg');
+      return `<style>${decoBase}${decoConfettiCss('ofdmg')}
+        #of-deco .ofd-beads { left:0; right:0; top:0; width:100%; height:26px; }
+        #of-deco .ofd-mask { right:16px; bottom:100%; margin-bottom:-4px; width:54px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+        #of-deco .ofd-mask svg { width:100%; height:auto; }
+        #of-deco .ofd-mask .ofd-plume { transform-box: view-box; transform-origin: 42px 19px; }
+        #of-deco .ofd-mask.ofd-anim .ofd-plume { animation: ofdPlume 3s ease-in-out infinite alternate; }
+        @keyframes ofdPlume { from { transform: rotate(-4deg); } to { transform: rotate(5deg); } }
+      </style>
+      <svg class="ofd ofd-beads" viewBox="0 0 1000 26" preserveAspectRatio="none" aria-hidden="true">${beads}</svg>
+      <div class="ofd ofd-mask${A}">${mask}</div>${confetti}`;
     }
   })();
 })();

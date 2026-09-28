@@ -1408,10 +1408,17 @@ router.post('/templates/:id/duplicate', requireAdmin, (req, res) => {
   const row = db.prepare(`SELECT * FROM viewer_page_templates WHERE id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'Template not found' });
   const newName = `${row.name} (copy)`;
+  // Carry over the Visual Designer state (mode + settings/blocks) so a
+  // copy of a Settings- or Blocks-mode template reopens in that mode
+  // instead of falling back to Code mode.
   const result = db.prepare(`
-    INSERT INTO viewer_page_templates (name, html, is_active, is_builtin)
-    VALUES (?, ?, 0, 0)
-  `).run(newName, row.html);
+    INSERT INTO viewer_page_templates
+      (name, html, is_active, is_builtin, mode, settings_json, blocks_json, favicon_url)
+    VALUES (?, ?, 0, 0, ?, ?, ?, ?)
+  `).run(
+    newName, row.html,
+    row.mode || 'code', row.settings_json || '', row.blocks_json || '', row.favicon_url || ''
+  );
   res.json({ ok: true, id: result.lastInsertRowid });
 });
 

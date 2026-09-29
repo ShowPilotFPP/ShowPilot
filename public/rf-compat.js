@@ -3209,7 +3209,10 @@
           }
         });
       };
-      document.querySelectorAll('[data-showpilot-sync-help]').forEach(el => { el.hidden = false; });
+      // Admin can hide the panel (sync_help_enabled -> boot.syncHelpEnabled);
+      // the timing button is unaffected.
+      const syncHelpEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.syncHelpEnabled === false);
+      document.querySelectorAll('[data-showpilot-sync-help]').forEach(el => { el.hidden = !syncHelpEnabled; });
       mirrorListenIcon();
       setTimeout(mirrorListenIcon, 1500);
       window.addEventListener('showpilot:player-theme', mirrorListenIcon);

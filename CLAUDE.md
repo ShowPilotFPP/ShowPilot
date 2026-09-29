@@ -4,7 +4,9 @@
 
 You run inside GitHub Actions for the maintainer. Contributions arrive as issues and pull requests; you prepare releases, the maintainer approves, and ShipPilot ships.
 
-- **Never push to `main` or `beta`, never merge, never tag.** Put all changes on a branch named `claude/pr-<N>` (for PR #N), `claude/issue-<N>` (for issue #N) or `claude/mirror-showpilot-pr-<N>` (Lite mirrors), push it with `git push -u origin <branch>`, and open a pull request against `main` with `gh pr create`.
+- **Never push to `main` or `beta`, never merge, never tag.** Put all changes on a branch named `claude/pr-<N>` (for PR #N), `claude/issue-<N>` (for issue #N) or `claude/mirror-showpilot-pr-<N>` (Lite mirrors). **To push, run `$HOME/claude-tools/push-branch` with no arguments** while on that branch (it pushes the current branch and refuses anything that isn't `claude/*`; a plain `git push` is not permitted). Then open a pull request against `main` with `gh pr create`.
+- **Tools:** use the built-in Read, Grep and Glob tools to look at files. Allowed shell commands are listed in the workflow; avoid pipes and `&&` chains, since every part of a chained command must itself be allowed.
+- **Never fail silently.** If a command is denied or anything stops you from finishing, comment on the issue or pull request (`gh issue comment` / `gh pr comment`) saying what you did, what blocked you, and what is left.
 - **Your PR is the release.** When the maintainer approves it, the `shippilot-release.yml` workflow ships it through ShipPilot: it uses the PR **title as the release title** and the **title + body as the commit message**, tags `v<version>`, closes your PR and the source PR. So:
   - Title: `v<version> — <short summary in plain English>`
   - Body: a plain-English changelog (bullets), then a line `Source: #<N>` (the PR or issue you worked from), then any `Co-authored-by: Name <email>` lines for contributors. No test logs or internal notes in the body; put those in a PR **comment** instead.

@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.229</span>
+        <span class="app-version">v0.33.230</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2662,6 +2662,17 @@
             <input type="checkbox" id="cfg_viewer_progress_bar_show_time" onchange="saveSetting('viewer_progress_bar_show_time', this.checked ? 1 : 0)" />
             <label for="cfg_viewer_progress_bar_show_time" style="margin: 0;">Show time left next to the bar</label>
           </div>
+        </div>
+
+        <div class="card">
+          <h2>Audio Sync Help</h2>
+          <div class="row">
+            <input type="checkbox" id="cfg_sync_help_enabled" onchange="saveSetting('sync_help_enabled', this.checked ? 1 : 0)" />
+            <label for="cfg_sync_help_enabled" style="margin: 0;">Show the audio sync help panel</label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0 1.5rem;">
+            Only appears when Listen on Phone and the listener timing button are on. Takes effect on viewer page reload.
+          </p>
         </div>
 
         <div class="card">
@@ -5713,6 +5724,7 @@
       setChk('cfg_debug_sync_probe', c.debug_sync_probe === 1);
       setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
+      setChk('cfg_sync_help_enabled', c.sync_help_enabled !== 0);
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
       setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);
       setChk('cfg_listener_timing_tip', c.listener_timing_tip !== 0);

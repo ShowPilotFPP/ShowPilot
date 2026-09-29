@@ -307,6 +307,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'debug_overlay_enabled',
     'player_stats_enabled',
     'listener_timing_enabled',
+    'sync_help_enabled',
     'listener_timing_min_ms',
     'listener_timing_max_ms',
     'listener_timing_tip',

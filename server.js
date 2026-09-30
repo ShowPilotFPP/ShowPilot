@@ -743,6 +743,9 @@ io.on('connection', socket => {
 
 setInterval(cleanupStaleViewers, 60 * 1000);
 
+// Scheduled template switches (v0.33.231+): catch up on anything missed, then check every 20 s.
+require('./lib/template-schedule').start(io);
+
 setInterval(() => {
   const { getActiveViewerCount } = require('./lib/db');
   io.emit('viewerCount', { count: getActiveViewerCount() });

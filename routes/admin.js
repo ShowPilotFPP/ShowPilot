@@ -307,6 +307,8 @@ router.put('/config', requireAdmin, (req, res) => {
     'debug_overlay_enabled',
     'player_stats_enabled',
     'listener_timing_enabled',
+    'sync_help_enabled',
+    'show_timezone',
     'listener_timing_min_ms',
     'listener_timing_max_ms',
     'listener_timing_tip',
@@ -361,45 +363,10 @@ router.put('/config', requireAdmin, (req, res) => {
   // emits — so connected viewers refresh immediately instead of waiting
   // up to 3s for the polling fallback. Mirrors routes/plugin.js.
   if ('viewer_control_mode' in updates) {
-    const io = req.app.get('io');
-    if (io) io.emit('viewerModeChanged', { mode: updates.viewer_control_mode });
-
-    // Race mode lifecycle: auto-start race when switching TO race mode;
-    // clear the timer when switching away.
-    const { startRace, clearRaceTimer } = require('./viewer');
-    if (updates.viewer_control_mode === 'RACE') {
-      const freshCfg = getConfig();
-      const endsAt = startRace(freshCfg);
-      if (io) io.emit('raceStarted', { endsAt });
-      // Schedule timer-based resolution if a duration is configured
-      if (endsAt) {
-        const ms = new Date(endsAt).getTime() - Date.now();
-        if (ms > 0) {
-          const viewerModule = require('./viewer');
-          const { getRaceLeader } = require('../lib/db');
-          // Store handle in viewer module so clearRaceTimer() can cancel it
-          viewerModule._raceTimerHandle = setTimeout(() => {
-            viewerModule._raceTimerHandle = null;
-            const latestCfg = getConfig();
-            if (latestCfg.race_active && !latestCfg.race_winner) {
-              const leader = getRaceLeader();
-              if (leader) {
-                const seq = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
-                viewerModule.resolveRace(io, leader.sequence_name, seq?.display_name || leader.sequence_name, seq?.artist || '', leader.count);
-              } else {
-                db.prepare(`UPDATE config SET race_active = 0 WHERE id = 1`).run();
-                if (io) io.emit('raceEnded', { noWinner: true });
-              }
-            }
-          }, Math.max(ms, 0));
-        }
-      }
-    } else {
-      clearRaceTimer();
-      // Clear race runtime state when leaving race mode
-      db.prepare(`UPDATE config SET race_active = 0, race_winner = NULL, race_started_at = NULL, race_ends_at = NULL WHERE id = 1`).run();
-    }
+    // Tell open pages, and start/stop a race (shared with the scheduler).
+    require('./viewer').applyModeEffects(req.app.get('io'), updates.viewer_control_mode);
   }
+  if ('show_timezone' in updates) require('../lib/template-schedule').recomputeAll();
 
   res.json({ ok: true });
 });
@@ -1401,6 +1368,32 @@ router.post('/templates/:id/activate', requireAdmin, (req, res) => {
     db.prepare(`UPDATE viewer_page_templates SET is_active = 1 WHERE id = ?`).run(id);
   });
   tx();
+  // Open viewer pages switch to the new template live (v0.33.231+).
+  const io = req.app.get('io');
+  if (io) io.emit('viewerTemplateChanged', { templateId: id });
+  res.json({ ok: true });
+});
+
+// ---- Scheduled template switches (v0.33.231+) ----
+router.get('/template-schedules', requireAdmin, (req, res) => {
+  res.json(require('../lib/template-schedule').list());
+});
+router.post('/template-schedules', requireAdmin, (req, res) => {
+  const r = require('../lib/template-schedule').create(req.body);
+  if (r.error) return res.status(400).json(r);
+  res.json({ ok: true, id: r.id });
+});
+router.put('/template-schedules/:id', requireAdmin, (req, res) => {
+  const r = require('../lib/template-schedule').update(Number(req.params.id), req.body);
+  if (r.error) return res.status(r.status || 400).json(r);
+  res.json({ ok: true });
+});
+router.delete('/template-schedules/:id', requireAdmin, (req, res) => {
+  if (!require('../lib/template-schedule').remove(Number(req.params.id))) return res.status(404).json({ error: 'Schedule not found.' });
+  res.json({ ok: true });
+});
+router.post('/template-schedules/:id/run-now', requireAdmin, (req, res) => {
+  if (!require('../lib/template-schedule').runNow(Number(req.params.id), req.app.get('io'))) return res.status(404).json({ error: 'Schedule or template not found.' });
   res.json({ ok: true });
 });
 

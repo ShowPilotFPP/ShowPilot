@@ -597,6 +597,67 @@
   window.request = window.ShowPilotRequest;
 
   // ======= Live state refresh =======
+  // ---- Live mode switching into/out of Race mode (v0.33.231+) ----
+  // The server builds the page differently in Race mode: it blanks every
+  // {PLAYLISTS} and injects #showpilot-race-grid plus its stylesheet. So a
+  // live switch into or out of Race mode fetches a fresh copy of the page
+  // and swaps in just those parts (no reload, so phone audio keeps playing).
+  let _pageIsRace = !!document.getElementById('showpilot-race-grid');
+  let _swapInFlight = null;
+  function onModeChanged(mode) {
+    if (mode && (mode === 'RACE') !== _pageIsRace) {
+      _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
+      return;
+    }
+    refreshState();
+  }
+  async function swapModeMarkup() {
+    const res = await fetch(location.pathname + location.search, { cache: 'no-store', credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    // 1) The song lists: each mode container's contents, in page order.
+    //    (The access-code and after-hours blocks are left alone.)
+    const pick = d => Array.from(d.querySelectorAll('[data-showpilot-container]'))
+      .filter(el => !/^(locationcode|afterhours)$/.test(el.getAttribute('data-showpilot-container')));
+    const cur = pick(document), next = pick(doc);
+    if (cur.length === next.length) cur.forEach((el, i) => { el.innerHTML = next[i].innerHTML; });
+    // 2) The race grid: remove, replace or insert where the server puts it.
+    const oldGrid = document.getElementById('showpilot-race-grid');
+    const newGrid = doc.getElementById('showpilot-race-grid');
+    if (oldGrid && !newGrid) oldGrid.remove();
+    if (newGrid) {
+      const g = document.importNode(newGrid, true);
+      if (oldGrid) oldGrid.replaceWith(g);
+      else {
+        const inWrapper = newGrid.parentElement && /\bwrapper\b/.test(newGrid.parentElement.className || '');
+        const wrapper = inWrapper && document.querySelector('.wrapper');
+        (wrapper || document.body).appendChild(g);
+      }
+    }
+    // 3) The race stylesheet.
+    const oldCss = document.getElementById('showpilot-race-ui');
+    const newCss = doc.getElementById('showpilot-race-ui');
+    if (oldCss && !newCss) oldCss.remove();
+    if (newCss && !oldCss) document.head.appendChild(document.importNode(newCss, true));
+    _pageIsRace = !!document.getElementById('showpilot-race-grid');
+  }
+  // ---- A different template went live: reload onto it (v0.33.231+) ----
+  // Staggered by a moment so a crowd doesn't reload in the same instant.
+  // Someone listening on their phone isn't cut off: we wait (up to 3 min)
+  // for them to close the player. Background tabs reload right away.
+  let _templateReloadPending = false;
+  function reloadForNewTemplate() {
+    if (_templateReloadPending) return;
+    _templateReloadPending = true;
+    const started = Date.now();
+    const go = () => setTimeout(() => location.reload(), document.hidden ? 0 : Math.random() * 2500);
+    (function wait() {
+      const listening = typeof window.__spListening === 'function' && window.__spListening();
+      if (!listening || document.hidden || Date.now() - started > 180000) return go();
+      setTimeout(wait, 2000);
+    })();
+  }
+
   async function refreshState() {
     try {
       const sentAt = Date.now();
@@ -866,6 +927,11 @@
         // viewer-side code paths that may have read it directly.
         if (el.style) el.style.display = 'none';
       }
+    }
+    // Mode changed but the page still has the other layout (e.g. noticed by
+    // polling rather than the socket): swap the Race-mode markup in or out.
+    if (data.viewerControlMode && (data.viewerControlMode === 'RACE') !== _pageIsRace && !_swapInFlight) {
+      _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
     }
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
       setVisible(el, data.viewerControlMode === 'JUKEBOX');
@@ -1520,7 +1586,10 @@
       // server-side in routes/plugin.js. Without this, viewers wait up
       // to 3s for the next poll to see the after-hours block appear or
       // the active grid swap. With it, propagation is instant.
-      socket.on('viewerModeChanged', () => refreshState());
+      socket.on('viewerModeChanged', (data) => onModeChanged(data && data.mode));
+      // A different viewer template was activated (by hand or on a schedule):
+      // reload onto it (v0.33.231+).
+      socket.on('viewerTemplateChanged', () => reloadForNewTemplate());
       // ---- Tiebreak events (v0.24.0+) ----
       socket.on('tiebreakStarted', (data) => {
         showTiebreakUI(data);
@@ -3219,7 +3288,10 @@
           }
         });
       };
-      document.querySelectorAll('[data-showpilot-sync-help]').forEach(el => { el.hidden = false; });
+      // Admin can hide the panel (sync_help_enabled -> boot.syncHelpEnabled);
+      // the timing button is unaffected.
+      const syncHelpEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.syncHelpEnabled === false);
+      document.querySelectorAll('[data-showpilot-sync-help]').forEach(el => { el.hidden = !syncHelpEnabled; });
       mirrorListenIcon();
       setTimeout(mirrorListenIcon, 1500);
       window.addEventListener('showpilot:player-theme', mirrorListenIcon);
@@ -3436,6 +3508,9 @@
 
     // ---- State ----
     let panelMode = 'closed';     // 'closed' | 'open' | 'minimized'
+    // Lets the rest of the page ask whether someone is listening (v0.33.231+),
+    // so a live template switch can wait instead of cutting off their audio.
+    window.__spListening = () => panelMode !== 'closed';
     let audioCtx = null;
     // iOS Safari's Web Audio API defaults to the "ambient" audio session
     // category, which respects the hardware mute switch — silencing our

@@ -1832,7 +1832,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.230-beta.1</span>
+        <span class="app-version">v0.33.231-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2268,6 +2268,9 @@
         <div class="card" style="padding-bottom: 0; margin-bottom: 0;">
           <div class="sub-tabs">
             <div class="sub-tab active" data-subtab="viewer-editor" onclick="switchTab('viewer-editor')">Template Editor</div>
+            <div class="sub-tab" data-subtab="viewer-effects" onclick="switchTab('viewer-effects')">Page Effects</div>
+            <div class="sub-tab" data-subtab="viewer-phone" onclick="switchTab('viewer-phone')">Listen-on-Phone</div>
+            <div class="sub-tab" data-subtab="viewer-schedule" onclick="switchTab('viewer-schedule')">Scheduled Switches</div>
             <div class="sub-tab" data-subtab="viewer-translation" onclick="switchTab('viewer-translation')">Translation</div>
           </div>
         </div>
@@ -2435,6 +2438,99 @@
           </div>
         </div>
 
+
+
+        </div>
+
+        <div class="sub-tab-pane" data-subtab="viewer-effects">
+        <div class="card">
+          <h2>Page Effects</h2>
+          <h3 style="margin-top: 1.25rem;">Page-wide effects</h3>
+          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+            Pick an ambient effect that drifts, falls, or twinkles across the entire viewer page.
+            Visitors with the reduced-motion accessibility setting see nothing — animation is opt-in
+            at the OS level.
+          </p>
+          <div class="grid-2" style="margin-bottom: 0.75rem;">
+            <div>
+              <label for="cfg_page_effect">Effect</label>
+              <select id="cfg_page_effect" onchange="saveSetting('page_effect', this.value); updatePageEffectColorPlaceholder();">
+                <option value="none">None</option>
+                <option value="snow">❄️ Snow</option>
+                <option value="leaves">🍂 Leaves</option>
+                <option value="fireworks">🎆 Fireworks</option>
+                <option value="hearts">💗 Hearts</option>
+                <option value="stars">✨ Twinkling stars</option>
+                <option value="bats">🦇 Bats</option>
+                <option value="confetti">🎉 Confetti</option>
+                <option value="petals">🌸 Petals</option>
+                <option value="embers">🔥 Embers</option>
+                <option value="bubbles">🫧 Bubbles</option>
+                <option value="rain">🌧️ Rain</option>
+              </select>
+            </div>
+            <div>
+              <label for="cfg_page_effect_intensity">Intensity</label>
+              <select id="cfg_page_effect_intensity" onchange="saveSetting('page_effect_intensity', this.value)">
+                <option value="subtle">Subtle</option>
+                <option value="medium">Medium</option>
+                <option value="heavy">Heavy</option>
+              </select>
+            </div>
+          </div>
+          <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <label for="cfg_page_effect_color" style="margin: 0;">Color tint</label>
+            <input type="color" id="cfg_page_effect_color_picker"
+                   onchange="onPageEffectColorPick(this.value)"
+                   style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+            <input type="text" id="cfg_page_effect_color" placeholder="(default)"
+                   onchange="saveSetting('page_effect_color', this.value); syncPageEffectColorPicker();"
+                   style="width: 110px; font-family: monospace;" />
+            <button type="button" class="secondary" onclick="resetPageEffectColor()" style="font-size: 0.85rem;">Use default</button>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin: 0.5rem 0 0;">
+            Each effect has a sensible default color (snow=white, leaves=orange, hearts=pink, etc).
+            Leave the color blank or click "Use default" to use it; otherwise pick any CSS color.
+          </p>
+
+          <h3 style="margin-top: 1.25rem;">Song progress bar</h3>
+          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+            A slim bar showing how far into the current song the show is, and how much time is left. By default
+            it sits on the top edge of the Listen-on-Phone player in the player theme's color, and on the bottom
+            edge of the screen while the player is closed. It hides between songs and for sequences with no known
+            length. Changes reach open viewer pages within a few seconds. Template authors can instead place
+            <code>{NOW_PLAYING_PROGRESS}</code> anywhere in a template.
+          </p>
+          <div class="row">
+            <input type="checkbox" id="cfg_viewer_progress_bar" onchange="saveSetting('viewer_progress_bar', this.checked ? 1 : 0)" />
+            <label for="cfg_viewer_progress_bar" style="margin: 0;">Show song progress bar on the viewer page</label>
+          </div>
+          <div class="grid-2" style="margin: 0.75rem 0;">
+            <div>
+              <label for="cfg_viewer_progress_bar_position">Position</label>
+              <select id="cfg_viewer_progress_bar_position" onchange="saveSetting('viewer_progress_bar_position', this.value)">
+                <option value="player">On the player (bottom of the screen when it's closed)</option>
+                <option value="screen-top">Top of the screen</option>
+              </select>
+            </div>
+            <div>
+              <label for="cfg_viewer_progress_bar_color">Bar color</label>
+              <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
+                <input type="color" id="cfg_viewer_progress_bar_color"
+                       onchange="saveSetting('viewer_progress_bar_color', this.value)"
+                       style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                <button type="button" class="secondary" onclick="resetProgressBarColor()" style="font-size: 0.85rem;">Match player theme</button>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <input type="checkbox" id="cfg_viewer_progress_bar_show_time" onchange="saveSetting('viewer_progress_bar_show_time', this.checked ? 1 : 0)" />
+            <label for="cfg_viewer_progress_bar_show_time" style="margin: 0;">Show time left next to the bar</label>
+          </div>
+        </div>
+        </div>
+
+        <div class="sub-tab-pane" data-subtab="viewer-phone">
         <div class="card">
           <h2>Listen-on-Phone Player Decoration</h2>
           <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
@@ -2582,88 +2678,17 @@
             single row. Takes effect on page reload.
           </p>
 
-          <h3 style="margin-top: 1.25rem;">Page-wide effects</h3>
-          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-            Pick an ambient effect that drifts, falls, or twinkles across the entire viewer page.
-            Visitors with the reduced-motion accessibility setting see nothing — animation is opt-in
-            at the OS level.
-          </p>
-          <div class="grid-2" style="margin-bottom: 0.75rem;">
-            <div>
-              <label for="cfg_page_effect">Effect</label>
-              <select id="cfg_page_effect" onchange="saveSetting('page_effect', this.value); updatePageEffectColorPlaceholder();">
-                <option value="none">None</option>
-                <option value="snow">❄️ Snow</option>
-                <option value="leaves">🍂 Leaves</option>
-                <option value="fireworks">🎆 Fireworks</option>
-                <option value="hearts">💗 Hearts</option>
-                <option value="stars">✨ Twinkling stars</option>
-                <option value="bats">🦇 Bats</option>
-                <option value="confetti">🎉 Confetti</option>
-                <option value="petals">🌸 Petals</option>
-                <option value="embers">🔥 Embers</option>
-                <option value="bubbles">🫧 Bubbles</option>
-                <option value="rain">🌧️ Rain</option>
-              </select>
-            </div>
-            <div>
-              <label for="cfg_page_effect_intensity">Intensity</label>
-              <select id="cfg_page_effect_intensity" onchange="saveSetting('page_effect_intensity', this.value)">
-                <option value="subtle">Subtle</option>
-                <option value="medium">Medium</option>
-                <option value="heavy">Heavy</option>
-              </select>
-            </div>
-          </div>
-          <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <label for="cfg_page_effect_color" style="margin: 0;">Color tint</label>
-            <input type="color" id="cfg_page_effect_color_picker"
-                   onchange="onPageEffectColorPick(this.value)"
-                   style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
-            <input type="text" id="cfg_page_effect_color" placeholder="(default)"
-                   onchange="saveSetting('page_effect_color', this.value); syncPageEffectColorPicker();"
-                   style="width: 110px; font-family: monospace;" />
-            <button type="button" class="secondary" onclick="resetPageEffectColor()" style="font-size: 0.85rem;">Use default</button>
-          </div>
-          <p class="muted" style="font-size: 0.8rem; margin: 0.5rem 0 0;">
-            Each effect has a sensible default color (snow=white, leaves=orange, hearts=pink, etc).
-            Leave the color blank or click "Use default" to use it; otherwise pick any CSS color.
-          </p>
+        </div>
 
-          <h3 style="margin-top: 1.25rem;">Song progress bar</h3>
-          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-            A slim bar showing how far into the current song the show is, and how much time is left. By default
-            it sits on the top edge of the Listen-on-Phone player in the player theme's color, and on the bottom
-            edge of the screen while the player is closed. It hides between songs and for sequences with no known
-            length. Changes reach open viewer pages within a few seconds. Template authors can instead place
-            <code>{NOW_PLAYING_PROGRESS}</code> anywhere in a template.
+        <div class="card">
+          <h2>Audio Sync Help</h2>
+          <div class="row">
+            <input type="checkbox" id="cfg_sync_help_enabled" onchange="saveSetting('sync_help_enabled', this.checked ? 1 : 0)" />
+            <label for="cfg_sync_help_enabled" style="margin: 0;">Show the audio sync help panel</label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0 1.5rem;">
+            Only appears when Listen on Phone and the listener timing button are on. Takes effect on viewer page reload.
           </p>
-          <div class="row">
-            <input type="checkbox" id="cfg_viewer_progress_bar" onchange="saveSetting('viewer_progress_bar', this.checked ? 1 : 0)" />
-            <label for="cfg_viewer_progress_bar" style="margin: 0;">Show song progress bar on the viewer page</label>
-          </div>
-          <div class="grid-2" style="margin: 0.75rem 0;">
-            <div>
-              <label for="cfg_viewer_progress_bar_position">Position</label>
-              <select id="cfg_viewer_progress_bar_position" onchange="saveSetting('viewer_progress_bar_position', this.value)">
-                <option value="player">On the player (bottom of the screen when it's closed)</option>
-                <option value="screen-top">Top of the screen</option>
-              </select>
-            </div>
-            <div>
-              <label for="cfg_viewer_progress_bar_color">Bar color</label>
-              <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
-                <input type="color" id="cfg_viewer_progress_bar_color"
-                       onchange="saveSetting('viewer_progress_bar_color', this.value)"
-                       style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
-                <button type="button" class="secondary" onclick="resetProgressBarColor()" style="font-size: 0.85rem;">Match player theme</button>
-              </div>
-            </div>
-          </div>
-          <div class="row">
-            <input type="checkbox" id="cfg_viewer_progress_bar_show_time" onchange="saveSetting('viewer_progress_bar_show_time', this.checked ? 1 : 0)" />
-            <label for="cfg_viewer_progress_bar_show_time" style="margin: 0;">Show time left next to the bar</label>
-          </div>
         </div>
 
         <div class="card">
@@ -2748,6 +2773,60 @@
             </div>
           </div>
         </div>
+
+        </div>
+
+        <div class="sub-tab-pane" data-subtab="viewer-schedule">
+        <div class="card" id="scheduleCard">
+          <h2>Scheduled switches</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            Switch the viewer page to another template at a set date and time, once or every year. It can also restore a
+            sequence snapshot and set the viewer mode, so one switch can change the whole season. Open viewer pages switch live.
+          </p>
+          <div class="row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+            <label for="cfg_show_timezone" style="margin: 0;">Show time zone</label>
+            <select id="cfg_show_timezone" onchange="saveShowTimezone(this.value)" style="max-width: 18rem;"></select>
+            <span class="muted" id="schTzNote" style="font-size: 0.8rem;"></span>
+          </div>
+          <div id="scheduleList" style="margin: 0.75rem 0;"></div>
+          <button type="button" class="btn" id="schAddBtn" onclick="openScheduleForm()">Add a scheduled switch</button>
+          <div id="scheduleForm" class="hidden" style="margin-top: 0.75rem; padding: 0.75rem; border: 1px solid rgba(128,128,128,.35); border-radius: 8px;">
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+              <label for="sch_template" style="margin: 0;">Switch to</label>
+              <select id="sch_template"></select>
+            </div>
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
+              <label for="sch_repeat" style="margin: 0;">When</label>
+              <select id="sch_repeat" onchange="updateScheduleFields()">
+                <option value="once">Once, on a date</option>
+                <option value="yearly_date">Every year, on a date</option>
+                <option value="yearly_weekday">Every year, on a weekday (e.g. Thanksgiving)</option>
+              </select>
+              <input type="date" id="sch_date" />
+              <select id="sch_nth"><option value="1">first</option><option value="2">second</option><option value="3">third</option><option value="4">fourth</option><option value="-1">last</option></select>
+              <select id="sch_weekday"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select>
+              <span id="sch_of" class="muted">of</span>
+              <select id="sch_month"><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option></select>
+              <input type="number" id="sch_day" min="1" max="31" style="width: 4.5rem;" />
+              <label for="sch_time" style="margin: 0;">at</label>
+              <input type="time" id="sch_time" value="18:00" />
+            </div>
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
+              <label for="sch_snapshot" style="margin: 0;">Also restore</label>
+              <select id="sch_snapshot"><option value="">No snapshot</option></select>
+              <label for="sch_mode" style="margin: 0;">and set the mode to</label>
+              <select id="sch_mode"><option value="">(don't change)</option><option value="VOTING">Voting</option><option value="JUKEBOX">Jukebox</option><option value="RACE">Race</option><option value="OFF">Off</option></select>
+            </div>
+            <div class="row" style="gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
+              <input type="checkbox" id="sch_enabled" checked />
+              <label for="sch_enabled" style="margin: 0;">Enabled</label>
+            </div>
+            <p id="schError" style="color: #ff6b6b; font-size: 0.85rem; min-height: 1em; margin: 0.4rem 0;"></p>
+            <button type="button" class="btn" onclick="saveSchedule()">Save</button>
+            <button type="button" class="btn secondary" onclick="closeScheduleForm()">Cancel</button>
+          </div>
+        </div>
+
         </div>
 
         <div class="sub-tab-pane" data-subtab="viewer-translation">
@@ -5726,6 +5805,7 @@
       setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
       setChk('cfg_debug_output_delay_comp', c.debug_output_delay_comp === 1);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
+      setChk('cfg_sync_help_enabled', c.sync_help_enabled !== 0);
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
       setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);
       setChk('cfg_listener_timing_tip', c.listener_timing_tip !== 0);
@@ -6355,6 +6435,7 @@
       // refresh-on-open keeps the UI fresh without polling when not visible.
       if (name === 'public-access') loadCloudflaredStatus();
       if (name === 'viewer-translation') loadTranslationSettings();
+      if (name === 'viewer-schedule') loadSchedules();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're
@@ -8294,6 +8375,90 @@
         });
       });
     }
+
+    // ---- Scheduled template switches (v0.33.231+) ----
+    let _schEditId = null, _schData = null;
+    async function loadSchedules() {
+      const [r, t, sn] = await Promise.all([api('/template-schedules'), api('/templates'), api('/snapshots')]);
+      if (!r.ok) return;
+      _schData = r.data;
+      const tzSel = document.getElementById('cfg_show_timezone');
+      if (tzSel && !tzSel.options.length) {
+        const zones = (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [r.data.timezone]);
+        tzSel.innerHTML = `<option value="">Server's zone (${escapeHtml(r.data.serverTimezone)})</option>` +
+          zones.map(z => `<option value="${escapeHtml(z)}">${escapeHtml(z.replace(/_/g, ' '))}</option>`).join('');
+      }
+      if (tzSel) tzSel.value = r.data.configuredTimezone || '';
+      const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      document.getElementById('schTzNote').textContent = !r.data.configuredTimezone && browserTz && browserTz !== r.data.serverTimezone
+        ? `Tip: this browser is on ${browserTz}. Pick it so switches happen at your local time.` : '';
+      const tplSel = document.getElementById('sch_template');
+      if (t.ok) tplSel.innerHTML = t.data.map(x => `<option value="${x.id}">${escapeHtml(x.name)}${x.is_active ? ' (active now)' : ''}</option>`).join('');
+      const snSel = document.getElementById('sch_snapshot');
+      const snaps = sn.ok ? (sn.data.snapshots || []) : [];
+      snSel.innerHTML = '<option value="">No snapshot</option>' + snaps.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+      const list = document.getElementById('scheduleList');
+      const rows = r.data.schedules;
+      const modeName = { VOTING: 'Voting', JUKEBOX: 'Jukebox', RACE: 'Race', OFF: 'Off' };
+      list.innerHTML = !rows.length ? '<p class="muted" style="font-size: 0.85rem; margin: 0;">No scheduled switches yet.</p>' : rows.map(x => {
+        const extras = [x.snapshot_id ? `restores "${escapeHtml(x.snapshot_name || 'snapshot')}"` : '', x.viewer_mode ? `sets mode to ${modeName[x.viewer_mode]}` : ''].filter(Boolean).join(', ');
+        const status = x.enabled && x.next_run_local ? `Next: <strong>${escapeHtml(x.next_run_local)}</strong>`
+          : x.last_run_local ? `Done (ran ${escapeHtml(x.last_run_local)})` : 'Off';
+        return `<div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(128,128,128,.2);">
+          <div style="min-width: 14rem; flex: 1;"><div><strong>${escapeHtml(x.template_name || '(deleted template)')}</strong></div>
+            <div class="muted" style="font-size: 0.8rem;">${escapeHtml(x.rule)}${extras ? ' · also ' + extras : ''}</div>
+            <div style="font-size: 0.8rem;">${status}</div></div>
+          <div style="display: flex; gap: 0.4rem;">
+            <button type="button" class="btn secondary" onclick="openScheduleForm(${x.id})">Edit</button>
+            <button type="button" class="btn secondary" onclick="runScheduleNow(${x.id})">Run now</button>
+            <button type="button" class="btn secondary" onclick="deleteSchedule(${x.id})">Delete</button>
+          </div></div>`;
+      }).join('');
+    }
+    function updateScheduleFields() {
+      const rep = document.getElementById('sch_repeat').value;
+      const vis = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
+      vis('sch_date', rep === 'once'); vis('sch_month', rep !== 'once'); vis('sch_day', rep === 'yearly_date');
+      vis('sch_nth', rep === 'yearly_weekday'); vis('sch_weekday', rep === 'yearly_weekday'); vis('sch_of', rep === 'yearly_weekday');
+    }
+    function openScheduleForm(id) {
+      _schEditId = id || null;
+      const x = id && _schData ? _schData.schedules.find(s => s.id === id) : null;
+      const set = (el, v) => { document.getElementById(el).value = v; };
+      set('sch_template', x ? x.template_id : document.getElementById('sch_template').value);
+      set('sch_repeat', x ? x.repeat : 'once');
+      set('sch_date', x && x.run_date ? x.run_date : '');
+      set('sch_month', x && x.month ? x.month : 11); set('sch_day', x && x.day ? x.day : 1);
+      set('sch_nth', x && x.nth ? x.nth : 4); set('sch_weekday', x && x.weekday != null ? x.weekday : 4);
+      set('sch_time', x ? x.run_time : '18:00');
+      set('sch_snapshot', x && x.snapshot_id ? x.snapshot_id : ''); set('sch_mode', x && x.viewer_mode ? x.viewer_mode : '');
+      document.getElementById('sch_enabled').checked = x ? !!x.enabled : true;
+      document.getElementById('schError').textContent = '';
+      updateScheduleFields();
+      show('scheduleForm'); hide('schAddBtn');
+    }
+    function closeScheduleForm() { hide('scheduleForm'); show('schAddBtn'); _schEditId = null; }
+    async function saveSchedule() {
+      const v = id => document.getElementById(id).value;
+      const body = { template_id: v('sch_template'), repeat: v('sch_repeat'), run_date: v('sch_date'), month: v('sch_month'), day: v('sch_day'),
+        nth: v('sch_nth'), weekday: v('sch_weekday'), run_time: v('sch_time'), snapshot_id: v('sch_snapshot'), viewer_mode: v('sch_mode'),
+        enabled: document.getElementById('sch_enabled').checked ? 1 : 0 };
+      const res = await fetch('/api/admin/template-schedules' + (_schEditId ? '/' + _schEditId : ''), {
+        method: _schEditId ? 'PUT' : 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { document.getElementById('schError').textContent = data.error || 'Could not save.'; return; }
+      closeScheduleForm(); loadSchedules();
+    }
+    async function deleteSchedule(id) {
+      if (!await showConfirm('Delete this scheduled switch?', { danger: true, okLabel: 'Delete' })) return;
+      await api('/template-schedules/' + id, { method: 'DELETE' }); loadSchedules();
+    }
+    async function runScheduleNow(id) {
+      if (!await showConfirm('Run this switch now? The viewer page changes immediately for everyone watching.', { okLabel: 'Run now' })) return;
+      await api('/template-schedules/' + id + '/run-now', { method: 'POST' });
+      loadSchedules(); if (typeof loadTemplates === 'function') loadTemplates();
+    }
+    async function saveShowTimezone(v) { await saveSetting('show_timezone', v); setTimeout(loadSchedules, 300); }
 
     async function loadTemplates() {
       const r = await api('/templates');

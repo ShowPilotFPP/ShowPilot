@@ -62,6 +62,8 @@ function requireAdmin(req, res, next) {
       return res.status(401).json({ error: 'User no longer exists or is disabled' });
     }
     req.user = user;
+    // This browser belongs to an admin: stop counting it as a viewer.
+    require('../lib/admin-viewers').markAdminBrowser(req);
     next();
   } catch {
     res.status(401).json({ error: 'Invalid session' });

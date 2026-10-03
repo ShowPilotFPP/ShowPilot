@@ -322,6 +322,9 @@ router.post('/heartbeat', (req, res) => {
   const ipHash = hashIp(ip);
   const ua = (req.headers['user-agent'] || '').substring(0, 255);
 
+  // An admin's browser (e.g. a viewer tab left open) isn't a viewer.
+  if (require('../lib/admin-viewers').isAdminViewerToken(token)) return res.json({ ok: true, token });
+
   db.prepare(`
     INSERT INTO active_viewers (viewer_token, last_seen, ip_hash, user_agent)
     VALUES (?, CURRENT_TIMESTAMP, ?, ?)

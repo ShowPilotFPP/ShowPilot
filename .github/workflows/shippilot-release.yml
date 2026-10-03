@@ -26,6 +26,10 @@ on:
   # Approving a pull request from a claude/* branch ships it (v2).
   pull_request_review:
     types: [submitted]
+  # ...or commenting /ship on a Claude release PR ships it (v2, for PRs you can't approve,
+  # e.g. ones opened in your name).
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write        # delete the release branch after shipping
@@ -39,21 +43,49 @@ jobs:
       (github.event.review.state == 'approved' &&
        startsWith(github.event.pull_request.head.ref, 'claude/') &&
        github.event.pull_request.head.repo.full_name == github.repository &&
-       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association))
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/ship') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     concurrency:
       group: shippilot-${{ github.repository }}
       cancel-in-progress: false
     steps:
+      - name: Resolve the pull request to ship (approval or /ship comment)
+        id: pr
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUM: ${{ github.event.pull_request.number || github.event.issue.number }}
+          EVENT: ${{ github.event_name }}
+          WHO: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+          gh pr view "$NUM" -R "$GITHUB_REPOSITORY" --json number,headRefName,headRefOid,baseRefName,title,body,isCrossRepository > "$RUNNER_TEMP/pr.json"
+          python3 - <<'PY'
+          import json, os
+          t = os.environ['RUNNER_TEMP']
+          d = json.load(open(t + '/pr.json'))
+          if not d['headRefName'].startswith('claude/') or d['isCrossRepository']:
+              print(f"::error::Only Claude's release PRs (claude/* branches in this repo) can be shipped this way; #{d['number']} is from {d['headRefName']}.")
+              raise SystemExit(1)
+          open(t + '/pr_title.txt', 'w').write(d['title'])
+          open(t + '/pr_body.txt', 'w').write(d['body'] or '')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
+              o.write(f"number={d['number']}\nsha={d['headRefOid']}\nhead={d['headRefName']}\nbase={d['baseRefName']}\n")
+          PY
+          if [ "$EVENT" = "issue_comment" ]; then gh pr comment "$NUM" -R "$GITHUB_REPOSITORY" --body "Shipping this through ShipPilot… (started by @$WHO)" || true; fi
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ steps.pr.outputs.sha || github.ref }}
 
       - name: Work out the target and version
         run: |
           set -euo pipefail
           TARGET_INPUT="${{ inputs.target }}"
-          if [ "${{ github.event_name }}" = "pull_request_review" ]; then TARGET_INPUT="${{ github.event.pull_request.base.ref }}"; fi
+          if [ -n "${{ steps.pr.outputs.number }}" ]; then TARGET_INPUT="${{ steps.pr.outputs.base }}"; fi
           if [ "$TARGET_INPUT" = "beta" ]; then
             REPO_SLUG=showpilot-beta; TARGET_BRANCH=beta; WITH_TAG=false
           else
@@ -66,7 +98,7 @@ jobs:
             beta:*) echo "::error::Beta releases need a version like 1.2.3-beta.1 (got $VERSION)."; exit 1 ;;
           esac
           SHIP_FROM="${GITHUB_REF_NAME}"
-          if [ "${{ github.event_name }}" = "pull_request_review" ]; then SHIP_FROM="${{ github.event.pull_request.head.ref }}"; fi
+          if [ -n "${{ steps.pr.outputs.number }}" ]; then SHIP_FROM="${{ steps.pr.outputs.head }}"; fi
           if [ "$SHIP_FROM" = "$TARGET_BRANCH" ]; then
             echo "::error::Run this on the branch you want to ship (e.g. a PR branch), not $TARGET_BRANCH."
             exit 1
@@ -79,14 +111,13 @@ jobs:
       - name: Build the release tarball
         env:
           INPUT_MESSAGE: ${{ inputs.commit_message }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            export COMMIT_MESSAGE="$(printf '%s\n\n%s' "$PR_TITLE" "$PR_BODY")"
+          if [ -n "${{ steps.pr.outputs.number }}" ]; then
+            export COMMIT_MESSAGE="$(printf '%s\n\n%s' "$(cat "$RUNNER_TEMP/pr_title.txt")" "$(cat "$RUNNER_TEMP/pr_body.txt")")"
           else
-            export COMMIT_MESSAGE="$INPUT_MESSAGE"
+            # The Run-workflow form gives one line: trim it, and turn a typed \n into a line break.
+            export COMMIT_MESSAGE="$(printf '%s' "$INPUT_MESSAGE" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:space:]]*\\n[[:space:]]*/\n/g')"
           fi
           mkdir -p out
           # git archive = tracked files only: no .git, node_modules, config.js or data/.
@@ -107,6 +138,10 @@ jobs:
           SHIPPILOT_TOKEN: ${{ secrets.SHIPPILOT_TOKEN }}
         run: |
           set -uo pipefail
+          if [ -z "${SHIPPILOT_URL}" ] || [ -z "${SHIPPILOT_TOKEN}" ]; then
+            echo "::error::The repository secrets SHIPPILOT_URL and SHIPPILOT_TOKEN must both be set (Settings → Secrets and variables → Actions → Secrets). Missing: $([ -z "${SHIPPILOT_URL}" ] && echo -n 'SHIPPILOT_URL ')$([ -z "${SHIPPILOT_TOKEN}" ] && echo -n 'SHIPPILOT_TOKEN')"
+            exit 1
+          fi
           URL="${SHIPPILOT_URL%/}"
           HTTP=$(curl -sS -o result.json -w '%{http_code}' --max-time 300 \
             -H "Authorization: Bearer ${SHIPPILOT_TOKEN}" \
@@ -142,13 +177,13 @@ jobs:
           echo "::warning::Deploys still running after 15 minutes; check ShipPilot."
 
       - name: Close the release PR and its source
-        if: success() && github.event_name == 'pull_request_review'
+        if: success() && steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           set -uo pipefail
+          PR_BODY="$(cat "$RUNNER_TEMP/pr_body.txt")"
           gh pr comment "$PR_NUMBER" --body "Shipped as v${VERSION} through ShipPilot. Thanks!"
           gh pr close "$PR_NUMBER" --delete-branch || true
           SRC=$(printf '%s' "$PR_BODY" | sed -n 's/^Source: #\([0-9][0-9]*\).*/\1/p' | head -1)

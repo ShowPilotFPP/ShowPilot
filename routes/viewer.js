@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
 const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp,
-        addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext } = require('../lib/db');
+        addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext , updateConfig } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
 const { progressBarConfig } = require('../lib/progress-bar');
@@ -321,6 +321,9 @@ router.post('/heartbeat', (req, res) => {
   const ip = getClientIp(req);
   const ipHash = hashIp(ip);
   const ua = (req.headers['user-agent'] || '').substring(0, 255);
+
+  // An admin's browser (e.g. a viewer tab left open) isn't a viewer.
+  if (require('../lib/admin-viewers').isAdminViewerToken(token)) return res.json({ ok: true, token });
 
   db.prepare(`
     INSERT INTO active_viewers (viewer_token, last_seen, ip_hash, user_agent)
@@ -1351,6 +1354,52 @@ module.exports = router;
 // is safe — the same object is returned every time.
 router.startRace = startRace;
 router.clearRaceTimer = clearRaceTimer;
+
+// What happens when the viewer mode changes (v0.33.231+, moved here from the
+// admin route so the scheduler can do exactly the same): tell open pages,
+// start a race when switching to Race mode (with timer-based resolution),
+// and clear any race when switching away.
+function applyModeEffects(io, mode, opts = {}) {
+  if (io && opts.announce !== false) io.emit('viewerModeChanged', { mode });
+  if (mode === 'RACE') {
+    const endsAt = startRace(getConfig());
+    if (io) io.emit('raceStarted', { endsAt });
+    if (endsAt) {
+      const ms = new Date(endsAt).getTime() - Date.now();
+      if (ms > 0) {
+        _raceTimerHandle = setTimeout(() => {
+          _raceTimerHandle = null;
+          const latestCfg = getConfig();
+          if (latestCfg.race_active && !latestCfg.race_winner) {
+            const leader = getRaceLeader();
+            if (leader) {
+              const seq = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+              resolveRace(io, leader.sequence_name, seq?.display_name || leader.sequence_name, seq?.artist || '', leader.count);
+            } else {
+              db.prepare(`UPDATE config SET race_active = 0 WHERE id = 1`).run();
+              if (io) io.emit('raceEnded', { noWinner: true });
+            }
+          }
+        }, Math.max(ms, 0));
+      }
+    }
+  } else {
+    clearRaceTimer();
+    db.prepare(`UPDATE config SET race_active = 0, race_winner = NULL, race_started_at = NULL, race_ends_at = NULL WHERE id = 1`).run();
+  }
+}
+// Set the viewer mode the same way the admin does (remembering the last
+// active mode for "Turn On"), then apply its effects.
+function setViewerMode(io, mode, opts = {}) {
+  const cfg = getConfig();
+  const updates = { viewer_control_mode: mode };
+  if (mode !== 'OFF') updates.last_active_mode = mode;
+  else if (cfg.viewer_control_mode && cfg.viewer_control_mode !== 'OFF') updates.last_active_mode = cfg.viewer_control_mode;
+  updateConfig(updates);
+  applyModeEffects(io, mode, opts);
+}
+router.applyModeEffects = applyModeEffects;
+router.setViewerMode = setViewerMode;
 router.resolveRace = resolveRace;
 // Expose timer handle so admin.js can store setTimeout handles here
 // and clearRaceTimer() can cancel them correctly via the shared variable.

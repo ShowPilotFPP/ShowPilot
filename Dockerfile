@@ -39,7 +39,7 @@ FROM node:20-alpine
 # Minimal runtime deps. tini is a tiny init that handles signals correctly —
 # without it, SIGTERM from `docker stop` doesn't reach the Node process
 # cleanly, and the container takes 10s to die instead of 1s.
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini ffmpeg
 
 WORKDIR /app
 

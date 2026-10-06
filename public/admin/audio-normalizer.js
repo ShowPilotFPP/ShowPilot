@@ -310,10 +310,37 @@
     if (source === 'fpp') renderFppPicker(box);
     else renderLocalPicker(box);
 
-    const count = source === 'fpp' ? picked.size : localFiles.length;
     card.appendChild(h('div', { class: 'row', style: 'margin-top:1rem;gap:0.5rem;' }, [
-      h('button', { disabled: count === 0, onclick: startBatch, text: count ? ('Normalize ' + count + ' song' + (count === 1 ? '' : 's')) : 'Normalize' }),
+      h('button', { id: 'spnGo', onclick: startBatch }),
     ]));
+    updatePickUi();
+  }
+
+  // Ticking a song only updates these bits in place. (It used to rebuild
+  // the whole card, which reset the list's scroll position and made the
+  // list jump under the pointer.)
+  function updatePickUi() {
+    if (!root) return;
+    const count = source === 'fpp' ? picked.size : localFiles.length;
+    const go = root.querySelector('#spnGo');
+    if (go) {
+      go.disabled = count === 0;
+      go.textContent = count ? ('Normalize ' + count + ' song' + (count === 1 ? '' : 's')) : 'Normalize';
+    }
+    const cnt = root.querySelector('#spnPickCount');
+    if (cnt && fppFiles) cnt.textContent = picked.size + ' of ' + fppFiles.length + ' selected';
+    const all = root.querySelector('#spnPickAll');
+    if (all) {
+      const shown = shownFiles();
+      const on = shown.filter(f => picked.has(f.name)).length;
+      all.checked = shown.length > 0 && on === shown.length;
+      all.indeterminate = on > 0 && on < shown.length;
+    }
+  }
+
+  function shownFiles() {
+    const q = filterText.toLowerCase();
+    return (fppFiles || []).filter(f => !q || f.name.toLowerCase().includes(q));
   }
 
   function renderFppPicker(box) {
@@ -335,30 +362,49 @@
       box.appendChild(h('p', { class: 'muted', text: 'No audio files found in FPP\'s music folder.' }));
       return;
     }
-    const shown = fppFiles.filter(f => !filterText || f.name.toLowerCase().includes(filterText.toLowerCase()));
     const filter = h('input', { type: 'search', placeholder: 'Filter songs…', value: filterText, style: 'flex:1;min-width:10rem;', oninput: (e) => {
       filterText = e.target.value;
-      const pos = e.target.selectionStart;
-      render();
-      const again = root.querySelector('input[type=search]');
-      if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+      fillRows();
     } });
     box.appendChild(h('div', { class: 'row', style: 'gap:0.5rem;align-items:center;flex-wrap:wrap;' }, [
       filter,
-      h('button', { class: 'secondary', onclick: () => { shown.forEach(f => picked.add(f.name)); render(); }, text: 'Select all' + (filterText ? ' shown' : '') }),
-      h('button', { class: 'secondary', onclick: () => { picked.clear(); render(); }, text: 'Clear' }),
+      h('button', { class: 'secondary', onclick: () => { picked.clear(); fillRows(); }, text: 'Clear' }),
       h('button', { class: 'secondary', onclick: () => { fppFiles = null; render(); }, text: 'Refresh' }),
     ]));
-    const list = h('div', { style: 'max-height:320px;overflow:auto;margin-top:0.5rem;border:1px solid var(--border, rgba(127,127,127,0.3));border-radius:8px;padding:0.25rem 0.5rem;' });
-    shown.forEach(f => {
-      list.appendChild(h('label', { style: 'display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0;font-weight:normal;' }, [
-        h('input', { type: 'checkbox', checked: picked.has(f.name), onchange: (e) => { if (e.target.checked) picked.add(f.name); else picked.delete(f.name); render(); } }),
-        h('span', { style: 'flex:1;overflow-wrap:anywhere;', text: f.name }),
-        h('span', { class: 'muted', style: 'font-size:0.8rem;white-space:nowrap;', text: mb(f.size) }),
-      ]));
-    });
-    box.appendChild(list);
-    box.appendChild(h('div', { class: 'muted', style: 'font-size:0.8rem;margin-top:0.3rem;', text: picked.size + ' of ' + fppFiles.length + ' selected' }));
+    const frame = h('div', { style: 'margin-top:0.5rem;border:1px solid var(--border, rgba(127,127,127,0.3));border-radius:8px;user-select:none;-webkit-user-select:none;' });
+    const allBox = h('input', { id: 'spnPickAll', type: 'checkbox', onchange: (e) => {
+      shownFiles().forEach(f => { if (e.target.checked) picked.add(f.name); else picked.delete(f.name); });
+      fillRows();
+    } });
+    const allLabel = h('span', { style: 'flex:1;font-weight:600;' }, 'Select all');
+    frame.appendChild(h('label', { style: 'display:flex;gap:0.5rem;align-items:center;padding:0.4rem 0.5rem;border-bottom:1px solid var(--border, rgba(127,127,127,0.3));font-weight:normal;cursor:pointer;' }, [
+      allBox, allLabel,
+      h('span', { id: 'spnPickCount', class: 'muted', style: 'font-size:0.8rem;white-space:nowrap;' }),
+    ]));
+    const list = h('div', { style: 'max-height:320px;overflow:auto;padding:0.25rem 0.5rem;' });
+    frame.appendChild(list);
+    box.appendChild(frame);
+
+    function fillRows() {
+      const top = list.scrollTop;
+      list.textContent = '';
+      const shown = shownFiles();
+      allLabel.textContent = filterText ? 'Select all shown (' + shown.length + ')' : 'Select all';
+      if (!shown.length) list.appendChild(h('div', { class: 'muted', style: 'padding:0.4rem 0;', text: 'No songs match.' }));
+      shown.forEach(f => {
+        list.appendChild(h('label', { style: 'display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0;font-weight:normal;cursor:pointer;' }, [
+          h('input', { type: 'checkbox', checked: picked.has(f.name), onchange: (e) => {
+            if (e.target.checked) picked.add(f.name); else picked.delete(f.name);
+            updatePickUi();
+          } }),
+          h('span', { style: 'flex:1;overflow-wrap:anywhere;', text: f.name }),
+          h('span', { class: 'muted', style: 'font-size:0.8rem;white-space:nowrap;', text: mb(f.size) }),
+        ]));
+      });
+      list.scrollTop = top;
+      updatePickUi();
+    }
+    fillRows();
   }
 
   function renderLocalPicker(box) {

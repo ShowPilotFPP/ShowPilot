@@ -54,7 +54,7 @@ Design rules (keep them when adding themes):
 ├── package.json                 — version source of truth
 ├── config.js                    — host-specific config (jwtSecret, port, dbPath, showToken)
 ├── config.example.js            — template for fresh installs
-├── deploy.sh                    — install script (npm install + ffmpeg via apt-get)
+├── deploy.sh                    — update script (git pull + npm install + PM2 reload)
 ├── lib/
 │   ├── db.js                    — SQLite schema, migrations, getters/setters
 │   ├── config-loader.js         — loads config.js
@@ -63,7 +63,8 @@ Design rules (keep them when adding themes):
 │   ├── cover-art.js             — Spotify cover art fetcher (covers stored in data/covers/)
 │   ├── viewer-renderer.js       — server-renders viewer page from active template
 │   ├── categories.js            — sequence categories: list CRUD, enable/disable, viewer grouping (v0.33.200+)
-│   ├── audio-cache.js           — audio file cache, ffmpeg M4A transcoding
+│   ├── audio-cache.js           — audio file cache (content-addressed, served as-is)
+│   ├── audio-normalizer.js      — Tools → Audio Normalizer engine (ffmpeg; also in Lite)
 │   ├── audio-position-relay.js  — WebSocket relay from FPP daemon to Socket.io viewers
 │   └── ...
 ├── routes/
@@ -456,13 +457,7 @@ This uses the PID file (`/tmp/showpilot-audio.pid`) for a clean kill and respawn
 
 ### Audio cache and ffmpeg
 
-Audio files uploaded by the FPP plugin are stored as `data/audio-cache/<sha256>.bin`. On startup, ShowPilot runs a background job to transcode all MP3 `.bin` files to AAC/M4A using:
-
-```bash
-ffmpeg -y -f <probed_format> -i input.bin -vn -c:a aac -b:a 192k -movflags +faststart output.m4a
-```
-
-The `-vn` flag is critical. `ffprobe` is used to detect the actual format. ffmpeg is installed via `apt-get install -y ffmpeg` in `deploy.sh`.
+Audio files uploaded by the FPP plugin are stored as `data/audio-cache/<sha256>.bin` and served as-is. (Older primers described a startup ffmpeg transcode to AAC/M4A and an ffmpeg install in `deploy.sh`; neither exists in the current code — checked v0.33.232. ffmpeg is now used only by the Audio Normalizer tool, and the Docker image installs it from v0.33.232.)
 
 ---
 
@@ -502,6 +497,58 @@ Contributions are prepared by Claude inside GitHub Actions and shipped through S
 - **Scheduler:** started in `server.js`; checks every 20 s, and 5 s after start catches up on anything missed while the server was down. If several were missed, only the latest is applied; the others are marked as passed. Past one-time dates are rejected on create/edit.
 - **Viewers:** `rf-compat.js` reloads on `viewerTemplateChanged` (random 0–2.5 s stagger; background tabs immediately; if `window.__spListening()` reports the Listen-on-Phone player is open, it waits up to 3 minutes for it to close). Manual activation in the admin also emits it.
 - **Live Race switching:** the server renders Race mode differently (blanks every `{PLAYLISTS}`, injects `#showpilot-race-grid` inside the first `.wrapper` and `<style id="showpilot-race-ui">`). When the mode changes into or out of Race (socket `viewerModeChanged`, or noticed by the 3-second state poll), the player fetches the page and swaps the mode containers' contents (not the access-code or after-hours blocks), the race grid and the race stylesheet — no reload, so phone audio keeps playing.
+
+## Tools → Audio Normalizer (main v0.33.232+ / Lite v0.5.71+)
+
+A standalone tool that makes a show's songs equally loud by changing the files, so the operator can put the fixed copies back on FPP. **It is not part of the audio pipeline** — it never touches the audio cache, the viewer stream or anything FPP is playing — which is why it ships in both ShowPilot and Lite (an explicit exception to "audio is main-only"). The three files are identical in both repos: `lib/audio-normalizer.js` (engine), `routes/normalize.js` (mounted at `/api/admin/tools/normalize` behind `requireAdmin` in `server.js`), `public/admin/audio-normalizer.js` (`window.SPNormalizer`, renders into `#spNormalizerRoot` on the new **Tools** tab; `switchMainTab('tools')` calls `SPNormalizer.open()`; rail icon `tools` in `ui-new.js`). The edition (`main`/`lite`) comes from `package.json` `name` and only changes the FPP host fallback and a few hints.
+
+**Why it exists:** most "normalize" tools match peak level, or write a ReplayGain/MP3Gain tag that FPP ignores, so songs "show the same" but play at different volumes. This measures integrated loudness (LUFS, ITU-R BS.1770 / EBU R128) and true peak with ffmpeg's `loudnorm` filter (measure-only), then applies one fixed gain per song.
+
+**Per song** (one song at a time server-wide, `-threads 1`, `os.setPriority(pid, 19)`):
+1. Measure (`loudnorm ... print_format=json`, read `input_i` / `input_tp` / `input_lra` / `input_thresh`).
+2. Plan (`plan()`): gain = target − measured. Within 0.5 LU and under the ceiling → `none` ("Already right", not re-encoded, not offered for download). Gain fits under the ceiling → `gain` (`volume=XdB`). Otherwise, limiter allowed → `limiter`: `volume`, then `aresample` to 4× the sample rate, `alimiter=limit=<ceiling−0.5 dB>:attack=5:release=50:level=false[:latency=true]`, back to the original rate (4× so inter-sample peaks are caught; `latency=true` when this ffmpeg has it so the look-ahead doesn't shift timing). Limiter off → `peak-limited`: raise only as far as the peaks allow.
+3. Encode in the original's format and name (MP3 → LAME 320k with Xing/LAME header, ID3v2.3, cover art copied as `attached_pic`, retried without art if the muxer objects; M4A/AAC → aac 256k; WAV → pcm_s16le; FLAC; OGG → libvorbis q8), same sample rate and channel count, `-map_metadata 0`.
+4. Verify: re-measure and compare durations (> 50 ms flagged). Lengths are counted from decoded samples (`astats` "Number of samples" in the measure pass, ÷ sample rate) — never ffprobe's duration, which for VBR MP3s without a Xing/VBRI header is a bitrate guess (24.5 min reported for an 11 min file), and never ffmpeg's progress `time=`, which stops short after `loudnorm` (57.2 s for 60.0 s). Fixed in v0.33.233 / Lite v0.5.72 after a false "⚠ +1521 ms" on a real show file. Up to 3 attempts: limiter shortfall is made up (max +6 dB over the plain gain — limiting transient-heavy songs lowers loudness); MP3 overshoot over the ceiling tightens the limit; a result further from the target than the original falls back to `peak-limited`.
+
+**Do not use `loudnorm`'s second pass / dynamic mode for the gain.** In testing it made a quiet song with sharp peaks *quieter* (−25 → −31 LUFS). `loudnorm` is measurement only.
+
+**Sources and results:** songs are picked from FPP's music folder (`GET http://<fpp>/api/files/music`, downloaded with `GET /api/file/Music/<name>`) or uploaded from the browser (`POST .../batches/:id/upload?name=`, raw body streamed to disk, 300 MB cap; `.mp3 .m4a .aac .wav .flac .ogg`). Results: per-song download, zip of fixed files, zip of originals (stored zip written by the module itself — no dependency), **Send to FPP** (`POST http://<fpp>/api/file/Music/<name>`, raw body; FPP rejects `/` in that name, so files in sub-folders must be replaced by hand) and **Restore original**. FPP host = `plugin_fpp_host`; Lite falls back to `127.0.0.1` (it runs on FPP). In main, the plugin's next sync uploads the changed file to the audio cache (content-addressed), so phone listeners get the new version automatically.
+
+**API** (`/api/admin/tools/normalize`): `GET /status` (edition, demo, ffmpeg capabilities incl. `loudnorm`/`alimiter`/encoders + install hint, `fppHost`, `showActive`, queue), `GET /fpp-files`, `POST /batches {targetLufs (-30..-5), truePeak (-9..0), allowLimiter}`, `GET|DELETE /batches/:id`, `POST /batches/:id/fpp {names}`, `POST /batches/:id/upload?name=`, `GET /batches/:id/items/:itemId/file[?original=1]`, `GET /batches/:id/zip[?original=1]`, `POST /batches/:id/items/:itemId/send {original}`. Names are validated by `safeMediaName()` (no `..`, backslashes, NULs, leading `/`, control characters; audio extension required). Demo mode: everything but `/status` returns 403.
+
+**Song picker (v0.33.234 / Lite v0.5.73):** ticking a song updates only the count, the "Select all" checkbox and the Normalize button (`updatePickUi()`); the filter rebuilds only the rows (`fillRows()`, scroll position kept). v0.33.232–233 rebuilt the whole card on every tick, which reset the list's scroll so it jumped under the pointer. "Select all" is a tri-state checkbox at the top of the list and applies to the songs the filter shows. The list has `user-select: none` so shift-clicks don't highlight text across rows. Bump `audio-normalizer.js?v=N` in `admin/index.html` whenever that file changes (now `v=2`).
+
+**State:** batches are in memory; files under `os.tmpdir()/showpilot-normalize/<batch>/{in,out}`, removed on start, on "Start over" and 3 h after last access. The browser keeps the batch id in `sessionStorage.sp_norm_batch` so a refresh reattaches. Nothing runs until an admin starts a batch.
+
+**ffmpeg is required.** The Docker images install it (`apk add ... ffmpeg`, added in this release); FPP ships Debian's ffmpeg (includes libmp3lame). Other installs without it see an install hint instead of the tool. `FFMPEG_PATH` / `FFPROBE_PATH` env vars override the binaries.
+
+**Tested:** against a real server and a fake FPP serving the file API: −8.6 → −14.0 and −27.3 → −14.0 LUFS; cross-correlation of every original vs fixed file = **0 samples** offset, durations identical, sample rate / mono / tags / cover art kept; skip, limiter, limiter-off, fallback and validation paths; traversal and bad extensions rejected; unauthenticated 401; send replaces the FPP file byte-for-byte and restore puts the original back; both zips verify with `unzip -t`. UI tested in jsdom against the live server (settings survive re-render, batch progress, buttons, refresh reattach, start over). Lite: same tests of status, listing and a batch on a live Lite server.
+
+## Tools → Announcements (beta from v0.33.235-beta.1)
+
+Spoken announcements without the operator recording their own voice. Second sub-tab of **Tools** (`tools-announcer`, next to `tools-normalizer`; `switchTab()` calls `SPAnnouncer.open()`, `switchMainTab('tools')` opens whichever sub-tab is active). Files: `lib/tts-engines.js` (voices), `lib/kokoro-worker.js` (speech process), `lib/announcer.js` (jobs, mixing), `routes/announcer.js` (mounted at `/api/admin/tools/announcer` behind `requireAdmin`), `public/admin/announcer.js` (`window.SPAnnouncer`, `#spAnnouncerRoot`, `announcer.js?v=1`). Main only while in beta; it is a tool, not part of the audio pipeline, so it goes to Lite too when it reaches stable (Lite needs the Pi considerations below).
+
+**Two outputs, both sync-safe:**
+- **Clip** — its own MP3 (e.g. "Tune to the radio", donations, "starts soon"), loudness-matched (default -14 LUFS, same as the normalizer), optional silence before/after, ID3 title, 44.1 kHz stereo LAME 320k. Used as a media-only playlist entry in FPP.
+- **Intro** — voice mixed over the start of a song with the music ducked. The result has the song's exact sample count, rate, channels, format, tags and cover art, so its sequence stays in sync. **Never prepend audio to a song** (it shifts every effect, same reason there is no silence trimming).
+
+**Intro mix (one ffmpeg pass, `renderIntro()`):** music `asetnsamples=n=64:p=0` (p=0 — padding the last frame would change the length) then `volume=eval=frame` with envelope `-duck*min(clip((t-(start-0.35))/0.35,0,1),clip((end+0.9-t)/0.9,0,1))` dB; voice first converted to the song's rate/channels and **measured in that form** (`preppedVoice()`; a mono voice on two channels measures 3 LU louder), gain = song LUFS + voiceBoost − voice LUFS, `adelay`; `amix=inputs=2:duration=first:dropout_transition=0:normalize=0`; 4×-oversampled `alimiter` at -2 dBTP (latency-compensated). Then the decoded sample count must equal the original's (`lengthDiffMs`). Previews render only the window around the voice (`-ss/-t` on the output, MP3). A voice that would run within 0.5 s of the song's end is refused.
+
+**Voices (`lib/tts-engines.js`):**
+- `kokoro` — free, on the server, no account. Kokoro-82M v1.0 (Apache-2.0) via **sherpa-onnx** (Apache-2.0). Nothing is bundled: "Install free voices" npm-installs `sherpa-onnx-node`, `sherpa-onnx` (WASM), `tar`, `unbzip2-stream` (pinned in `ENGINE_DEPS`) into `data/tts/engine` (~50 MB), then downloads the model from the sherpa-onnx GitHub release `tts-models` into `data/tts/models`: `standard` = `kokoro-int8-multi-lang-v1_0` (~130 MB, `model.int8.onnx`), `best` = `kokoro-multi-lang-v1_0` (~350 MB, `model.onnx`, default). Only one variant is kept. Progress via `GET /kokoro/status`.
+  - Speech runs in `lib/kokoro-worker.js`, a separate short-lived Node process (model RAM never in the server; native crashes can't take ShowPilot down — a failed native call segfaults on exit). Native addon first, **WASM fallback** when it can't load (Alpine/musl Docker images; `SHOWPILOT_TTS_FORCE_WASM=1` forces it for testing). Output: raw float PCM at 24 kHz → WAV via ffmpeg.
+  - Voices: 28 English voices, speaker ids from the model's `speaker_names` metadata (`KOKORO_IDS` order must match it; ★ marks the best ones; `am_santa` exists). **British voices use `lang: en-us` with `lexicon-gb-en.txt`** — sherpa-onnx has no `en-gb` mode (fails with "Failed to convert … to token IDs" and the engine segfaults on exit).
+- `openai` — user's key. `POST https://api.openai.com/v1/audio/speech`, `gpt-4o-mini-tts` (+ `instructions` style text) or `tts-1-hd`, 11 voices, `response_format: wav`.
+- `elevenlabs` — user's key. `GET /v1/voices` (list, by the user's library), `POST /v1/text-to-speech/{voice_id}?output_format=mp3_44100_192` with `model_id` `eleven_multilingual_v2` (default) / `eleven_v3` / `eleven_flash_v2_5`.
+- Uploaded recordings skip TTS (`POST /voices/upload`).
+
+**Storage:** keys in `data/tts/keys.json` (0600) — not in the DB, so **not in backups**, never returned to the browser (only `…last4`). Voice choices in `data/tts/settings.json`, last 30 scripts in `data/tts/library.json`. The updater's data snapshot excludes `data/tts/engine` and `data/tts/models` (re-installable, ~400 MB) but keeps the rest of `data/tts`. Working files (voices, songs, outputs) live in `os.tmpdir()/showpilot-announcer`, cleared on start, expire 3 h after last use.
+
+**API** (`/api/admin/tools/announcer`): `GET /status`, `POST /settings`, `POST /keys {provider, key}` (empty key removes), `POST /kokoro/install {variant}`, `POST /kokoro/remove`, `GET /kokoro/status`, `GET /elevenlabs/voices`, `POST /voices {engine, text, opts}`, `POST /voices/upload?name=`, `GET /voices/:id/audio`, `GET /fpp-files`, `POST /songs/fpp {name}`, `POST /songs/upload?name=`, `POST /render/clip {voiceId, name, leadIn, tail, targetLufs}`, `POST /render/intro {voiceId, songId, start, duckDb, voiceBoost, preview}`, `GET /jobs/:id`, `GET /outputs/:id[?play=1]`, `POST /outputs/:id/send {name}` (FPP music folder; same extension, no folders), `POST /songs/:id/restore` (puts the original song back on FPP), `POST /recent/forget`. Long work is a job (one at a time); the page polls. Demo mode: only `/status`.
+
+**Lite later:** on a Pi the free voice is slow (expect tens of seconds per sentence) and the model is 130–350 MB on the SD card; plan to offer `standard` only or API keys/uploads only.
+
+**Tested (sandbox, glibc x64):** real install (engine + 350 MB model in 87 s), native and WASM speech; a speech recognizer (Whisper tiny via sherpa-onnx) transcribed American, British and Santa voices word-for-word, including the voice mixed over music; intro: same sample count as the original, music outside the voice window sample-aligned (offset 0) and at the same level; clip -14.3 LUFS; send to a fake FPP, replace + restore byte-for-byte; validation (names, folders, voice past the end, missing key, unauthenticated). UI tested in jsdom against the live server: generate → clip → send → load song → preview → full mix → replace → restore. OpenAI/ElevenLabs calls not exercised (no keys; sandbox can't reach them) — first real use is the test.
 
 ## Version history (recent)
 
@@ -584,8 +631,12 @@ Contributions are prepared by Claude inside GitHub Actions and shipped through S
 | 0.33.229 | **GitHub automation fix.** Claude's pushes were always denied (Claude Code's `:*` suffix needs a space after the prefix, so `git push -u origin claude/:*` never matched `claude/issue-N`). Now: a trusted `push-branch` helper created by the workflow outside the repo (pushes only `claude/*`), read-only shell commands allowed, a post-run report of denied commands, and CLAUDE.md rules to comment when blocked. Helper and report tested against a real git remote and sample output. No app changes. |
 | 0.33.230 | **Setting to show or hide the Audio Sync Help panel.** New `sync_help_enabled` (default 1, existing databases get it via the column migration), a checkbox under admin **Viewer Page**, passed to the page as `syncHelpEnabled`. `rf-compat.js` reveals `[data-showpilot-sync-help]` (HTML templates and the Visual Designer block) only when the timing button exists and the setting is not off; the timing button is unaffected. Takes effect on viewer page reload. Cache-buster `rf-compat.js?v=103` (beta already used 102). Checked with `node --check` on the changed JS files. Main only (audio). Requested in #26. |
 | 0.33.231 | **Scheduled template switches + live Race switching.** New Viewer Page card "Scheduled switches": switch the active template at a date/time — once, every year on a date, or every year on the nth weekday of a month (e.g. Thanksgiving) — optionally restoring a sequence snapshot and setting the viewer mode, so one entry can change the whole season. New `show_timezone` setting (IANA; empty = server zone) because Docker usually runs on UTC. Open viewer pages switch live (`viewerTemplateChanged`; reload staggered, waits up to 3 min while someone is listening on their phone). Missed switches catch up on start (only the latest applies). Live mode switches into/out of Race now work without a refresh (the page fetches itself and swaps the song lists, `#showpilot-race-grid` and `#showpilot-race-ui`). Mode side effects moved to `routes/viewer.js` `applyModeEffects()` / `setViewerMode()` (shared by the admin and the scheduler). Manual template activation now also switches open pages live. Admins aren't counted as viewers (`lib/admin-viewers.js`: a signed-in admin request removes that browser from `active_viewers` and its last 30 min of `viewer_visits`, and ignores its heartbeats/visits for 12 h). Built-in template importer skips hidden files (macOS `._name.html` metadata copies were being imported as undeletable "._drive In"-style templates) and removes such entries on start. Cache-buster `rf-compat.js?v=105`. Tested: time zone math (DST gap/overlap, Thanksgiving 2026-28, Feb 29), a real server (validation, a scheduled switch firing on its own, run-now with snapshot + Race, catch-up after restart), and the real viewer page live (Voting↔Race swap without reload, template reload waiting for a listener). Workflows: `@claude` comments make Claude open its own release PR; `/ship` comment ships a Claude release PR; clear error when ShipPilot secrets are missing; Run-workflow messages trimmed (`\n` → line break). Tested the changed steps with stubs (PR resolution and refusal, target, commit message, secret check, closing). |
+| 0.33.232 | **Tools → Audio Normalizer** (see "Tools → Audio Normalizer"). New Tools tab: pick songs from FPP's music folder or upload them, normalize to a loudness target (LUFS, default -14, peaks ≤ -1.5 dBTP) with one fixed gain per song and an optional 4×-oversampled limiter for quiet songs with sharp peaks; same names/format/sample rate/tags/cover art; per-song and zip downloads, Send to FPP / Restore original. ffmpeg added to the Docker image. Not part of the audio pipeline, so mirrored to Lite v0.5.71. No rf-compat change (cache-buster stays `v=105`). |
+| 0.33.233 | **Audio Normalizer: false length warnings fixed.** A real 11:00 show file was flagged "⚠ +1521 ms" although FPP showed the same length: the original was a VBR MP3 without a Xing/VBRI header, so ffprobe's duration was a bitrate guess while the fixed file (with a header) was exact. Lengths now come from decoded sample counts (`astats` in the existing measure pass, no extra decoding). Tested with VBR no-header files (ffprobe said 24.5 min for 11 min): length change 0, timing offset 0 samples. Mirrored to Lite v0.5.72. |
+| 0.33.234 | **Audio Normalizer song picker.** Ticking a song no longer rebuilds the whole tool (the list jumped back to the top under the pointer, so picking a song further down could hit the wrong ones); only the count and buttons update, and filtering keeps the scroll position. New "Select all" checkbox at the top of the list (tri-state; applies to the filtered songs when a filter is typed). Cache-buster `audio-normalizer.js?v=2`. Tested in jsdom against a live server with 38 songs: ticking #1 and #5 selects exactly those two, select all / none, filtered select all, filter keeps focus, batch starts. Mirrored to Lite v0.5.73. |
 | 0.33.230-beta.1 | **Beta, on top of v0.33.229** (GitHub automation fix): carries the spinning mirror ball + New Year's Live, Christmas Live, output-delay tools, mic v2. Cache-buster `rf-compat.js?v=102` (unchanged: same player code as 0.33.229-beta.1). |
 | 0.33.232-beta.1 | **Beta, on top of v0.33.231** (scheduled switches, live Race switching, Viewer Page sub-tabs, `._` template cleanup, admins not counted as viewers, workflow fixes — all now on main). Carries the beta-only features: spinning mirror ball + New Year's Live, Christmas Live, output-delay tools, mic v2. Cache-buster `rf-compat.js?v=106` (main is on 105). |
+| 0.33.235-beta.1 | **Beta, on top of v0.33.234** (Audio Normalizer + its fixes, now on main). New: **Tools → Announcements** (see that section): free on-server voices (Kokoro via sherpa-onnx, installed on demand), OpenAI / ElevenLabs with the operator's own key, or an uploaded recording; makes stand-alone clips or talk-over song intros with ducking, keeping the song's exact length. Tools tab now has sub-tabs. Updater snapshots skip `data/tts/engine` and `data/tts/models`. Still carries the beta-only features (mirror ball, New Year's/Christmas Live, output-delay tools, mic v2; `rf-compat.js?v=106`). |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -599,9 +650,9 @@ Contributions are prepared by Claude inside GitHub Actions and shipped through S
 | 0.13.64 | `set_mode_race.php` scheduler command. Calls `POST /api/plugin/viewer-mode` with `{ mode: "RACE" }` so FPP scheduler events can activate race mode at a specific playlist position. |
 
 **Current versions (as of September 2026):**
-- ShowPilot: v0.33.200
-- FPP Plugin / Audio Daemon: v0.13.64
-- rf-compat.js cache buster: v=78
+- ShowPilot: v0.33.232
+- FPP Plugin / Audio Daemon: see the plugin repo's primer
+- rf-compat.js cache buster: v=105
 
 ---
 

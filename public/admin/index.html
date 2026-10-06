@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="/admin/ui-new.css">
   <script src="/admin/ui-new.js"></script>
+  <script src="/admin/audio-normalizer.js?v=2"></script>
+  <script src="/admin/announcer.js?v=1"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -1832,7 +1834,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.232-beta.1</span>
+        <span class="app-version">v0.33.235-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1895,6 +1897,7 @@
       <button class="tab-btn" data-tab="viewer" onclick="switchMainTab('viewer')">Viewer Page</button>
       <button class="tab-btn" data-tab="settings" onclick="switchMainTab('settings')">Settings</button>
       <button class="tab-btn" data-tab="plugin" onclick="switchMainTab('plugin')">Plugin</button>
+      <button class="tab-btn" data-tab="tools" onclick="switchMainTab('tools')">Tools</button>
       <button class="tab-btn" data-tab="users" onclick="switchMainTab('users')">Users</button>
     </nav>
 
@@ -3788,6 +3791,24 @@
 
 
       <!-- ============================================================
+           TAB: TOOLS — Audio Normalizer (public/admin/audio-normalizer.js)
+           ============================================================ -->
+      <div class="tab-pane" data-pane="tools">
+        <div class="card" style="padding-bottom: 0; margin-bottom: 0;">
+          <div class="sub-tabs">
+            <div class="sub-tab active" data-subtab="tools-normalizer" onclick="switchTab('tools-normalizer')">Audio Normalizer</div>
+            <div class="sub-tab" data-subtab="tools-announcer" onclick="switchTab('tools-announcer')">Announcements</div>
+          </div>
+        </div>
+        <div class="sub-tab-pane active" data-subtab="tools-normalizer">
+          <div id="spNormalizerRoot"></div>
+        </div>
+        <div class="sub-tab-pane" data-subtab="tools-announcer">
+          <div id="spAnnouncerRoot"></div>
+        </div>
+      </div>
+
+      <!-- ============================================================
            TAB: USERS
            ============================================================ -->
       <div class="tab-pane" data-pane="users">
@@ -4065,6 +4086,11 @@
       if (name === 'stats') { loadStatsTab(); loadVisitorStats(); }
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
+      if (name === 'tools') {
+        const sub = document.querySelector('.tab-pane[data-pane="tools"] .sub-tab.active');
+        if (sub && sub.dataset.subtab === 'tools-announcer') { if (window.SPAnnouncer) window.SPAnnouncer.open(); }
+        else if (window.SPNormalizer) window.SPNormalizer.open();
+      }
       if (name === 'settings') refreshAudioCacheStats();
     }
 
@@ -6436,6 +6462,8 @@
       if (name === 'public-access') loadCloudflaredStatus();
       if (name === 'viewer-translation') loadTranslationSettings();
       if (name === 'viewer-schedule') loadSchedules();
+      if (name === 'tools-normalizer' && window.SPNormalizer) window.SPNormalizer.open();
+      if (name === 'tools-announcer' && window.SPAnnouncer) window.SPAnnouncer.open();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're

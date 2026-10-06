@@ -147,6 +147,15 @@ app.use('/api/admin', adminRouter);
 // ShowPilot-Lite, because main has to work in Docker too.
 app.use('/api/admin/cloudflared', adminRouter.requireAdmin, require('./routes/cloudflared'));
 
+// Tools → Audio Normalizer (main v0.33.232 / Lite v0.5.71). Admin-only,
+// sibling mount like cloudflared. Upload bodies are streamed to disk by
+// the route itself (the global json parser ignores non-JSON bodies).
+app.use('/api/admin/tools/normalize', adminRouter.requireAdmin, require('./routes/normalize'));
+
+// Tools → Announcements (beta v0.33.235-beta.1). Same mount pattern; uploads
+// are streamed to disk by the route itself.
+app.use('/api/admin/tools/announcer', adminRouter.requireAdmin, require('./routes/announcer'));
+
 // In-app updater endpoints (v0.33.0+). Same sibling pattern as backup
 // and cloudflared. The router itself handles the Docker/demoMode
 // gating internally — it returns 503 with an explanation rather than

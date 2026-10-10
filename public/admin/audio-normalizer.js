@@ -19,6 +19,10 @@
 
   let root = null;
   let status = null;
+  // The connected show player's name, as the server reports it:
+  // 'FPP' or 'ShowPilot Player'.
+  const T = () => (status && status.target) || 'FPP';
+  const isPlayer = () => !!(status && status.targetKind === 'player');
   let batch = null;
   let fppFiles = null;
   let fppError = null;
@@ -181,8 +185,8 @@
 
   function confirmSend(count, original) {
     let text = original
-      ? 'Put the ORIGINAL version back on FPP, replacing the file with the same name?'
-      : 'Replace ' + count + ' song file(s) in FPP\'s music folder with the fixed versions (same names)?\n\nDownload the originals first if you want your own backup.';
+      ? 'Put the ORIGINAL version back on ' + T() + ', replacing the file with the same name?'
+      : 'Replace ' + count + ' song file(s) in ' + T() + '\'s music folder with the fixed versions (same names)?\n\nDownload the originals first if you want your own backup.';
     if (status && status.showActive) text += '\n\nYour show is playing right now. Replacing a song while it plays can cause a glitch — it\'s safest to do this with the show stopped.';
     return window.confirm(text);
   }
@@ -192,7 +196,7 @@
     if (!items.length) return;
     if (!confirmSend(items.length, false)) return;
     for (let n = 0; n < items.length; n++) {
-      busyMsg = 'Sending ' + (n + 1) + ' of ' + items.length + ' to FPP…';
+      busyMsg = 'Sending ' + (n + 1) + ' of ' + items.length + ' to ' + T() + '…';
       render();
       await sendItem(items[n], false);
     }
@@ -201,10 +205,14 @@
   }
 
   function afterSendHint() {
-    if (status && status.edition === 'main') {
-      return 'ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.';
-    }
+    if (status && status.edition === 'main') return phoneHint();
     return '';
+  }
+
+  function phoneHint() {
+    return isPlayer()
+      ? 'Phone listeners get the new versions after you press Sync on the Player\'s ShowPilot page.'
+      : 'ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.';
   }
 
   async function startOver() {
@@ -226,8 +234,8 @@
     card.appendChild(h('p', { class: 'muted' }, [
       'Makes every song equally loud. It measures how loud each song actually sounds (LUFS, the standard used by ' +
       'Spotify, YouTube and broadcasters) and turns each one up or down by a fixed amount — the mix itself isn\'t changed. ' +
-      'Peak-level normalizers and gain tags (MP3Gain / ReplayGain) don\'t do this, and FPP ignores gain tags. ' +
-      'The fixed files keep their names, length and tags, so you can put them straight back on FPP.',
+      'Peak-level normalizers and gain tags (MP3Gain / ReplayGain) don\'t do this, and ' + T() + ' ignores gain tags. ' +
+      'The fixed files keep their names, length and tags, so you can put them straight back on ' + T() + '.',
     ]));
 
     if (!status) { card.appendChild(h('p', { class: 'muted', text: 'Loading…' })); return; }
@@ -281,7 +289,7 @@
         ' LUFS',
       ]),
       h('div', { class: 'muted', style: 'font-size:0.8rem;margin-top:0.3rem;' },
-        'Most commercial songs are mastered around -8 to -11 LUFS, so the show will usually get a bit quieter overall — raise your FPP or transmitter level once afterwards.'),
+        'Most commercial songs are mastered around -8 to -11 LUFS, so the show will usually get a bit quieter overall — raise your ' + (isPlayer() ? 'amplifier' : 'FPP') + ' or transmitter level once afterwards.'),
     ]));
     grid.appendChild(h('div', null, [
       h('label', { for: 'spnPeak', text: 'Peak ceiling (dBTP)' }),
@@ -301,7 +309,7 @@
 
     // Source picker
     const tabs = h('div', { class: 'row', style: 'gap:0.5rem;margin-top:1rem;' }, [
-      h('button', { class: source === 'fpp' ? '' : 'secondary', onclick: () => { source = 'fpp'; render(); }, text: 'Songs on FPP' }),
+      h('button', { class: source === 'fpp' ? '' : 'secondary', onclick: () => { source = 'fpp'; render(); }, text: 'Songs on ' + T() }),
       h('button', { class: source === 'local' ? '' : 'secondary', onclick: () => { source = 'local'; render(); }, text: 'Files from this computer' }),
     ]);
     card.appendChild(tabs);
@@ -345,11 +353,11 @@
 
   function renderFppPicker(box) {
     if (!status.fppHost) {
-      box.appendChild(h('p', { class: 'muted', text: 'ShowPilot doesn\'t know your FPP address yet — once the ShowPilot plugin connects, your songs appear here. You can still use "Files from this computer".' }));
+      box.appendChild(h('p', { class: 'muted', text: 'ShowPilot doesn\'t know your show player\'s address yet — once the ShowPilot plugin (FPP) or ShowPilot Player connects, your songs appear here. You can still use "Files from this computer".' }));
       return;
     }
     if (fppFiles === null) {
-      box.appendChild(h('p', { class: 'muted', text: 'Loading FPP\'s music folder…' }));
+      box.appendChild(h('p', { class: 'muted', text: 'Loading ' + T() + '\'s music folder…' }));
       loadFppFiles().then(render);
       return;
     }
@@ -359,7 +367,7 @@
       return;
     }
     if (!fppFiles.length) {
-      box.appendChild(h('p', { class: 'muted', text: 'No audio files found in FPP\'s music folder.' }));
+      box.appendChild(h('p', { class: 'muted', text: 'No audio files found in ' + T() + '\'s music folder.' }));
       return;
     }
     const filter = h('input', { type: 'search', placeholder: 'Filter songs…', value: filterText, style: 'flex:1;min-width:10rem;', oninput: (e) => {
@@ -460,13 +468,13 @@
         const ms = Math.round(i.durationDelta * 1000);
         length = i.durationWarning ? ('⚠ ' + (ms > 0 ? '+' : '') + ms + ' ms') : 'same';
       }
-      let st = STATUS_LABEL[i.status] || i.status;
+      let st = (STATUS_LABEL[i.status] || i.status).replace('FPP', T());
       if (i.status === 'queued' && i.queuePosition) st += ' (#' + i.queuePosition + ')';
       const stEl = h('span', { text: st });
       if (i.status === 'error') stEl.title = i.error || '';
       const stCell = h('td', null, [stEl]);
       if (i.status === 'error' && i.error) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: i.error }));
-      if (i.sent) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: i.sent === 'original' ? 'Original restored on FPP' : 'Sent to FPP ✓' }));
+      if (i.sent) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: i.sent === 'original' ? 'Original restored on ' + T() : 'Sent to ' + T() + ' ✓' }));
       if (i.sendError) stCell.appendChild(h('div', { class: 'err', style: 'font-size:0.75rem;', text: i.sendError }));
       if (i.after && i.status === 'done') {
         const off = i.after.i - batch.opts.targetLufs;
@@ -482,11 +490,11 @@
       if (i.status === 'done') {
         actions.appendChild(h('button', { class: 'secondary', title: 'Download the fixed file', onclick: () => download(API + '/batches/' + batch.id + '/items/' + i.id + '/file'), text: 'Download' }));
         if (status.fppHost && i.canSend) {
-          actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Replace the file on FPP with the fixed version',
+          actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Replace the file on ' + T() + ' with the fixed version',
             onclick: async () => { if (!confirmSend(1, false)) return; busyMsg = 'Sending ' + i.name + '…'; render(); await sendItem(i, false); busyMsg = ''; render(); },
-            text: i.sent === 'normalized' ? 'Send again' : 'Send to FPP' }));
+            text: i.sent === 'normalized' ? 'Send again' : 'Send to ' + T() }));
           if (i.sent === 'normalized') {
-            actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Put the original file back on FPP',
+            actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Put the original file back on ' + T(),
               onclick: async () => { if (!confirmSend(1, true)) return; busyMsg = 'Restoring ' + i.name + '…'; render(); await sendItem(i, true); busyMsg = ''; render(); },
               text: 'Restore original' }));
           }
@@ -515,16 +523,18 @@
     bar.appendChild(h('button', { disabled: !done.length, onclick: () => download(API + '/batches/' + batch.id + '/zip'), text: 'Download fixed files (.zip)' }));
     bar.appendChild(h('button', { class: 'secondary', disabled: !done.length, onclick: () => download(API + '/batches/' + batch.id + '/zip?original=1'), text: 'Download originals (.zip)' }));
     if (status.fppHost) {
-      bar.appendChild(h('button', { class: 'secondary', disabled: !sendable || running(), onclick: sendAll, text: 'Send all fixed to FPP' + (sendable ? ' (' + sendable + ')' : '') }));
+      bar.appendChild(h('button', { class: 'secondary', disabled: !sendable || running(), onclick: sendAll, text: 'Send all fixed to ' + T() + (sendable ? ' (' + sendable + ')' : '') }));
     }
     bar.appendChild(h('button', { class: 'secondary', style: 'margin-left:auto;', onclick: startOver, text: 'Start over' }));
     card.appendChild(bar);
 
     const notes = [];
-    notes.push('To do it by hand: download the fixed files and upload them in FPP\'s File Manager → Audio, replacing the old ones (same names, so your sequences and playlists keep working).');
-    if (status.edition === 'main') notes.push('ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.');
+    notes.push(isPlayer()
+      ? 'To do it by hand: download the fixed files and upload them on the Player\'s Files page, replacing the old ones (same names, so your sequences and playlists keep working).'
+      : 'To do it by hand: download the fixed files and upload them in FPP\'s File Manager → Audio, replacing the old ones (same names, so your sequences and playlists keep working).');
+    if (status.edition === 'main') notes.push(phoneHint());
     notes.push('Files are kept here for 3 hours after you last open this page.');
-    if (status.showActive) notes.push('Your show is playing: wait until it stops before sending files to FPP.');
+    if (status.showActive) notes.push('Your show is playing: wait until it stops before sending files to ' + T() + '.');
     notes.forEach(n => card.appendChild(h('div', { class: 'muted', style: 'font-size:0.8rem;margin-top:0.4rem;', text: n })));
   }
 

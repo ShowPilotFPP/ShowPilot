@@ -37,6 +37,23 @@ function fppHost() {
   return EDITION === 'lite' ? '127.0.0.1' : null;
 }
 
+// Which show player ShowPilot is connected to. ShowPilot Player reports
+// itself as "player-<version>" in its heartbeat; anything else is FPP with
+// the ShowPilot plugin. Both answer the same FPP file API, so only the
+// wording changes.
+function target() {
+  const v = String((getConfig() || {}).plugin_version || '');
+  return /^player-/i.test(v)
+    ? { kind: 'player', name: 'ShowPilot Player' }
+    : { kind: 'fpp', name: 'FPP' };
+}
+
+function noHostMsg() {
+  return target().kind === 'player'
+    ? 'ShowPilot doesn\'t know your ShowPilot Player\'s address yet — turn on ShowPilot on the Player and press Test.'
+    : 'ShowPilot doesn\'t know your FPP address yet — make sure the ShowPilot plugin has connected.';
+}
+
 function showActive() {
   try {
     const np = getNowPlaying();
@@ -62,6 +79,8 @@ router.get('/status', async (req, res) => {
     demo: DEMO,
     tools: Object.assign({}, tools, { hint: tools.ok ? null : installHint() }),
     fppHost: fppHost(),
+    target: target().name,
+    targetKind: target().kind,
     showActive: showActive(),
     busy: norm.busyInfo(),
   });
@@ -69,11 +88,12 @@ router.get('/status', async (req, res) => {
 
 router.get('/fpp-files', async (req, res) => {
   const host = fppHost();
-  if (!host) return fail(res, 409, 'ShowPilot doesn\'t know your FPP address yet — make sure the ShowPilot plugin has connected.');
+  if (!host) return fail(res, 409, noHostMsg());
+  const who = target().name;
   try {
-    res.json({ files: await norm.listFppMusic(host) });
+    res.json({ files: await norm.listFppMusic(host, who) });
   } catch (e) {
-    fail(res, 502, 'Could not list FPP\'s music folder: ' + (e.message || e));
+    fail(res, 502, 'Could not list ' + who + '\'s music folder: ' + (e.message || e));
   }
 });
 
@@ -86,6 +106,7 @@ router.post('/batches', (req, res) => {
       allowLimiter: body.allowLimiter !== false,
     });
     b.fppHost = fppHost();
+    b.targetName = target().name;
     res.json(norm.publicBatch(b));
   } catch (e) {
     fail(res, 400, e.message || String(e));
@@ -105,7 +126,7 @@ router.delete('/batches/:id', (req, res) => {
 router.post('/batches/:id/fpp', (req, res) => {
   const b = norm.getBatch(req.params.id);
   if (!b) return fail(res, 404, 'This batch has expired — start a new one.');
-  if (!b.fppHost) return fail(res, 409, 'ShowPilot doesn\'t know your FPP address yet.');
+  if (!b.fppHost) return fail(res, 409, noHostMsg());
   const names = Array.isArray(req.body && req.body.names) ? req.body.names : [];
   const added = [];
   const rejected = [];
@@ -192,16 +213,16 @@ router.get('/batches/:id/zip', async (req, res) => {
 });
 
 // Send the normalized (or, with {original:true}, the original) file back
-// to FPP's music folder under the same name.
+// to the player's music folder (FPP or ShowPilot Player) under the same name.
 router.post('/batches/:id/items/:itemId/send', async (req, res) => {
   const { b, item } = findItem(req, res);
   if (!item) return;
-  if (!b.fppHost) return fail(res, 409, 'ShowPilot doesn\'t know your FPP address yet.');
+  if (!b.fppHost) return fail(res, 409, noHostMsg());
   const original = !!(req.body && req.body.original);
   if (!original && item.status !== 'done') return fail(res, 409, 'This song has no normalized version');
   if (original && !item.origSize) return fail(res, 409, 'Original not available');
   try {
-    await norm.uploadToFpp(b.fppHost, item.name, original ? item.inFile : item.outFile);
+    await norm.uploadToFpp(b.fppHost, item.name, original ? item.inFile : item.outFile, target().name);
     item.sent = original ? 'original' : 'normalized';
     item.sendError = null;
     res.json({ ok: true, item: norm.publicBatch(b).items.find(i => i.id === item.id) });

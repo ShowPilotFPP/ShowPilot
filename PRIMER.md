@@ -601,6 +601,7 @@ A standalone tool that makes a show's songs equally loud by changing the files, 
 | 0.33.233 | **Audio Normalizer: false length warnings fixed.** A real 11:00 show file was flagged "⚠ +1521 ms" although FPP showed the same length: the original was a VBR MP3 without a Xing/VBRI header, so ffprobe's duration was a bitrate guess while the fixed file (with a header) was exact. Lengths now come from decoded sample counts (`astats` in the existing measure pass, no extra decoding). Tested with VBR no-header files (ffprobe said 24.5 min for 11 min): length change 0, timing offset 0 samples. Mirrored to Lite v0.5.72. |
 | 0.33.234 | **Audio Normalizer song picker.** Ticking a song no longer rebuilds the whole tool (the list jumped back to the top under the pointer, so picking a song further down could hit the wrong ones); only the count and buttons update, and filtering keeps the scroll position. New "Select all" checkbox at the top of the list (tri-state; applies to the filtered songs when a filter is typed). Cache-buster `audio-normalizer.js?v=2`. Tested in jsdom against a live server with 38 songs: ticking #1 and #5 selects exactly those two, select all / none, filtered select all, filter keeps focus, batch starts. Mirrored to Lite v0.5.73. |
 | 0.33.235 | **Audio Normalizer knows ShowPilot Player.** When ShowPilot is connected to ShowPilot Player instead of FPP (heartbeat version `player-…`), the tool's buttons and text say "ShowPilot Player" (Songs on / Send to / Send all fixed to / Restore original, status labels, errors, hand-upload note, level hint) and the after-send hint tells the operator to press Sync on the Player so phones get the new file. No behaviour change: the Player answers the same FPP file API. Cache-buster `audio-normalizer.js?v=3`. Tested against a running Player end to end (list, normalize, send, Sync → cached stream is the new file) and with an FPP version string. Mirrored to Lite v0.5.74. |
+| 0.33.236 | **Playlist sync removes sequences no longer in the playlist.** Before, a song dropped from the FPP/Player playlist stayed in ShowPilot after re-sync. Now `sync-sequences` deletes rows not in the pushed list (their pending requests and votes first), plus orphaned audio-cache rows; an empty list removes nothing. Response/socket event include `removed`. Tested against a temp DB: sync A,B,C then A,C (B had a queued request) → B removed, `removed: 1`; empty sync keeps both. Mirrored to Lite v0.5.75. |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -614,13 +615,15 @@ A standalone tool that makes a show's songs equally loud by changing the files, 
 | 0.13.64 | `set_mode_race.php` scheduler command. Calls `POST /api/plugin/viewer-mode` with `{ mode: "RACE" }` so FPP scheduler events can activate race mode at a specific playlist position. |
 
 **Current versions (as of September 2026):**
-- ShowPilot: v0.33.232
+- ShowPilot: v0.33.236
 - FPP Plugin / Audio Daemon: see the plugin repo's primer
 - rf-compat.js cache buster: v=105
 
 ---
 
 ## Architecture decisions worth knowing
+
+**Sync removes dropped sequences (v0.33.236 / Lite v0.5.75):** `POST /api/plugin/sync-sequences` upserts the list, then deletes every sequence whose `name` isn't in it, so ShowPilot matches the synced playlist (before, rows were kept forever and a song dropped from the FPP playlist stayed on the viewer page). Dependent `jukebox_queue` and `votes` rows go first (foreign keys), same as the admin's single delete; that also drops request history for that song in the stats. An empty `sequences` list never removes anything (an unreadable playlist is likelier than an empty show). Custom names/art/category of a removed song are lost; re-adding it starts fresh, so save a sequence snapshot first if a song is only out for a while. Response and the `sequencesSynced` socket event carry `removed`. Both senders (FPP plugin and ShowPilot Player) always push the full playlist, so a partial list can't wipe songs. Main also drops `audio_cache_files` rows for a removed song's `media_name` when no remaining sequence uses it.
 
 **Surgical secrets restore (v0.25.2):** `lib/backup.js` extracts only `jwtSecret` and `showToken` from the backup's config.js via regex. Whole-file replacement was wrong — baked in source's port and dbPath.
 

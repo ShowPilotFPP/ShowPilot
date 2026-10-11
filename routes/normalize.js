@@ -104,6 +104,7 @@ router.post('/batches', (req, res) => {
       targetLufs: body.targetLufs,
       truePeak: body.truePeak,
       allowLimiter: body.allowLimiter !== false,
+      match: body.match,
     });
     b.fppHost = fppHost();
     b.targetName = target().name;
@@ -209,6 +210,19 @@ router.get('/batches/:id/zip', async (req, res) => {
   } catch (e) {
     if (!res.headersSent) fail(res, 500, e.message || String(e));
     else res.destroy();
+  }
+});
+
+// Turn one finished song up or down by hand, on top of the automatic match.
+// Body: { db } between -6 and +6. Re-encodes from the kept original.
+router.post('/batches/:id/items/:itemId/trim', (req, res) => {
+  const { b, item } = findItem(req, res);
+  if (!item) return;
+  try {
+    norm.retrim(b, item, req.body && req.body.db);
+    res.json({ ok: true, batch: norm.publicBatch(b) });
+  } catch (e) {
+    fail(res, 400, e.message || String(e));
   }
 });
 

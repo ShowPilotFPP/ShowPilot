@@ -3185,7 +3185,12 @@
     const LT_DETECT_SECS = 10;
     const LT_MIC_ASSUMED_SEC = 0.02;
     const LT_BT_RE = /bluetooth|headset|hands-?free|airpods|buds|car|sco|\bbt\b/i;
-    const ltDetectOk = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    // Not offered on Android (v0.33.238-beta.2): Chrome switches the phone to
+    // call audio the moment a page opens the mic, which silenced the player
+    // in the first real test — a browser can't play and listen at once there.
+    // That measurement needs a native app.
+    const ltDetectOk = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
+      !/Android/i.test(navigator.userAgent || '');
     let ltDetectBusy = false, ltDetectLast = null;
     function ltDetectMsg(html) {
       ltDetectLast = html;
@@ -3259,6 +3264,22 @@
         };
       });
     }
+    // Opening the mic can leave this AudioContext silent for good (Android
+    // call mode; iOS play-and-record). Rebuild the audio engine exactly like
+    // closing and reopening the player does, so sound always comes back.
+    function ltRestoreAudio() {
+      setTimeout(() => {
+        try { stopAudio(); } catch (_) {}
+        try { teardown(); } catch (_) {}
+        if (panelMode === 'closed' || _showNotPlaying) return;
+        try { startup(); } catch (_) {}
+        setTimeout(() => {
+          if (!audioCtx || audioCtx.state === 'running') return;
+          try { armResumeOnTap(); } catch (_) {}
+          ltDetectMsg((ltDetectLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">If the music doesn\'t come back, tap anywhere on the page.</div>');
+        }, 2000);
+      }, 400);
+    }
     async function ltDetect() {
       if (ltDetectBusy) return;
       if (!audioCtx || !gainNode || !currentSource || audioCtx.state !== 'running') {
@@ -3269,12 +3290,13 @@
       const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect');
       if (btn) btn.disabled = true;
       const prevMs = Math.round(listenerOffsetSec * 1000);
-      let stream = null;
+      let stream = null, micOpened = false;
       try {
         await ltLoadMicCore();
         ltDetectMsg('Allow the microphone if your phone asks…');
         const got = await ltGetMic();
         stream = got.stream;
+        micOpened = true;
         const track = stream.getAudioTracks()[0];
         const settings = (track && track.getSettings) ? track.getSettings() : {};
         const reportedIn = Number(settings.latency);
@@ -3324,6 +3346,7 @@
         console.log('[ShowPilot] detect delay failed:', e && e.message ? e.message : e);
       } finally {
         if (stream) stream.getTracks().forEach(t => t.stop());
+        if (micOpened) ltRestoreAudio();
         ltDetectBusy = false;
         const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect');
         if (b2) b2.disabled = false;

@@ -923,9 +923,12 @@ router.post('/heartbeat', (req, res) => {
 //   ]
 // }
 //
-// Behavior: upsert sequences by name. We DON'T delete sequences that aren't in
-// the new list — that way admin can keep custom display_name/artist/category
-// edits on sequences that get temporarily removed from the playlist.
+// Behavior: upsert sequences by name, then remove sequences that aren't in
+// the new list (v0.33.236+), so ShowPilot matches the FPP playlist. Before that
+// they were kept forever and a song dropped from the playlist stayed on the
+// viewer page. An empty list never removes anything (a playlist FPP couldn't
+// read is far more likely than an empty show). To keep custom names/art for
+// a song dropped only for a while, save a sequence snapshot first.
 // ============================================================
 router.post('/sync-sequences', (req, res) => {
   const { playlistName, sequences } = req.body || {};
@@ -995,6 +998,30 @@ router.post('/sync-sequences', (req, res) => {
   });
   tx(sequences);
 
+  // Remove sequences no longer in the playlist. Their pending requests and
+  // votes go first (foreign keys), like a delete from the admin.
+  const keep = new Set(sequences.map((s) => String((s && s.name) || '').trim()).filter(Boolean));
+  let removed = 0;
+  if (keep.size) {
+    const stale = db.prepare(`SELECT id, name, media_name FROM sequences`).all().filter((r) => !keep.has(r.name));
+    if (stale.length) {
+      const delQueue = db.prepare(`DELETE FROM jukebox_queue WHERE sequence_id = ?`);
+      const delVotes = db.prepare(`DELETE FROM votes WHERE sequence_id = ?`);
+      const delSeq = db.prepare(`DELETE FROM sequences WHERE id = ?`);
+      db.transaction(() => {
+        for (const r of stale) { delQueue.run(r.id); delVotes.run(r.id); removed += delSeq.run(r.id).changes; }
+      })();
+      console.log(`[sync] removed ${removed} sequence(s) no longer in the playlist: ${stale.map((r) => r.name).join(', ')}`);
+    // Cached audio for a media file no remaining sequence uses goes too
+    // (same as deleting a sequence in the admin).
+    const dropCache = db.prepare(`DELETE FROM audio_cache_files WHERE media_name = ?
+      AND NOT EXISTS (SELECT 1 FROM sequences WHERE media_name = ?)`);
+    for (const r of stale) {
+      if (r.media_name) { try { dropCache.run(r.media_name, r.media_name); } catch (e) { console.warn('[sync] cache cleanup:', e.message); } }
+    }
+    }
+  }
+
   // Track sync metadata + persist so it survives server restarts
   pluginStatus.lastSyncAt = new Date().toISOString();
   pluginStatus.lastSyncPlaylist = playlistName || null;
@@ -1006,9 +1033,9 @@ router.post('/sync-sequences', (req, res) => {
   });
 
   const io = req.app.get('io');
-  if (io) io.emit('sequencesSynced', { count: inserted, playlistName });
+  if (io) io.emit('sequencesSynced', { count: inserted, removed, playlistName });
 
-  res.json({ ok: true, synced: inserted });
+  res.json({ ok: true, synced: inserted, removed });
 
   // After responding, kick off auto-cover-fetch for any sequences without art.
   // Runs detached — sync response is already sent. Rate-limited internally.

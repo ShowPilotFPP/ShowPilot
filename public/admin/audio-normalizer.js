@@ -19,6 +19,10 @@
 
   let root = null;
   let status = null;
+  // The connected show player's name, as the server reports it:
+  // 'FPP' or 'ShowPilot Player'.
+  const T = () => (status && status.target) || 'FPP';
+  const isPlayer = () => !!(status && status.targetKind === 'player');
   let batch = null;
   let fppFiles = null;
   let fppError = null;
@@ -29,7 +33,20 @@
   const picked = new Set();
   let localFiles = [];
   // Setup choices live here so re-rendering (e.g. ticking a song) keeps them.
-  const opts = { target: '-14', custom: '-14', peak: '-1.5', limiter: true };
+  const opts = { target: '-14', custom: '-14', peak: '-1.5', limiter: true, match: 'speakers' };
+  const MATCH_KEY = 'sp_norm_match';
+  try { const m = localStorage.getItem(MATCH_KEY); if (m === 'lufs' || m === 'speakers') opts.match = m; } catch (_) {}
+
+  // Themed in-page dialogs from the admin page (showConfirm / showPrompt);
+  // the browser's own pop-ups only if those are somehow missing.
+  async function askConfirm(text, o) {
+    if (typeof window.showConfirm === 'function') return !!(await window.showConfirm(text, o || {}));
+    return window.confirm(text);
+  }
+  async function askPrompt(text, def, o) {
+    if (typeof window.showPrompt === 'function') return window.showPrompt(text, def, o || {});
+    return window.prompt(text, def);
+  }
 
   // ---------- helpers ----------
   function h(tag, attrs, kids) {
@@ -124,6 +141,7 @@
       targetLufs: Number(opts.target === 'custom' ? opts.custom : opts.target),
       truePeak: Number(opts.peak),
       allowLimiter: !!opts.limiter,
+      match: opts.match === 'lufs' ? 'lufs' : 'speakers',
     };
   }
 
@@ -181,18 +199,21 @@
 
   function confirmSend(count, original) {
     let text = original
-      ? 'Put the ORIGINAL version back on FPP, replacing the file with the same name?'
-      : 'Replace ' + count + ' song file(s) in FPP\'s music folder with the fixed versions (same names)?\n\nDownload the originals first if you want your own backup.';
+      ? 'Put the ORIGINAL version back on ' + T() + ', replacing the file with the same name?'
+      : 'Replace ' + count + ' song file(s) in ' + T() + '\'s music folder with the fixed versions (same names)?\n\nDownload the originals first if you want your own backup.';
     if (status && status.showActive) text += '\n\nYour show is playing right now. Replacing a song while it plays can cause a glitch — it\'s safest to do this with the show stopped.';
-    return window.confirm(text);
+    return askConfirm(text, {
+      title: original ? 'Restore original' : 'Send to ' + T(),
+      okLabel: original ? 'Restore' : 'Send',
+    });
   }
 
   async function sendAll() {
     const items = batch.items.filter(i => i.status === 'done' && i.canSend && i.sent !== 'normalized');
     if (!items.length) return;
-    if (!confirmSend(items.length, false)) return;
+    if (!(await confirmSend(items.length, false))) return;
     for (let n = 0; n < items.length; n++) {
-      busyMsg = 'Sending ' + (n + 1) + ' of ' + items.length + ' to FPP…';
+      busyMsg = 'Sending ' + (n + 1) + ' of ' + items.length + ' to ' + T() + '…';
       render();
       await sendItem(items[n], false);
     }
@@ -201,14 +222,39 @@
   }
 
   function afterSendHint() {
-    if (status && status.edition === 'main') {
-      return 'ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.';
-    }
+    if (status && status.edition === 'main') return phoneHint();
     return '';
   }
 
+  function phoneHint() {
+    return isPlayer()
+      ? 'Phone listeners get the new versions after you press Sync on the Player\'s ShowPilot page.'
+      : 'ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.';
+  }
+
+  async function trimItem(i) {
+    const cur = i.trimDb ? String(i.trimDb) : '0';
+    const ans = await askPrompt(
+      'Turn "' + i.name + '" up or down by hand, on top of the automatic match.\n\n' +
+      'Enter dB between -6 and +6 (for example 2 for louder, -1.5 for quieter, 0 to undo). ' +
+      'The song is fixed again from the original' + (i.sent === 'normalized' ? ' — send it again afterwards.' : '.'),
+      cur, { title: 'Adjust loudness', okLabel: 'Apply' });
+    if (ans == null) return;
+    const db = Number(String(ans).replace(',', '.').replace(/\s*dB\s*$/i, '').trim());
+    if (!Number.isFinite(db) || Math.abs(db) > 6) { busyMsg = 'Enter a number between -6 and +6.'; return render(); }
+    try {
+      const r = await call('/batches/' + batch.id + '/items/' + i.id + '/trim', { method: 'POST', json: { db } });
+      batch = r.batch;
+      busyMsg = '';
+    } catch (e) {
+      busyMsg = i.name + ': ' + e.message;
+    }
+    render();
+    schedulePoll();
+  }
+
   async function startOver() {
-    if (running() && !window.confirm('Songs are still being processed. Stop and start over?')) return;
+    if (running() && !(await askConfirm('Songs are still being processed. Stop and start over?', { title: 'Start over', okLabel: 'Start over', danger: true }))) return;
     if (batch) await call('/batches/' + batch.id, { method: 'DELETE' }).catch(() => {});
     batch = null;
     busyMsg = '';
@@ -224,10 +270,10 @@
     root.appendChild(card);
     card.appendChild(h('h2', { text: 'Audio Normalizer' }));
     card.appendChild(h('p', { class: 'muted' }, [
-      'Makes every song equally loud. It measures how loud each song actually sounds (LUFS, the standard used by ' +
-      'Spotify, YouTube and broadcasters) and turns each one up or down by a fixed amount — the mix itself isn\'t changed. ' +
-      'Peak-level normalizers and gain tags (MP3Gain / ReplayGain) don\'t do this, and FPP ignores gain tags. ' +
-      'The fixed files keep their names, length and tags, so you can put them straight back on FPP.',
+      'Makes every song equally loud. It measures how loud each song actually sounds — on show speakers, or with LUFS, the standard used by ' +
+      'Spotify, YouTube and broadcasters — and turns each one up or down by a fixed amount; the mix itself isn\'t changed. ' +
+      'Peak-level normalizers and gain tags (MP3Gain / ReplayGain) don\'t do this, and ' + T() + ' ignores gain tags. ' +
+      'The fixed files keep their names, length and tags, so you can put them straight back on ' + T() + '.',
     ]));
 
     if (!status) { card.appendChild(h('p', { class: 'muted', text: 'Loading…' })); return; }
@@ -262,7 +308,27 @@
   }
 
   function renderSetup(card) {
-    const grid = h('div', { class: 'grid-2', style: 'margin-top:0.5rem;' });
+    const speakersOk = !(status.tools && status.tools.speakers === false);
+    const matchBox = h('div', { style: 'margin-top:0.5rem;' }, [h('label', { text: 'Match songs by' })]);
+    const choice = (value, title, desc) => h('label', { style: 'display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.35rem;font-weight:normal;cursor:pointer;' }, [
+      h('input', { type: 'radio', name: 'spnMatch', value, checked: opts.match === value, disabled: value === 'speakers' && !speakersOk, style: 'margin-top:0.2rem;', onchange: () => {
+        opts.match = value;
+        try { localStorage.setItem(MATCH_KEY, value); } catch (_) {}
+        const n = root.querySelector('#spnSpeakerNote');
+        if (n) n.style.display = value === 'speakers' ? '' : 'none';
+      } }),
+      h('span', null, [title, h('div', { class: 'muted', style: 'font-size:0.8rem;' }, desc)]),
+    ]);
+    matchBox.appendChild(choice('speakers', 'How they sound on show speakers (recommended)',
+      'Measured the way outdoor speakers and FM radios play them: the deep bass they can\'t reproduce is left out, and a typical moment of the song counts, not a few loud bursts. ' +
+      'Songs that get their loudness from big bass hits stop sounding quieter than the rest.' +
+      (speakersOk ? '' : ' Not available: this ffmpeg is missing the ebur128 filter.')));
+    matchBox.appendChild(choice('lufs', 'Standard loudness (LUFS)',
+      'Every song lands on exactly the target LUFS. Bass-heavy songs can still sound quieter than the others on show speakers.'));
+    card.appendChild(matchBox);
+    if (!speakersOk && opts.match === 'speakers') opts.match = 'lufs';
+
+    const grid = h('div', { class: 'grid-2', style: 'margin-top:0.75rem;' });
     const targetSel = h('select', { id: 'spnTarget', onchange: () => {
       opts.target = targetSel.value;
       root.querySelector('#spnTargetCustomWrap').style.display = targetSel.value === 'custom' ? '' : 'none';
@@ -281,7 +347,9 @@
         ' LUFS',
       ]),
       h('div', { class: 'muted', style: 'font-size:0.8rem;margin-top:0.3rem;' },
-        'Most commercial songs are mastered around -8 to -11 LUFS, so the show will usually get a bit quieter overall — raise your FPP or transmitter level once afterwards.'),
+        'Most commercial songs are mastered around -8 to -11 LUFS, so the show will usually get a bit quieter overall — raise your ' + (isPlayer() ? 'amplifier' : 'FPP') + ' or transmitter level once afterwards.'),
+      h('div', { id: 'spnSpeakerNote', class: 'muted', style: (opts.match === 'speakers' ? '' : 'display:none;') + 'font-size:0.8rem;margin-top:0.3rem;' },
+        'With show-speaker matching this is the overall level of the show: a typical song ends up here, bass-heavy songs a little above it and bright ones a little below, so they all sound the same.'),
     ]));
     grid.appendChild(h('div', null, [
       h('label', { for: 'spnPeak', text: 'Peak ceiling (dBTP)' }),
@@ -301,7 +369,7 @@
 
     // Source picker
     const tabs = h('div', { class: 'row', style: 'gap:0.5rem;margin-top:1rem;' }, [
-      h('button', { class: source === 'fpp' ? '' : 'secondary', onclick: () => { source = 'fpp'; render(); }, text: 'Songs on FPP' }),
+      h('button', { class: source === 'fpp' ? '' : 'secondary', onclick: () => { source = 'fpp'; render(); }, text: 'Songs on ' + T() }),
       h('button', { class: source === 'local' ? '' : 'secondary', onclick: () => { source = 'local'; render(); }, text: 'Files from this computer' }),
     ]);
     card.appendChild(tabs);
@@ -345,11 +413,11 @@
 
   function renderFppPicker(box) {
     if (!status.fppHost) {
-      box.appendChild(h('p', { class: 'muted', text: 'ShowPilot doesn\'t know your FPP address yet — once the ShowPilot plugin connects, your songs appear here. You can still use "Files from this computer".' }));
+      box.appendChild(h('p', { class: 'muted', text: 'ShowPilot doesn\'t know your show player\'s address yet — once the ShowPilot plugin (FPP) or ShowPilot Player connects, your songs appear here. You can still use "Files from this computer".' }));
       return;
     }
     if (fppFiles === null) {
-      box.appendChild(h('p', { class: 'muted', text: 'Loading FPP\'s music folder…' }));
+      box.appendChild(h('p', { class: 'muted', text: 'Loading ' + T() + '\'s music folder…' }));
       loadFppFiles().then(render);
       return;
     }
@@ -359,7 +427,7 @@
       return;
     }
     if (!fppFiles.length) {
-      box.appendChild(h('p', { class: 'muted', text: 'No audio files found in FPP\'s music folder.' }));
+      box.appendChild(h('p', { class: 'muted', text: 'No audio files found in ' + T() + '\'s music folder.' }));
       return;
     }
     const filter = h('input', { type: 'search', placeholder: 'Filter songs…', value: filterText, style: 'flex:1;min-width:10rem;', oninput: (e) => {
@@ -428,10 +496,20 @@
     return s;
   }
 
+  // "LUFS / true peak", plus the show-speaker level underneath in that mode.
+  function levelCell(x, showSpk) {
+    const td = h('td', { style: 'text-align:right;white-space:nowrap;' });
+    if (!x) { td.textContent = '—'; return td; }
+    td.appendChild(document.createTextNode(fmt1(x.i) + ' LUFS / ' + fmt1(x.tp)));
+    if (showSpk && x.spk != null) td.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: 'speakers ' + fmt1(x.spk) }));
+    return td;
+  }
+
   function renderBatch(card) {
     const o = batch.opts;
+    const spkMode = o.match === 'speakers';
     card.appendChild(h('p', { class: 'muted', style: 'font-size:0.85rem;', text:
-      'Target ' + fmt1(o.targetLufs) + ' LUFS, peaks ≤ ' + fmt1(o.truePeak) + ' dBTP, limiter ' + (o.allowLimiter ? 'on' : 'off') + '.' }));
+      (spkMode ? 'Matched by show speakers, overall level ' : 'Target ') + fmt1(o.targetLufs) + ' LUFS, peaks ≤ ' + fmt1(o.truePeak) + ' dBTP, limiter ' + (o.allowLimiter ? 'on' : 'off') + '.' }));
 
     const done = batch.items.filter(i => i.status === 'done');
     const skipped = batch.items.filter(i => i.status === 'skipped').length;
@@ -453,23 +531,24 @@
     ])));
     const tbody = h('tbody');
     batch.items.forEach(i => {
-      const before = i.before ? (fmt1(i.before.i) + ' LUFS / ' + fmt1(i.before.tp)) : '—';
-      const after = i.after ? (fmt1(i.after.i) + ' LUFS / ' + fmt1(i.after.tp)) : '—';
       let length = '—';
       if (i.durationDelta != null) {
         const ms = Math.round(i.durationDelta * 1000);
         length = i.durationWarning ? ('⚠ ' + (ms > 0 ? '+' : '') + ms + ' ms') : 'same';
       }
-      let st = STATUS_LABEL[i.status] || i.status;
+      let st = (STATUS_LABEL[i.status] || i.status).replace('FPP', T());
       if (i.status === 'queued' && i.queuePosition) st += ' (#' + i.queuePosition + ')';
       const stEl = h('span', { text: st });
       if (i.status === 'error') stEl.title = i.error || '';
       const stCell = h('td', null, [stEl]);
       if (i.status === 'error' && i.error) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: i.error }));
-      if (i.sent) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: i.sent === 'original' ? 'Original restored on FPP' : 'Sent to FPP ✓' }));
+      if (i.sent) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: i.sent === 'original' ? 'Original restored on ' + T() : 'Sent to ' + T() + ' ✓' }));
       if (i.sendError) stCell.appendChild(h('div', { class: 'err', style: 'font-size:0.75rem;', text: i.sendError }));
+      if (i.trimDb) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: 'Adjusted ' + signed(i.trimDb) + ' dB by hand' }));
+      if (i.capped) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: 'Sounds very different on speakers than in LUFS, so the change was capped at 4 dB from standard loudness. Use Adjust if it still sounds off.' }));
+      if (i.speakerFallback) stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text: 'Too short to judge on speakers — matched by LUFS.' }));
       if (i.after && i.status === 'done') {
-        const off = i.after.i - batch.opts.targetLufs;
+        const off = i.after.i - (i.targetLufs != null ? i.targetLufs : batch.opts.targetLufs);
         if (Math.abs(off) > 1) {
           stCell.appendChild(h('div', { class: 'muted', style: 'font-size:0.75rem;', text:
             (off < 0 ? Math.abs(off).toFixed(1) + ' LU below' : off.toFixed(1) + ' LU above') + ' the target — ' +
@@ -482,23 +561,27 @@
       if (i.status === 'done') {
         actions.appendChild(h('button', { class: 'secondary', title: 'Download the fixed file', onclick: () => download(API + '/batches/' + batch.id + '/items/' + i.id + '/file'), text: 'Download' }));
         if (status.fppHost && i.canSend) {
-          actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Replace the file on FPP with the fixed version',
-            onclick: async () => { if (!confirmSend(1, false)) return; busyMsg = 'Sending ' + i.name + '…'; render(); await sendItem(i, false); busyMsg = ''; render(); },
-            text: i.sent === 'normalized' ? 'Send again' : 'Send to FPP' }));
+          actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Replace the file on ' + T() + ' with the fixed version',
+            onclick: async () => { if (!(await confirmSend(1, false))) return; busyMsg = 'Sending ' + i.name + '…'; render(); await sendItem(i, false); busyMsg = ''; render(); },
+            text: i.sent === 'normalized' ? 'Send again' : 'Send to ' + T() }));
           if (i.sent === 'normalized') {
-            actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Put the original file back on FPP',
-              onclick: async () => { if (!confirmSend(1, true)) return; busyMsg = 'Restoring ' + i.name + '…'; render(); await sendItem(i, true); busyMsg = ''; render(); },
+            actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Put the original file back on ' + T(),
+              onclick: async () => { if (!(await confirmSend(1, true))) return; busyMsg = 'Restoring ' + i.name + '…'; render(); await sendItem(i, true); busyMsg = ''; render(); },
               text: 'Restore original' }));
           }
         }
+      }
+      if (i.status === 'done' || i.status === 'skipped') {
+        actions.appendChild(h('button', { class: 'secondary', style: 'margin-left:0.25rem;', title: 'Turn this song up or down by hand',
+          onclick: () => trimItem(i), text: 'Adjust' }));
       }
       const nameCell = h('td', { style: 'overflow-wrap:anywhere;' }, [i.name]);
       if (i.source === 'upload') nameCell.appendChild(h('span', { class: 'muted', style: 'font-size:0.75rem;', text: ' (uploaded)' }));
       tbody.appendChild(h('tr', null, [
         nameCell,
-        h('td', { style: 'text-align:right;white-space:nowrap;', text: before }),
+        levelCell(i.before, spkMode),
         h('td', { style: 'text-align:right;white-space:nowrap;', text: changeText(i) }),
-        h('td', { style: 'text-align:right;white-space:nowrap;', text: after }),
+        levelCell(i.after, spkMode),
         h('td', { style: 'white-space:nowrap;', text: length }),
         stCell,
         actions,
@@ -508,23 +591,27 @@
     wrap.appendChild(table);
     card.appendChild(wrap);
     card.appendChild(h('div', { class: 'muted', style: 'font-size:0.8rem;margin-top:0.4rem;' },
-      'Before/After show loudness and true peak (dBTP). "Already right" songs were within 0.5 LU of the target and are left untouched — no need to replace them.'));
+      spkMode
+        ? 'Before/After show loudness and true peak (dBTP); "speakers" is how loud a typical moment plays on show speakers — that\'s the number that ends up the same for every song. "Already right" songs were within 0.5 dB and are left untouched. Adjust turns one song up or down by hand.'
+        : 'Before/After show loudness and true peak (dBTP). "Already right" songs were within 0.5 LU of the target and are left untouched — no need to replace them. Adjust turns one song up or down by hand.'));
 
     const sendable = done.filter(i => i.canSend && i.sent !== 'normalized').length;
     const bar = h('div', { class: 'row', style: 'gap:0.5rem;margin-top:1rem;flex-wrap:wrap;' });
     bar.appendChild(h('button', { disabled: !done.length, onclick: () => download(API + '/batches/' + batch.id + '/zip'), text: 'Download fixed files (.zip)' }));
     bar.appendChild(h('button', { class: 'secondary', disabled: !done.length, onclick: () => download(API + '/batches/' + batch.id + '/zip?original=1'), text: 'Download originals (.zip)' }));
     if (status.fppHost) {
-      bar.appendChild(h('button', { class: 'secondary', disabled: !sendable || running(), onclick: sendAll, text: 'Send all fixed to FPP' + (sendable ? ' (' + sendable + ')' : '') }));
+      bar.appendChild(h('button', { class: 'secondary', disabled: !sendable || running(), onclick: sendAll, text: 'Send all fixed to ' + T() + (sendable ? ' (' + sendable + ')' : '') }));
     }
     bar.appendChild(h('button', { class: 'secondary', style: 'margin-left:auto;', onclick: startOver, text: 'Start over' }));
     card.appendChild(bar);
 
     const notes = [];
-    notes.push('To do it by hand: download the fixed files and upload them in FPP\'s File Manager → Audio, replacing the old ones (same names, so your sequences and playlists keep working).');
-    if (status.edition === 'main') notes.push('ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.');
+    notes.push(isPlayer()
+      ? 'To do it by hand: download the fixed files and upload them on the Player\'s Files page, replacing the old ones (same names, so your sequences and playlists keep working).'
+      : 'To do it by hand: download the fixed files and upload them in FPP\'s File Manager → Audio, replacing the old ones (same names, so your sequences and playlists keep working).');
+    if (status.edition === 'main') notes.push(phoneHint());
     notes.push('Files are kept here for 3 hours after you last open this page.');
-    if (status.showActive) notes.push('Your show is playing: wait until it stops before sending files to FPP.');
+    if (status.showActive) notes.push('Your show is playing: wait until it stops before sending files to ' + T() + '.');
     notes.forEach(n => card.appendChild(h('div', { class: 'muted', style: 'font-size:0.8rem;margin-top:0.4rem;', text: n })));
   }
 

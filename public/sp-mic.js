@@ -189,6 +189,68 @@
     };
   }
 
-  root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2 };
+  // ---- Listener delay detection (v0.33.238-beta) ----
+  // For "Detect my delay" in the Audio timing sheet: the player records the
+  // microphone AND its own output (a tap just before the speakers) in the
+  // same audio blocks, so both are on one clock. Where the mic hears the
+  // output again is the round trip: output delay (Bluetooth, car stereo,
+  // the phone's own buffers) + microphone input delay. No song decoding and
+  // no position estimates are involved.
+  //
+  // mic, tap: Float32Arrays of equal length, recorded together.
+  // Checks several windows; returns the mean lag of the windows that agree.
+  const RT_MAX_LAG_SEC = 1.2, RT_NEG_LAG_SEC = 0.05, RT_WIN_SEC = 2.5;
+  const RT_MIN_STRENGTH = 10, RT_AGREE_SEC = 0.025;
+  function roundTripWindow(mic, tap, sampleRate, startSec) {
+    const sr = sampleRate;
+    const m0 = Math.round(startSec * sr), w = Math.round(RT_WIN_SEC * sr);
+    const r0 = m0 - Math.round(RT_MAX_LAG_SEC * sr), r1 = m0 + w + Math.round(RT_NEG_LAG_SEC * sr);
+    if (r0 < 0 || r1 > tap.length || m0 + w > mic.length) return null;
+    const micW = mic.subarray(m0, m0 + w), ref = tap.subarray(r0, r1);
+    let tapEnergy = 0;
+    for (let i = 0; i < ref.length; i++) tapEnergy += ref[i] * ref[i];
+    if (tapEnergy / ref.length < 1e-7) return { ok: false, silent: true };
+    const corr = gccPhat(micW, ref, sr, [150, 6000]);
+    const peaks = findPeaks(corr, Math.round(0.006 * sr), 6).map(p => ({
+      lagSec: (m0 - (r0 + p.k)) / sr,
+      strength: peakRatio(corr, p.v),
+    }));
+    if (!peaks.length) return { ok: false, peaks };
+    const best = peaks[0];
+    if (best.strength < RT_MIN_STRENGTH) return { ok: false, weak: true, peaks };
+    // A rival match far from the best and nearly as strong means repetitive
+    // music (a beat or bar away); echoes arrive within ~50 ms and don't count.
+    const rival = peaks.some(p => p !== best && Math.abs(p.lagSec - best.lagSec) > 0.05 && p.strength >= 0.7 * best.strength);
+    if (rival) return { ok: false, ambiguous: true, peaks };
+    return { ok: true, lagSec: best.lagSec, strength: best.strength, peaks };
+  }
+  function roundTrip(mic, tap, sampleRate) {
+    const sr = sampleRate, total = Math.min(mic.length, tap.length) / sr;
+    const wins = [];
+    for (let s = RT_MAX_LAG_SEC + 0.1; s + RT_WIN_SEC + RT_NEG_LAG_SEC <= total; s += RT_WIN_SEC * 0.8) {
+      const r = roundTripWindow(mic, tap, sr, s);
+      if (r) wins.push(r);
+    }
+    const good = wins.filter(r => r.ok);
+    const base = { windows: wins.length, runs: good.map(r => Math.round(r.lagSec * 1000)) };
+    if (!wins.length) return Object.assign(base, { ok: false, reason: 'the recording was too short' });
+    if (wins.every(r => r.silent)) return Object.assign(base, { ok: false, reason: 'the music was silent — try again while a song is playing' });
+    if (good.length < 2) {
+      const amb = wins.some(r => r.ambiguous);
+      return Object.assign(base, { ok: false, reason: amb
+        ? 'no clear match: this part of the song is too repetitive — try again during vocals'
+        : 'the microphone could not hear the music clearly — turn the volume up and keep the phone near the speakers' });
+    }
+    const lags = good.map(r => r.lagSec).sort((a, b) => a - b);
+    const med = lags[lags.length >> 1];
+    const agree = good.filter(r => Math.abs(r.lagSec - med) <= RT_AGREE_SEC);
+    if (agree.length < Math.max(2, Math.ceil(good.length / 2))) {
+      return Object.assign(base, { ok: false, reason: 'the measurements disagreed (' + base.runs.join(', ') + ' ms) — keep still and try again' });
+    }
+    const mean = agree.reduce((a, r) => a + r.lagSec, 0) / agree.length;
+    return Object.assign(base, { ok: true, lagSec: mean, strength: Math.min.apply(null, agree.map(r => r.strength)) });
+  }
+
+  root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2, roundTrip, roundTripWindow };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SPMicCore;
 })(typeof window !== 'undefined' ? window : globalThis);

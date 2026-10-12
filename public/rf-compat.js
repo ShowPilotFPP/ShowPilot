@@ -3172,6 +3172,163 @@
       ltUpdateUi();
       console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
     }
+    // ---- Detect my delay (v0.33.238-beta) ----
+    // Records the microphone together with the player's own output (tapped
+    // from gainNode, i.e. what is being sent to the speakers) in the same
+    // ScriptProcessor blocks, so both share one clock. SPMicCore.roundTrip()
+    // finds where the mic hears that output again: output delay (Bluetooth,
+    // car stereo, phone buffers) + mic input delay. Subtracting the mic delay
+    // and what getOutputLatencySec() already covers gives the listener offset.
+    // Echo cancellation/noise suppression/AGC are off: with them on, Android
+    // treats the page like a phone call (and may switch Bluetooth to
+    // hands-free mode). The built-in mic is preferred over a Bluetooth one.
+    const LT_DETECT_SECS = 10;
+    const LT_MIC_ASSUMED_SEC = 0.02;
+    const LT_BT_RE = /bluetooth|headset|hands-?free|airpods|buds|car|sco|\bbt\b/i;
+    const ltDetectOk = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    let ltDetectBusy = false, ltDetectLast = null;
+    function ltDetectMsg(html) {
+      ltDetectLast = html;
+      const el = ltSheet && ltSheet.querySelector('.sp-lt-auto-msg');
+      if (el) el.innerHTML = html;
+    }
+    function ltLoadMicCore() {
+      if (window.SPMicCore && window.SPMicCore.roundTrip) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const sc = document.createElement('script');
+        sc.src = '/sp-mic.js?v=3';
+        sc.onload = () => (window.SPMicCore && window.SPMicCore.roundTrip ? resolve() : reject(new Error('measurement code missing')));
+        sc.onerror = () => reject(new Error('could not load the measurement code'));
+        document.head.appendChild(sc);
+      });
+    }
+    async function ltGetMic() {
+      const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+      let stream = await navigator.mediaDevices.getUserMedia({ audio: base });
+      let devices = [];
+      try {
+        devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+        const cur = stream.getAudioTracks()[0];
+        if (cur && LT_BT_RE.test(cur.label || '')) {
+          const alt = devices.find(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.label && !LT_BT_RE.test(d.label));
+          if (alt) {
+            const s2 = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, base, { deviceId: { exact: alt.deviceId } }) });
+            stream.getTracks().forEach(t => t.stop());
+            stream = s2;
+          }
+        }
+      } catch (_) { /* keep the first stream */ }
+      return { stream, devices: devices.map(d => d.label || '?') };
+    }
+    function ltCapture(stream, secs, onTick) {
+      return new Promise((resolve, reject) => {
+        const sr = audioCtx.sampleRate, need = Math.round(secs * sr);
+        const tapFrom = gainNode;
+        const src = audioCtx.createMediaStreamSource(stream);
+        const merger = audioCtx.createChannelMerger(2);   // each input is mixed down to mono
+        const proc = audioCtx.createScriptProcessor(4096, 2, 1);
+        const sink = audioCtx.createGain(); sink.gain.value = 0;
+        src.connect(merger, 0, 0);
+        tapFrom.connect(merger, 0, 1);
+        merger.connect(proc); proc.connect(sink); sink.connect(audioCtx.destination);
+        const mic = new Float32Array(need), tap = new Float32Array(need);
+        let o = 0, lastLeft = -1, done = false;
+        const cleanup = () => {
+          done = true; clearTimeout(timer); proc.onaudioprocess = null;
+          try { src.disconnect(); } catch (_) {}
+          try { tapFrom.disconnect(merger); } catch (_) {}
+          try { merger.disconnect(); proc.disconnect(); sink.disconnect(); } catch (_) {}
+        };
+        const timer = setTimeout(() => {
+          if (done) return;
+          const stalled = audioCtx && audioCtx.state !== 'running';
+          cleanup();
+          reject(new Error(stalled
+            ? 'the phone paused the audio when the microphone turned on (it may have switched Bluetooth to phone-call mode)'
+            : 'the microphone stopped sending sound'));
+        }, (secs + 6) * 1000);
+        proc.onaudioprocess = (e) => {
+          if (done) return;
+          const a = e.inputBuffer.getChannelData(0);
+          const b = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : a;
+          const n = Math.min(a.length, need - o);
+          mic.set(a.subarray(0, n), o); tap.set(b.subarray(0, n), o); o += n;
+          const left = Math.ceil((need - o) / sr);
+          if (left !== lastLeft) { lastLeft = left; if (onTick) onTick(left); }
+          if (o >= need) { cleanup(); resolve({ mic, tap, sr }); }
+        };
+      });
+    }
+    async function ltDetect() {
+      if (ltDetectBusy) return;
+      if (!audioCtx || !gainNode || !currentSource || audioCtx.state !== 'running') {
+        ltDetectMsg('Start listening first, then try this while a song plays.'); return;
+      }
+      if (isMuted) { ltDetectMsg('Unmute the player first — the microphone needs to hear the music.'); return; }
+      ltDetectBusy = true;
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+      if (btn) btn.disabled = true;
+      const prevMs = Math.round(listenerOffsetSec * 1000);
+      let stream = null;
+      try {
+        await ltLoadMicCore();
+        ltDetectMsg('Allow the microphone if your phone asks…');
+        const got = await ltGetMic();
+        stream = got.stream;
+        const track = stream.getAudioTracks()[0];
+        const settings = (track && track.getSettings) ? track.getSettings() : {};
+        const reportedIn = Number(settings.latency);
+        const inSec = (isFinite(reportedIn) && reportedIn > 0 && reportedIn < 0.5) ? reportedIn : LT_MIC_ASSUMED_SEC;
+        const outLatBefore = audioCtx.outputLatency || 0;
+        const cap = await ltCapture(stream, LT_DETECT_SECS, (left) =>
+          ltDetectMsg('Listening… ' + left + ' s. Keep the volume up and stay still.'));
+        const outLatDuring = audioCtx.outputLatency || 0;
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltDetectMsg('Working it out…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.roundTrip(cap.mic, cap.tap, cap.sr);
+        const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
+        const info = {
+          ok: r.ok, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs,
+          micMs: Math.round(inSec * 1000), micReported: inSec !== LT_MIC_ASSUMED_SEC, coveredMs: Math.round(covered * 1000),
+          outputLatencyMs: [Math.round(outLatBefore * 1000), Math.round(outLatDuring * 1000)],
+          mic: track ? track.label : '', inputs: got.devices, sampleRate: cap.sr, strength: r.strength ? Math.round(r.strength) : null,
+        };
+        if (!r.ok) {
+          console.log('[ShowPilot] detect delay:', JSON.stringify(info));
+          ltDetectMsg('<b>No result:</b> ' + r.reason + '.');
+          return;
+        }
+        const needMs = Math.round((r.lagSec - inSec - covered) * 1000);
+        setListenerOffsetMs(needMs);
+        const appliedMs = Math.round(listenerOffsetSec * 1000);
+        info.neededMs = needMs; info.appliedMs = appliedMs; info.previousMs = prevMs;
+        console.log('[ShowPilot] detect delay:', JSON.stringify(info));
+        const headline = Math.abs(needMs) < 30
+          ? 'Your audio is already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
+          : needMs > 0
+            ? 'Your speakers play <b>' + needMs + ' ms late</b>. Fixed: the music now plays ' + appliedMs + ' ms earlier.'
+            : 'Your speakers play <b>' + (-needMs) + ' ms early</b>. Fixed: the music now plays ' + (-appliedMs) + ' ms later.';
+        const clampNote = appliedMs !== needMs && Math.abs(appliedMs - needMs) > 10 ? ' (that\'s as far as this show allows)' : '';
+        const esc = (t) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        ltDetectMsg(headline + clampNote +
+          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>' +
+          '<div class="sp-lt-auto-detail">Round trip ' + info.roundTripMs + ' ms (runs ' + r.runs.join(', ') + ') · mic ' + info.micMs + ' ms ' +
+          (info.micReported ? 'reported' : 'assumed') + ' · already covered ' + info.coveredMs + ' ms · mic: ' + esc(info.mic || 'unknown') + '</div>');
+      } catch (e) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltDetectMsg(e && e.name === 'NotAllowedError'
+          ? 'Microphone permission was denied. Allow it for this site in your browser settings, or set the timing by hand below.'
+          : '<b>No result:</b> ' + (e && e.message ? e.message : e) + '.');
+        console.log('[ShowPilot] detect delay failed:', e && e.message ? e.message : e);
+      } finally {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        ltDetectBusy = false;
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+        if (b2) b2.disabled = false;
+      }
+    }
     function ltEnsureStyles() {
       if (document.getElementById('sp-lt-styles')) return;
       const st = document.createElement('style');
@@ -3182,7 +3339,7 @@
         '#sp-lt-btn.sp-lt-active::after{content:"";position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--sp-lt-accent,#60a5fa);box-shadow:0 0 0 2px rgba(0,0,0,.6)}' +
         '#sp-lt-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.55)}' +
         '#sp-lt-sheet{position:fixed;left:0;right:0;bottom:0;z-index:10001;box-sizing:border-box;max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px;' +
-          'padding:10px 18px calc(22px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0;background:#161c2b;color:#f3f5fa;border-top:2px solid var(--sp-lt-accent,#60a5fa);' +
+          'max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;padding:10px 18px calc(22px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0;background:#161c2b;color:#f3f5fa;border-top:2px solid var(--sp-lt-accent,#60a5fa);' +
           'box-shadow:0 -10px 40px rgba(0,0,0,.5);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}' +
         '#sp-lt-sheet .sp-lt-grab{align-self:center;width:40px;height:5px;border-radius:999px;background:rgba(255,255,255,.25)}' +
         '#sp-lt-sheet .sp-lt-head{display:flex;align-items:center;gap:10px}' +
@@ -3206,6 +3363,14 @@
         '#sp-lt-sheet .sp-lt-foot{display:flex;align-items:center;gap:10px}#sp-lt-sheet .sp-lt-foot span{flex:1;color:#7d8699;font-size:13px}' +
         '#sp-lt-sheet .sp-lt-reset{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:transparent;font-weight:600}' +
         '#sp-lt-sheet .sp-lt-reset:disabled{color:#6b7385;cursor:default}' +
+        '#sp-lt-sheet .sp-lt-auto{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}' +
+        '#sp-lt-sheet .sp-lt-detect{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.08);font-weight:700}' +
+        '#sp-lt-sheet .sp-lt-detect:disabled{opacity:.6;cursor:default}' +
+        '#sp-lt-sheet .sp-lt-detect small{font-weight:600;color:#9aa3b5}' +
+        '#sp-lt-sheet .sp-lt-auto-msg{font-size:14px;color:#dfe3ec}#sp-lt-sheet .sp-lt-auto-msg:empty{display:none}' +
+        '#sp-lt-sheet .sp-lt-auto-msg b{color:#fff;font-weight:800}' +
+        '#sp-lt-sheet .sp-lt-undo{margin-left:6px;padding:2px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:transparent;font-size:13px;font-weight:600}' +
+        '#sp-lt-sheet .sp-lt-auto-detail{margin-top:4px;font-size:12px;color:#7d8699;overflow-wrap:anywhere}' +
         '#sp-lt-sheet :focus-visible,#sp-lt-btn:focus-visible{outline:2px solid var(--sp-lt-accent,#60a5fa);outline-offset:2px}';
       document.head.appendChild(st);
     }
@@ -3240,6 +3405,10 @@
           '<div class="sp-lt-scale"><span>music early</span><span>in sync</span><span>music late</span></div></div>' +
         // Second-device tip (v0.33.221+, admin switch listener_timing_tip).
         (ltTipEnabled ? '<div class="sp-lt-tip"><b>Tip:</b> play the show on another phone\u2019s speaker nearby, then adjust until the two sound together with no echo.</div>' : '') +
+        (ltDetectOk ? '<div class="sp-lt-auto">' +
+          '<button type="button" class="sp-lt-detect">\ud83c\udfa4 Detect my delay <small>(beta)</small></button>' +
+          '<p style="font-size:13px">Listens through the microphone for about ' + LT_DETECT_SECS + ' seconds to hear how late your Bluetooth, car or headphones play the music, then fixes it. Keep the volume up.</p>' +
+          '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
@@ -3248,6 +3417,18 @@
         setListenerOffsetMs(Math.round(listenerOffsetSec * 1000) + Number(b.dataset.ltNudge))));
       ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.addEventListener('click', () => setListenerOffsetMs(Number(b.dataset.ltPreset))));
       ltSheet.querySelector('.sp-lt-reset').addEventListener('click', () => setListenerOffsetMs(0));
+      const det = ltSheet.querySelector('.sp-lt-detect');
+      if (det) {
+        det.addEventListener('click', () => ltDetect());
+        if (ltDetectBusy) det.disabled = true;
+        if (ltDetectLast) ltSheet.querySelector('.sp-lt-auto-msg').innerHTML = ltDetectLast;
+        ltSheet.querySelector('.sp-lt-auto-msg').addEventListener('click', (e) => {
+          const u = e.target.closest('.sp-lt-undo');
+          if (!u) return;
+          setListenerOffsetMs(Number(u.dataset.prev) || 0);
+          ltDetectMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
+        });
+      }
       ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
       document.body.appendChild(ltBackdrop);
       document.body.appendChild(ltSheet);

@@ -33,6 +33,28 @@ router.post('/install', async (req, res) => {
   }
 });
 
+// v0.33.239+: update the binary in place, keeping the token. Restarts
+// the tunnel afterwards if it was running.
+router.post('/update', async (req, res) => {
+  try {
+    const r = await cloudflared.update();
+    if (!r.ok) return res.status(500).json(r);
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || 'Update failed.' });
+  }
+});
+
+// Installed vs latest release. Kept separate from /status so the status
+// poll never waits on GitHub. Latest is cached server-side for an hour.
+router.get('/update-check', async (req, res) => {
+  try {
+    res.json(await cloudflared.checkForUpdate());
+  } catch (err) {
+    res.status(502).json({ ok: false, error: err.message || 'Update check failed.' });
+  }
+});
+
 // setToken auto-starts the tunnel after writing the token, so we don't
 // need a separate /start call after /token like a stricter API would.
 // Idempotent: re-pasting the same token is harmless (we stop+restart).

@@ -1833,7 +1833,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.238</span>
+        <span class="app-version">v0.33.239</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3558,6 +3558,17 @@
                 <div id="cfControlStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
               </div>
 
+              <!-- UPDATE (v0.33.239+) — in-place binary update that keeps the token.
+                   Shown whenever cloudflared is installed. -->
+              <div id="cfUpdateBlock" style="display: none; margin-top: 1rem;">
+                <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                  <span id="cfUpdateLine" class="muted" style="font-size: 0.85rem;">Checking for updates…</span>
+                  <button id="cfUpdateBtn" class="secondary" onclick="cfUpdate()">Update cloudflared</button>
+                  <button class="secondary" onclick="cfCheckUpdate(true)">Check again</button>
+                </div>
+                <div id="cfUpdateStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+              </div>
+
               <!-- LOGS — toggled by View Logs button. Also shown automatically
                    when the tunnel is running but not yet "connected" — useful
                    for diagnosing why a freshly-pasted token isn't connecting. -->
@@ -4185,6 +4196,9 @@
         setShow('cfStopBtn',   s.running);
       }
 
+      setShow('cfUpdateBlock', s.installed);
+      if (s.installed && !cfUpdateChecked) cfCheckUpdate();
+
       // Disable install button on unsupported platforms
       const installBtn = document.getElementById('cfInstallBtn');
       if (installBtn) {
@@ -4241,6 +4255,58 @@
       } finally {
         btn.disabled = false;
         loadCloudflaredStatus();
+      }
+    }
+
+    let cfUpdateChecked = false;
+    async function cfCheckUpdate(manual) {
+      cfUpdateChecked = true;
+      const line = document.getElementById('cfUpdateLine');
+      const btn = document.getElementById('cfUpdateBtn');
+      if (manual) line.textContent = 'Checking for updates…';
+      try {
+        const r = await fetch('/api/admin/cloudflared/update-check', { credentials: 'include' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          line.textContent = 'Installed: ' + (j.current || 'unknown') + ' · couldn\'t check latest (' + (j.error || 'error') + ')';
+          btn.textContent = 'Update cloudflared';
+          return;
+        }
+        if (j.updateAvailable) {
+          line.textContent = 'Installed: ' + j.current + ' · Latest: ' + j.latest + ' — update available';
+          btn.textContent = 'Update to ' + j.latest;
+        } else {
+          line.textContent = 'Installed: ' + (j.current || 'unknown') + ' · up to date';
+          btn.textContent = 'Reinstall latest';
+        }
+      } catch (err) {
+        line.textContent = 'Update check failed: ' + err.message;
+      }
+    }
+
+    async function cfUpdate() {
+      const btn = document.getElementById('cfUpdateBtn');
+      btn.disabled = true;
+      cfSetStatusMessage('cfUpdateStatus', 'Downloading latest cloudflared… (this can take 30–60 seconds). The tunnel restarts briefly if it is running.', 'info');
+      try {
+        const r = await fetch('/api/admin/cloudflared/update', { method: 'POST', credentials: 'include' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          cfSetStatusMessage('cfUpdateStatus', 'Update failed: ' + (j.error || 'unknown error'), 'error');
+        } else if (!j.updated) {
+          cfSetStatusMessage('cfUpdateStatus', j.message || 'Already up to date.', 'success');
+        } else {
+          cfSetStatusMessage('cfUpdateStatus',
+            'Updated ' + (j.from || '?') + ' → ' + j.to + (j.restarted ? '. Tunnel restarted.' : '.') + ' Your token was kept.',
+            'success');
+          if (j.restarted) cfStartPolling(1500, 30000);
+        }
+      } catch (err) {
+        cfSetStatusMessage('cfUpdateStatus', 'Network error: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        loadCloudflaredStatus();
+        cfCheckUpdate(true);
       }
     }
 

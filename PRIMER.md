@@ -525,6 +525,15 @@ A standalone tool that makes a show's songs equally loud by changing the files, 
 
 **Tested:** against a real server and a fake FPP serving the file API: −8.6 → −14.0 and −27.3 → −14.0 LUFS; cross-correlation of every original vs fixed file = **0 samples** offset, durations identical, sample rate / mono / tags / cover art kept; skip, limiter, limiter-off, fallback and validation paths; traversal and bad extensions rejected; unauthenticated 401; send replaces the FPP file byte-for-byte and restore puts the original back; both zips verify with `unzip -t`. UI tested in jsdom against the live server (settings survive re-render, batch progress, buttons, refresh reattach, start over). Lite: same tests of status, listing and a batch on a live Lite server.
 
+## Cloudflare Tunnel: in-place cloudflared update (main v0.33.239+ / Lite v0.5.78+)
+
+Settings → Cloudflare Tunnel shows "Installed: X · Latest: Y" whenever cloudflared is installed, with an **Update** button and **Check again**. Before this the only way to update was Uninstall → Install, and uninstall also deletes the tunnel token (issue #28, raised after a CA security incident forced operators to update).
+
+- **Main** (`lib/cloudflared.js`): `update()` downloads the latest standalone binary to `data/bin/cloudflared.partial`, runs `--version` on it (refuses to swap in a binary that doesn't run), stops the tunnel, atomically renames it over `data/bin/cloudflared`, then restarts the tunnel if it was running. The token is never touched. If the download is not newer than what's installed, it is discarded ("already on the latest version"). `checkForUpdate()` compares the installed version with GitHub's `cloudflare/cloudflared` latest release tag (cached server-side for 1 h to stay under GitHub's unauthenticated rate limit).
+- **Lite**: the root helper (`cfhelper-daemon.js`) gets an `update` command that reuses the install path (`downloadAndInstallDeb()`: sha256 check against GitHub's asset digest, then `dpkg -i`, which upgrades in place without touching our systemd unit or `/etc/cloudflared/token`) and restarts the `cloudflared` service if it was active. The version check runs unprivileged in `lib/cloudflared.js`. A helper still running pre-v0.5.78 code answers "unknown command"; the UI then tells the operator to restart `showpilot-lite-cfhelper` (the plugin install script normally restarts it).
+- **Routes** (both): `POST /api/admin/cloudflared/update`, `GET /api/admin/cloudflared/update-check`. The check is kept off `/status` so status polling never waits on GitHub.
+- **Demo**: the demo's local patch to `routes/cloudflared.js` (fake running tunnel) sits next to these new routes; confirm the saved patch still re-applies after the fetch/reset deploy.
+
 ## Version history (recent)
 
 | Version | Change |
@@ -607,6 +616,7 @@ A standalone tool that makes a show's songs equally loud by changing the files, 
 | 0.33.236 | **Playlist sync removes sequences no longer in the playlist.** Before, a song dropped from the FPP/Player playlist stayed in ShowPilot after re-sync. Now `sync-sequences` deletes rows not in the pushed list (their pending requests and votes first), plus orphaned audio-cache rows; an empty list removes nothing. Response/socket event include `removed`. Tested against a temp DB: sync A,B,C then A,C (B had a queued request) → B removed, `removed: 1`; empty sync keeps both. Mirrored to Lite v0.5.75. |
 | 0.33.237 | **Audio Normalizer: match by show speakers + hand Adjust.** New "Match songs by" choice, default "How they sound on show speakers": songs are matched on the median short-term loudness with the deep bass (under 120 Hz) left out, i.e. how a typical moment plays on outdoor speakers/FM, instead of whole-song LUFS (which let a bass-burst-heavy song read −14.0 LUFS yet sound 2–3 dB quieter). Capped at ±4 dB from the plain-LUFS gain; overall show level stays at the target. "Standard loudness (LUFS)" still available. New per-song **Adjust** (±6 dB by hand, re-encoded from the original). Confirmations now use the themed in-page dialog instead of browser pop-ups. Cache-buster `audio-normalizer.js?v=4`. Tested with three real show songs (all −14.0 LUFS before): speaker levels −18.9/−15.8/−17.1 → −17.0/−17.0/−17.1, lengths identical; trims +1/−0.5/+0.5 on done and already-right songs; LUFS mode for clients not sending `match` unchanged; themed Adjust dialog in the browser. Mirrored to Lite v0.5.76. |
 | 0.33.238 | **Builds move to the self-hosted runner** (see CI/CD). `docker-publish.yml`: both platform builds and the manifest merge run on the self-hosted arm64 runner (amd64 emulated; Emulation step only when the platform differs from the runner); `shippilot-release.yml`: ship job on the self-hosted runner. Repo variable `SPP_RUNNER=github` restores GitHub-hosted runners (Docker gets its native `ubuntu-latest` + `ubuntu-24.04-arm` pair back). No app code changes. Checked with actionlint (expressions, matrix, conditions). Mirrored to Lite v0.5.77 (ship workflow only; Lite has no Docker workflow). |
+| 0.33.239 | **Update cloudflared from the admin panel without losing the tunnel token** (issue #28, @jddocea). Settings → Cloudflare Tunnel shows installed vs latest version with an Update button; the new binary is verified, swapped in atomically, and the tunnel restarted if it was running. Before, the only path was Uninstall → Install, which also deleted the token. See "Cloudflare Tunnel: in-place cloudflared update". Checked: `node --check` on all `.js` files and every inline admin `<script>` block. Mirrored to Lite v0.5.78. |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -620,7 +630,7 @@ A standalone tool that makes a show's songs equally loud by changing the files, 
 | 0.13.64 | `set_mode_race.php` scheduler command. Calls `POST /api/plugin/viewer-mode` with `{ mode: "RACE" }` so FPP scheduler events can activate race mode at a specific playlist position. |
 
 **Current versions (as of October 2026):**
-- ShowPilot: v0.33.238
+- ShowPilot: v0.33.239
 - FPP Plugin / Audio Daemon: see the plugin repo's primer
 - rf-compat.js cache buster: v=105
 

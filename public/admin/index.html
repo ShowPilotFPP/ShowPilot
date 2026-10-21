@@ -1833,7 +1833,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.239</span>
+        <span class="app-version">v0.33.240</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4259,54 +4259,106 @@
     }
 
     let cfUpdateChecked = false;
+    let cfUpdatePollTimer = null;
+
+    // Read a JSON reply; when the reply isn't JSON (e.g. a proxy error page
+    // while the tunnel restarts) say so instead of "unknown error".
+    async function cfReadJson(r) {
+      try { return await r.json(); }
+      catch { return { ok: false, error: 'HTTP ' + r.status + ' (no JSON reply — the tunnel may be restarting)' }; }
+    }
+
+    function cfRenderUpdateLine(j) {
+      const line = document.getElementById('cfUpdateLine');
+      const btn = document.getElementById('cfUpdateBtn');
+      const cur = j.current || 'unknown';
+      if (j.latest && j.updateAvailable) {
+        line.textContent = 'Installed: ' + cur + ' · Latest: ' + j.latest + ' — update available';
+        btn.textContent = 'Update to ' + j.latest;
+      } else if (j.latest) {
+        line.textContent = 'Installed: ' + cur + ' · up to date';
+        btn.textContent = 'Reinstall latest';
+      } else {
+        line.textContent = 'Installed: ' + cur + ' · couldn\'t check latest' + (j.latestError ? ' (' + j.latestError + ')' : '');
+        btn.textContent = 'Update cloudflared';
+      }
+    }
+
     async function cfCheckUpdate(manual) {
       cfUpdateChecked = true;
       const line = document.getElementById('cfUpdateLine');
-      const btn = document.getElementById('cfUpdateBtn');
       if (manual) line.textContent = 'Checking for updates…';
       try {
         const r = await fetch('/api/admin/cloudflared/update-check', { credentials: 'include' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) {
-          line.textContent = 'Installed: ' + (j.current || 'unknown') + ' · couldn\'t check latest (' + (j.error || 'error') + ')';
-          btn.textContent = 'Update cloudflared';
-          return;
-        }
-        if (j.updateAvailable) {
-          line.textContent = 'Installed: ' + j.current + ' · Latest: ' + j.latest + ' — update available';
-          btn.textContent = 'Update to ' + j.latest;
-        } else {
-          line.textContent = 'Installed: ' + (j.current || 'unknown') + ' · up to date';
-          btn.textContent = 'Reinstall latest';
-        }
+        const j = await cfReadJson(r);
+        if (!j.ok) { line.textContent = 'Update check failed: ' + (j.error || 'error'); return; }
+        cfRenderUpdateLine(j);
+        // Picked up an update still running (e.g. after a page reload)?
+        if (j.job && j.job.state === 'running' && !cfUpdatePollTimer) cfWatchUpdate(j.job.id);
       } catch (err) {
         line.textContent = 'Update check failed: ' + err.message;
       }
     }
 
+    // The update runs in the background on the server. If this page is
+    // reached through the tunnel, the connection drops while the tunnel
+    // restarts, so keep polling (ignoring failures) until the job finishes.
+    function cfWatchUpdate(jobId) {
+      const btn = document.getElementById('cfUpdateBtn');
+      btn.disabled = true;
+      const startedAt = Date.now();
+      if (cfUpdatePollTimer) clearInterval(cfUpdatePollTimer);
+      cfUpdatePollTimer = setInterval(async () => {
+        if (Date.now() - startedAt > 4 * 60 * 1000) {
+          clearInterval(cfUpdatePollTimer); cfUpdatePollTimer = null; btn.disabled = false;
+          cfSetStatusMessage('cfUpdateStatus', 'Lost track of the update. Refresh the page to see the installed version.', 'error');
+          return;
+        }
+        let j;
+        try {
+          const r = await fetch('/api/admin/cloudflared/update-check', { credentials: 'include', cache: 'no-store' });
+          j = await r.json();
+        } catch { return; } // tunnel still restarting; try again
+        if (!j || !j.ok || !j.job || (jobId && j.job.id !== jobId) || j.job.state === 'running') return;
+        if (j.job.state === 'idle') {
+          if (Date.now() - startedAt < 15000) return;
+          clearInterval(cfUpdatePollTimer); cfUpdatePollTimer = null; btn.disabled = false;
+          cfSetStatusMessage('cfUpdateStatus', 'The update didn\'t start (connection lost). Try again.', 'error');
+          return;
+        }
+        clearInterval(cfUpdatePollTimer); cfUpdatePollTimer = null; btn.disabled = false;
+        const res = j.job.result || {};
+        if (j.job.state === 'failed') {
+          cfSetStatusMessage('cfUpdateStatus', 'Update failed: ' + (res.error || 'unknown error') + '. Your existing install was kept.', 'error');
+        } else if (!res.updated) {
+          cfSetStatusMessage('cfUpdateStatus', res.message || 'Already up to date.', 'success');
+        } else {
+          cfSetStatusMessage('cfUpdateStatus',
+            'Updated ' + (res.from || '?') + ' → ' + res.to + (res.restarted ? '. Tunnel restarted.' : '.') + ' Your token was kept.',
+            'success');
+        }
+        cfRenderUpdateLine(j);
+        loadCloudflaredStatus();
+      }, 3000);
+    }
+
     async function cfUpdate() {
       const btn = document.getElementById('cfUpdateBtn');
       btn.disabled = true;
-      cfSetStatusMessage('cfUpdateStatus', 'Downloading latest cloudflared… (this can take 30–60 seconds). The tunnel restarts briefly if it is running.', 'info');
+      cfSetStatusMessage('cfUpdateStatus', 'Updating cloudflared… This takes up to a minute. If you\'re connected through the tunnel, this page loses connection for a few seconds while it restarts — leave it open.', 'info');
       try {
         const r = await fetch('/api/admin/cloudflared/update', { method: 'POST', credentials: 'include' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) {
+        const j = await cfReadJson(r);
+        if (!j.ok) {
           cfSetStatusMessage('cfUpdateStatus', 'Update failed: ' + (j.error || 'unknown error'), 'error');
-        } else if (!j.updated) {
-          cfSetStatusMessage('cfUpdateStatus', j.message || 'Already up to date.', 'success');
-        } else {
-          cfSetStatusMessage('cfUpdateStatus',
-            'Updated ' + (j.from || '?') + ' → ' + j.to + (j.restarted ? '. Tunnel restarted.' : '.') + ' Your token was kept.',
-            'success');
-          if (j.restarted) cfStartPolling(1500, 30000);
+          btn.disabled = false;
+          return;
         }
+        cfWatchUpdate(j.job && j.job.id);
       } catch (err) {
-        cfSetStatusMessage('cfUpdateStatus', 'Network error: ' + err.message, 'error');
-      } finally {
-        btn.disabled = false;
-        loadCloudflaredStatus();
-        cfCheckUpdate(true);
+        // The request may have started the update before the connection
+        // dropped; watch for any running job.
+        cfWatchUpdate(null);
       }
     }
 

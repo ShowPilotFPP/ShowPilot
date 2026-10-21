@@ -33,25 +33,28 @@ router.post('/install', async (req, res) => {
   }
 });
 
-// v0.33.239+: update the binary in place, keeping the token. Restarts
-// the tunnel afterwards if it was running.
-router.post('/update', async (req, res) => {
+// v0.33.239+: update the binary in place, keeping the token. Since
+// v0.33.240 this only STARTS the update and returns immediately: the
+// update restarts the tunnel, which would cut off this response when the
+// admin page is reached through the tunnel. Poll /update-check for `job`.
+router.post('/update', (req, res) => {
   try {
-    const r = await cloudflared.update();
-    if (!r.ok) return res.status(500).json(r);
+    const r = cloudflared.startUpdate();
+    if (!r.ok) return res.status(400).json(r);
     res.json(r);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message || 'Update failed.' });
   }
 });
 
-// Installed vs latest release. Kept separate from /status so the status
-// poll never waits on GitHub. Latest is cached server-side for an hour.
+// Installed vs latest release + background job state. Kept separate from
+// /status so the status poll never waits on GitHub. Always 200 with JSON
+// (a 502 here can be swapped for a proxy's own error page).
 router.get('/update-check', async (req, res) => {
   try {
     res.json(await cloudflared.checkForUpdate());
   } catch (err) {
-    res.status(502).json({ ok: false, error: err.message || 'Update check failed.' });
+    res.json({ ok: false, error: err.message || 'Update check failed.' });
   }
 });
 

@@ -780,6 +780,7 @@ router.get('/history', requireAdmin, (req, res) => {
 router.post('/reset-votes', requireAdmin, (req, res) => {
   const cfg = getConfig();
   db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfg.current_voting_round);
+  db.prepare(`DELETE FROM vote_log WHERE round_id = ? AND kind = 'vote'`).run(cfg.current_voting_round);
   res.json({ ok: true });
 });
 
@@ -837,141 +838,175 @@ router.get('/plugin-status', requireAdmin, (req, res) => {
 });
 
 // ============================================================
-// Visitor analytics — backs the Dashboard charts
+// Stats date ranges (v0.33.241+)
+// ============================================================
+// The Stats tab's From/To are calendar days in the show's time zone (Settings
+// → show time zone, else the server's). Timestamps are stored in UTC as
+// 'YYYY-MM-DD HH:MM:SS', so a day is turned into the UTC instants where it
+// starts and ends. Comparing against a bare date (the old way) put the
+// evening before "today" into today for shows west of UTC.
+const STATS_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function statsSqlUtc(ms) {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+function statsPad(n) { return String(n).padStart(2, '0'); }
+// Start of a calendar day (plus addDays) in tz, as UTC ms.
+function statsDayStart(dateStr, tz, addDays = 0) {
+  const { zonedToUtc } = require('../lib/template-schedule');
+  const m = STATS_DATE_RE.exec(dateStr);
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + addDays));
+  return zonedToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 0, 0, tz);
+}
+function statsLocalDate(ms, tz) {
+  const w = require('../lib/template-schedule').wallTime(ms, tz);
+  return `${w.y}-${statsPad(w.mo)}-${statsPad(w.d)}`;
+}
+// SQL clause + params limiting `col` to the From/To days (either optional).
+function statsDateClause(col, from, to) {
+  const tz = require('../lib/template-schedule').showTimezone();
+  let clause = '';
+  const params = [];
+  if (from && STATS_DATE_RE.test(from)) { clause += ` AND ${col} >= ?`; params.push(statsSqlUtc(statsDayStart(from, tz))); }
+  if (to && STATS_DATE_RE.test(to))     { clause += ` AND ${col} < ?`;  params.push(statsSqlUtc(statsDayStart(to, tz, 1))); }
+  return { clause, params };
+}
+
+// ============================================================
+// Visitor analytics — backs the Stats tab charts
 // ============================================================
 //
-// Returns three time-bucketed series (unique visitors, total visits, total
-// requests) plus summary KPIs across "today", "this season" (since Oct 1 of
-// the most recent fall), and all-time. Buckets are picked based on range so
-// the chart doesn't get unreadable: hourly for today, daily for 7d/30d/season,
-// monthly for "all".
-// Visitor analytics endpoint. The route is named /stats/audience instead of
-// /stats/visitors because most ad/tracking blockers (uBlock Origin, AdGuard,
-// Brave shields) flag any URL containing "visitors" as analytics tracking
-// and silently block the request — even on first-party admin pages. The
-// data is what matters; the URL just needs to not match common blocklists.
+// ?from=YYYY-MM-DD&to=YYYY-MM-DD (show time zone, both optional; no from =
+// since the first recorded activity, no to = today) — the same range as the
+// per-sequence table. Returns time-bucketed series (unique visitors, visits,
+// jukebox requests, votes) with every bucket in the range present (zeros
+// included), plus summary KPIs for today, the range and all time. Buckets:
+// hourly for 1–2 days, daily up to 120 days, monthly beyond.
+//
+// Visits only count page loads whose script checked in (confirmed IS NOT 0,
+// see lib/visit-tracking.js). Votes come from vote_log, which keeps every
+// round; the votes table only holds the current one.
+//
+// The route is named /stats/audience instead of /stats/visitors because most
+// ad/tracking blockers (uBlock Origin, AdGuard, Brave shields) flag any URL
+// containing "visitors" as analytics tracking and silently block the request
+// — even on first-party admin pages.
 router.get('/stats/audience', requireAdmin, (req, res) => {
   try {
-    const range = String(req.query.range || '7d');
+    const { showTimezone, wallTime } = require('../lib/template-schedule');
+    const tz = showTimezone();
+    let from = req.query.from ? String(req.query.from) : '';
+    let to = req.query.to ? String(req.query.to) : '';
+    if ((from && !STATS_DATE_RE.test(from)) || (to && !STATS_DATE_RE.test(to))) {
+      return res.status(400).json({ error: 'Invalid date' });
+    }
+    const today = statsLocalDate(Date.now(), tz);
+    if (!from) {
+      const row = db.prepare(`
+        SELECT MIN(t) AS t FROM (
+          SELECT MIN(visited_at) AS t FROM viewer_visits WHERE confirmed IS NOT 0
+          UNION ALL SELECT MIN(requested_at) FROM jukebox_queue
+          UNION ALL SELECT MIN(voted_at) FROM vote_log
+        )
+      `).get();
+      from = row && row.t ? statsLocalDate(Date.parse(row.t.replace(' ', 'T') + 'Z'), tz) : today;
+    }
+    if (!to) to = today;
+    if (to < from) [from, to] = [to, from];
 
-    // Map range → SQL window + bucket strftime format.
-    // SQLite strftime('%Y-%m-%d %H:00:00', ...) gives hourly buckets;
-    // strftime('%Y-%m-%d', ...) gives daily; strftime('%Y-%m', ...) gives monthly.
-    let sinceClause = '';
-    let bucketFmt = '%Y-%m-%d';
-    let bucketStep = 'day';
+    const startSql = statsSqlUtc(statsDayStart(from, tz));
+    const endSql = statsSqlUtc(statsDayStart(to, tz, 1));
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    const days = Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000) + 1;
+    const bucketStep = days <= 2 ? 'hour' : (days <= 120 ? 'day' : 'month');
 
-    if (range === 'today') {
-      sinceClause = `visited_at >= date('now', 'localtime') AND visited_at < date('now', 'localtime', '+1 day')`;
-      bucketFmt = '%Y-%m-%d %H:00:00';
-      bucketStep = 'hour';
-    } else if (range === '7d') {
-      sinceClause = `visited_at >= date('now', '-7 days')`;
-      bucketFmt = '%Y-%m-%d';
-      bucketStep = 'day';
-    } else if (range === '30d') {
-      sinceClause = `visited_at >= date('now', '-30 days')`;
-      bucketFmt = '%Y-%m-%d';
-      bucketStep = 'day';
-    } else if (range === 'season') {
-      // "This season" = most recent fall (Oct 1 of current year if past Oct 1,
-      // else Oct 1 of last year). Captures Halloween + Christmas in one window.
-      const now = new Date();
-      const seasonStart = new Date(now.getFullYear(), 9, 1); // month index 9 = October
-      if (now < seasonStart) seasonStart.setFullYear(seasonStart.getFullYear() - 1);
-      const iso = seasonStart.toISOString().slice(0, 10);
-      sinceClause = `visited_at >= '${iso}'`;
-      bucketFmt = '%Y-%m-%d';
-      bucketStep = 'day';
-    } else if (range === 'all') {
-      sinceClause = `1=1`;
-      bucketFmt = '%Y-%m';
-      bucketStep = 'month';
-    } else {
-      return res.status(400).json({ error: 'Invalid range' });
+    const keyOf = (y, mo, d, h) => {
+      if (bucketStep === 'month') return `${y}-${statsPad(mo)}`;
+      if (bucketStep === 'day') return `${y}-${statsPad(mo)}-${statsPad(d)}`;
+      return `${y}-${statsPad(mo)}-${statsPad(d)} ${statsPad(h)}:00`;
+    };
+
+    // Every bucket in the range, so the x-axis always spans what was picked.
+    const buckets = new Map();
+    const addBucket = (key) => {
+      if (!buckets.has(key)) buckets.set(key, { bucket: key, uniques: 0, visits: 0, requests: 0, votes: 0, _ids: new Set() });
+    };
+    for (let i = 0; i < days; i++) {
+      const d = new Date(Date.UTC(fy, fm - 1, fd + i));
+      const y = d.getUTCFullYear(), mo = d.getUTCMonth() + 1, dd = d.getUTCDate();
+      if (bucketStep === 'hour') for (let h = 0; h < 24; h++) addBucket(keyOf(y, mo, dd, h));
+      else addBucket(keyOf(y, mo, dd, 0));
     }
 
-    // For requests, the source-of-truth is jukebox_queue (every request lands
-    // there with requested_at). Voting submissions go to votes (with voted_at),
-    // so we union both for "total requests" — anything a viewer actively chose.
-    const requestsTable = `(
-      SELECT requested_at AS at FROM jukebox_queue
-      UNION ALL
-      SELECT voted_at AS at FROM votes
-    )`;
+    // Rows are grouped by 15-minute UTC slot in SQL, then each slot is mapped
+    // to its local bucket once (works for half-hour time zones and DST).
+    const slot = (col) => `strftime('%Y-%m-%d %H:', ${col}) || printf('%02d', CAST(strftime('%M', ${col}) AS INTEGER) / 15 * 15)`;
+    const slotKeys = new Map();
+    const bucketFor = (s) => {
+      let key = slotKeys.get(s);
+      if (key === undefined) {
+        const w = wallTime(Date.parse(s.replace(' ', 'T') + ':00Z'), tz);
+        key = keyOf(w.y, w.mo, w.d, w.h);
+        slotKeys.set(s, key);
+      }
+      return buckets.get(key);
+    };
 
-    // Replace visited_at in sinceClause for the requests query
-    const requestsSinceClause = sinceClause.replace(/visited_at/g, 'at');
-
-    const visitsBuckets = db.prepare(`
-      SELECT strftime('${bucketFmt}', visited_at, 'localtime') AS bucket,
-             COUNT(*) AS visits,
-             COUNT(DISTINCT visitor_id) AS uniques
+    const visitRows = db.prepare(`
+      SELECT ${slot('visited_at')} AS slot, visitor_id, COUNT(*) AS n
       FROM viewer_visits
-      WHERE ${sinceClause}
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `).all();
-
-    const requestsBuckets = db.prepare(`
-      SELECT strftime('${bucketFmt}', at, 'localtime') AS bucket,
-             COUNT(*) AS requests
-      FROM ${requestsTable}
-      WHERE ${requestsSinceClause}
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `).all();
-
-    // Merge into a unified bucket-keyed map so frontend has aligned x-axis values
-    const bucketMap = new Map();
-    for (const row of visitsBuckets) {
-      bucketMap.set(row.bucket, { bucket: row.bucket, uniques: row.uniques, visits: row.visits, requests: 0 });
+      WHERE confirmed IS NOT 0 AND visited_at >= ? AND visited_at < ?
+      GROUP BY slot, visitor_id
+    `).all(startSql, endSql);
+    for (const r of visitRows) {
+      const b = bucketFor(r.slot);
+      if (!b) continue;
+      b.visits += r.n;
+      if (r.visitor_id) b._ids.add(r.visitor_id);
     }
-    for (const row of requestsBuckets) {
-      const existing = bucketMap.get(row.bucket);
-      if (existing) existing.requests = row.requests;
-      else bucketMap.set(row.bucket, { bucket: row.bucket, uniques: 0, visits: 0, requests: row.requests });
-    }
-    const series = Array.from(bucketMap.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
+    const countBySlot = (table, col) => db.prepare(`
+      SELECT ${slot(col)} AS slot, COUNT(*) AS n FROM ${table}
+      WHERE ${col} >= ? AND ${col} < ? GROUP BY slot
+    `).all(startSql, endSql);
+    for (const r of countBySlot('jukebox_queue', 'requested_at')) { const b = bucketFor(r.slot); if (b) b.requests += r.n; }
+    for (const r of countBySlot('vote_log', 'voted_at')) { const b = bucketFor(r.slot); if (b) b.votes += r.n; }
 
-    // Summary KPIs (range-bound + today + all-time)
-    const todayStats = db.prepare(`
-      SELECT COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS uniques
-      FROM viewer_visits
-      WHERE visited_at >= date('now', 'localtime')
-    `).get();
-    const todayRequests = db.prepare(`
-      SELECT COUNT(*) AS n FROM ${requestsTable}
-      WHERE at >= date('now', 'localtime')
-    `).get().n;
+    const series = Array.from(buckets.values()).map(({ _ids, ...b }) => ({ ...b, uniques: _ids.size }));
 
-    const allStats = db.prepare(`
-      SELECT COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS uniques
-      FROM viewer_visits
-    `).get();
-    const allRequests = db.prepare(`
-      SELECT COUNT(*) AS n FROM ${requestsTable}
-    `).get().n;
+    // Summary KPIs between two UTC timestamps.
+    const totals = (a, z) => {
+      const v = db.prepare(`
+        SELECT COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS uniques
+        FROM viewer_visits WHERE confirmed IS NOT 0 AND visited_at >= ? AND visited_at < ?
+      `).get(a, z);
+      const requests = db.prepare(`SELECT COUNT(*) AS n FROM jukebox_queue WHERE requested_at >= ? AND requested_at < ?`).get(a, z).n;
+      const votes = db.prepare(`SELECT COUNT(*) AS n FROM vote_log WHERE voted_at >= ? AND voted_at < ?`).get(a, z).n;
+      return { uniques: v.uniques, visits: v.visits, requests, votes };
+    };
+    const todayStart = statsSqlUtc(statsDayStart(today, tz));
+    const todayEnd = statsSqlUtc(statsDayStart(today, tz, 1));
 
-    // Range-bound summary (matches the chart window)
-    const rangeStats = db.prepare(`
-      SELECT COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS uniques
-      FROM viewer_visits
-      WHERE ${sinceClause}
-    `).get();
-    const rangeRequests = db.prepare(`
-      SELECT COUNT(*) AS n FROM ${requestsTable}
-      WHERE ${requestsSinceClause}
-    `).get().n;
+    // Page loads in the range that never checked in (left out above). Loads
+    // from the last 10 minutes may still check in, so they aren't counted yet.
+    const leftOut = db.prepare(`
+      SELECT COUNT(*) AS n FROM viewer_visits
+      WHERE confirmed = 0 AND visited_at >= ? AND visited_at < ? AND visited_at < datetime('now', '-10 minutes')
+    `).get(startSql, endSql).n;
 
     res.json({
-      range,
+      from,
+      to,
+      today,
+      timezone: tz,
+      mode: getConfig().viewer_control_mode,
       bucketStep,
       series,
+      leftOut,
       summary: {
-        today: { uniques: todayStats.uniques, visits: todayStats.visits, requests: todayRequests },
-        range: { uniques: rangeStats.uniques, visits: rangeStats.visits, requests: rangeRequests },
-        allTime: { uniques: allStats.uniques, visits: allStats.visits, requests: allRequests },
+        today: totals(todayStart, todayEnd),
+        range: totals(startSql, endSql),
+        allTime: totals('0000-00-00', '9999-12-31'),
       },
     });
   } catch (err) {
@@ -1749,11 +1784,8 @@ router.get('/stats/sequences', requireAdmin, (req, res) => {
   const from = req.query.from ? String(req.query.from) : null;
   const to = req.query.to ? String(req.query.to) : null;
 
-  // SQL date scoping clause
-  let dateClause = '';
-  const dateParams = [];
-  if (from) { dateClause += ' AND played_at >= ?'; dateParams.push(from + ' 00:00:00'); }
-  if (to)   { dateClause += ' AND played_at <= ?'; dateParams.push(to + ' 23:59:59'); }
+  // SQL date scoping clause (days in the show's time zone)
+  const { clause: dateClause, params: dateParams } = statsDateClause('played_at', from, to);
 
   const sequences = db.prepare(`
     SELECT id, name, display_name, artist, image_url, last_played_at
@@ -1778,14 +1810,12 @@ router.get('/stats/sequences', requireAdmin, (req, res) => {
   const playsMap = {};
   for (const row of playsBySource) playsMap[row.sequence_name] = row;
 
-  // Total votes received per sequence (across all time — votes don't have played_at, just timestamp)
-  const voteParams = [];
-  let voteDateClause = '';
-  if (from) { voteDateClause += ' AND voted_at >= ?'; voteParams.push(from + ' 00:00:00'); }
-  if (to)   { voteDateClause += ' AND voted_at <= ?'; voteParams.push(to + ' 23:59:59'); }
+  // Total votes received per sequence. vote_log, not votes: votes only holds
+  // the current round.
+  const { clause: voteDateClause, params: voteParams } = statsDateClause('voted_at', from, to);
   const votesReceived = db.prepare(`
     SELECT sequence_name, COUNT(*) AS votes_received
-    FROM votes
+    FROM vote_log
     WHERE 1=1${voteDateClause}
     GROUP BY sequence_name
   `).all(...voteParams);
@@ -1793,10 +1823,7 @@ router.get('/stats/sequences', requireAdmin, (req, res) => {
   for (const row of votesReceived) votesMap[row.sequence_name] = row.votes_received;
 
   // Total requests received per sequence
-  const reqParams = [];
-  let reqDateClause = '';
-  if (from) { reqDateClause += ' AND requested_at >= ?'; reqParams.push(from + ' 00:00:00'); }
-  if (to)   { reqDateClause += ' AND requested_at <= ?'; reqParams.push(to + ' 23:59:59'); }
+  const { clause: reqDateClause, params: reqParams } = statsDateClause('requested_at', from, to);
   const requestsReceived = db.prepare(`
     SELECT sequence_name, COUNT(*) AS requests_received
     FROM jukebox_queue
@@ -1839,10 +1866,7 @@ router.get('/stats/sequences.csv', requireAdmin, (req, res) => {
   // by duplicating the query. Simpler than abstracting since it's a small endpoint.
   const from = req.query.from ? String(req.query.from) : null;
   const to = req.query.to ? String(req.query.to) : null;
-  let dateClause = '';
-  const dateParams = [];
-  if (from) { dateClause += ' AND played_at >= ?'; dateParams.push(from + ' 00:00:00'); }
-  if (to)   { dateClause += ' AND played_at <= ?'; dateParams.push(to + ' 23:59:59'); }
+  const { clause: dateClause, params: dateParams } = statsDateClause('played_at', from, to);
 
   const sequences = db.prepare(`SELECT name, display_name, artist FROM sequences ORDER BY display_name`).all();
   const playsBySource = db.prepare(`
@@ -1895,6 +1919,7 @@ router.post('/stats/reset/play-history', requireAdmin, (req, res) => {
 
 router.post('/stats/reset/votes', requireAdmin, (req, res) => {
   db.prepare(`DELETE FROM votes`).run();
+  db.prepare(`DELETE FROM vote_log`).run();
   // Reset round counter so a fresh round starts cleanly
   const cfg = getConfig();
   updateConfig({ current_voting_round: (cfg.current_voting_round || 0) + 1 });
@@ -1913,6 +1938,7 @@ router.post('/stats/reset/queue', requireAdmin, (req, res) => {
 router.post('/stats/reset/all', requireAdmin, (req, res) => {
   db.prepare(`DELETE FROM play_history`).run();
   db.prepare(`DELETE FROM votes`).run();
+  db.prepare(`DELETE FROM vote_log`).run();
   db.prepare(`DELETE FROM jukebox_queue`).run();
   db.prepare(`UPDATE sequences SET last_played_at = NULL, plays_since_hidden = 0`).run();
   const cfg = getConfig();

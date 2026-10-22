@@ -1187,33 +1187,8 @@
 
     /* ============================================================
      * VISITOR ANALYTICS
-     * Three-up charts + summary cards on the Dashboard
+     * Three-up charts + summary cards on the Stats tab
      * ============================================================ */
-    /* Segmented range selector */
-    .of-vrange {
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      padding: 6px 14px;
-      font-size: 0.82rem;
-      font-weight: 500;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.12s ease, color 0.12s ease;
-      margin: 0;
-    }
-    .of-vrange:hover {
-      color: var(--text);
-      background: rgba(255, 255, 255, 0.04);
-    }
-    .of-vrange.active {
-      background: var(--bg-elevated);
-      color: var(--text);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    }
-    [data-theme="stage-light"] .of-vrange:hover, body.theme-stage-light .of-vrange:hover, body.theme-easter .of-vrange:hover { background: rgba(0, 0, 0, 0.04); }
-    [data-theme="stage-light"] .of-vrange.active, body.theme-stage-light .of-vrange.active, body.theme-easter .of-vrange.active { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
-
     /* Summary cards (Today / Range / All time) */
     .visitor-summary-grid {
       display: grid;
@@ -1833,7 +1808,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.240</span>
+        <span class="app-version">v0.33.241</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2164,31 +2139,25 @@
           <div class="row" style="gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: end;">
             <div>
               <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">From</label>
-              <input type="date" id="statsFrom" onchange="loadStatsTab()" />
+              <input type="date" id="statsFrom" onchange="loadStatsTab(); loadVisitorStats()" />
             </div>
             <div>
               <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">To</label>
-              <input type="date" id="statsTo" onchange="loadStatsTab()" />
+              <input type="date" id="statsTo" onchange="loadStatsTab(); loadVisitorStats()" />
             </div>
             <button class="secondary" onclick="setStatsRange('today')">Today</button>
             <button class="secondary" onclick="setStatsRange('week')">7 days</button>
             <button class="secondary" onclick="setStatsRange('month')">30 days</button>
+            <button class="secondary" onclick="setStatsRange('season')">This season</button>
             <button class="secondary" onclick="setStatsRange('all')">All time</button>
           </div>
 
-          <!-- Visitor analytics — moved from Dashboard. Range tabs control the
-               three-up charts and KPI summary independently of the per-sequence
-               date range above (different data sources, different time semantics). -->
+          <!-- Visitor analytics. The From/To range above drives these charts,
+               the "Range" card and the per-sequence table alike. -->
           <div style="border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 0.5rem;">
             <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
               <h3 style="margin: 0; font-size: 1.05rem;">Visitor Analytics</h3>
-              <div class="row" id="visitorRangeTabs" style="gap: 0; margin: 0; background: var(--bg-tertiary); border-radius: 6px; padding: 2px;">
-                <button class="of-vrange" data-range="today" onclick="setVisitorRange('today')">Today</button>
-                <button class="of-vrange" data-range="7d" onclick="setVisitorRange('7d')">7 days</button>
-                <button class="of-vrange active" data-range="30d" onclick="setVisitorRange('30d')">30 days</button>
-                <button class="of-vrange" data-range="season" onclick="setVisitorRange('season')">This season</button>
-                <button class="of-vrange" data-range="all" onclick="setVisitorRange('all')">All time</button>
-              </div>
+              <span class="muted" id="visitorRangeLabel" style="font-size: 0.8rem;"></span>
             </div>
 
             <div class="visitor-summary-grid">
@@ -2196,19 +2165,19 @@
                 <div class="vsum-label">Today</div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumTodayU">—</span></div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumTodayV">—</span></div>
-                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumTodayR">—</span></div>
+                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key vsum-act-key">Requests</span><span class="vsum-val" id="vsumTodayR">—</span></div>
               </div>
               <div class="vsum">
                 <div class="vsum-label">Range</div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumRangeU">—</span></div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumRangeV">—</span></div>
-                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumRangeR">—</span></div>
+                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key vsum-act-key">Requests</span><span class="vsum-val" id="vsumRangeR">—</span></div>
               </div>
               <div class="vsum">
                 <div class="vsum-label">All time</div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumAllU">—</span></div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumAllV">—</span></div>
-                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumAllR">—</span></div>
+                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key vsum-act-key">Requests</span><span class="vsum-val" id="vsumAllR">—</span></div>
               </div>
             </div>
 
@@ -2222,13 +2191,15 @@
                 <div class="vchart-canvas-wrap"><canvas id="chartVisits"></canvas></div>
               </div>
               <div class="vchart-wrap">
-                <div class="vchart-title"><span class="vchart-dot" style="background:#f59e0b;"></span>Total Requests</div>
+                <div class="vchart-title"><span class="vchart-dot" style="background:#f59e0b;"></span><span id="chartActTitle">Total Requests</span></div>
                 <div class="vchart-canvas-wrap"><canvas id="chartRequests"></canvas></div>
               </div>
             </div>
 
             <p class="muted" style="font-size: 0.75rem; margin: 0.75rem 0 1rem;">
-              Visitor stats use a session cookie (<code>of_vid</code>) and an anonymized IP (last octet truncated) for analytics. Data stays on your server. Bots are filtered before logging.
+              Visitor stats use a session cookie (<code>of_vid</code>) and an anonymized IP (last octet truncated) for analytics. Data stays on your server.
+              A page load only counts once the page's own script checks in, so bots, link previews and scanners that just fetch the page are left out.
+              Days are in the show's time zone<span id="visitorTz"></span>. <span id="visitorLeftOut"></span>
             </p>
           </div>
 
@@ -6867,29 +6838,22 @@
     // ============================================================
     // VISITOR ANALYTICS
     // ============================================================
-    let _visitorRange = '30d';
+    // The third chart follows the viewer mode: votes in voting mode,
+    // jukebox requests otherwise. The key stays 'requests' either way.
     const _visitorCharts = { unique: null, visits: null, requests: null };
 
-    function setVisitorRange(range) {
-      _visitorRange = range;
-      // Update active tab styling
-      document.querySelectorAll('.of-vrange').forEach(b => {
-        b.classList.toggle('active', b.dataset.range === range);
-      });
-      loadVisitorStats();
-    }
-
-    // Format a SQLite bucket key into a friendly axis label.
-    // bucketStep is 'hour' | 'day' | 'month'.
-    function formatBucketLabel(key, step) {
-      // Hour bucket: "2026-04-25 14:00:00" → "2pm"
+    // Format a bucket key from /stats/audience into a friendly axis label.
+    // bucketStep is 'hour' | 'day' | 'month'; withDay prefixes hour labels
+    // with the date when the range spans more than one day.
+    function formatBucketLabel(key, step, withDay) {
+      // Hour bucket: "2026-04-25 14:00" → "2pm" (or "Apr 25 2pm")
       if (step === 'hour') {
-        const m = key.match(/^\d{4}-\d{2}-\d{2} (\d{2}):/);
+        const m = key.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):/);
         if (!m) return key;
-        const h = parseInt(m[1], 10);
+        const h = parseInt(m[2], 10);
         const ampm = h >= 12 ? 'pm' : 'am';
         const h12 = h % 12 === 0 ? 12 : h % 12;
-        return h12 + ampm;
+        return (withDay ? formatBucketLabel(m[1], 'day') + ' ' : '') + h12 + ampm;
       }
       // Month bucket: "2026-04" → "Apr 26"
       if (step === 'month') {
@@ -6943,6 +6907,10 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          // Hovering anywhere above a day shows its value. Long ranges hide
+          // the point dots, and the default (hit a dot exactly) left nothing
+          // to hover.
+          interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -6980,28 +6948,45 @@
       };
     }
 
+    // Uses the same From/To range as the per-sequence table (empty = all time).
     async function loadVisitorStats() {
-      const r = await api('/stats/audience?range=' + encodeURIComponent(_visitorRange));
+      const from = document.getElementById('statsFrom')?.value || '';
+      const to = document.getElementById('statsTo')?.value || '';
+      const params = new URLSearchParams();
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      const r = await api('/stats/audience' + (params.toString() ? '?' + params : ''));
       if (!r.ok) return;
       const d = r.data;
+      const act = d.mode === 'VOTING' ? 'votes' : 'requests';
 
       // Summary cards
       const setKpi = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v ?? 0).toLocaleString(); };
       setKpi('vsumTodayU', d.summary.today.uniques);
       setKpi('vsumTodayV', d.summary.today.visits);
-      setKpi('vsumTodayR', d.summary.today.requests);
+      setKpi('vsumTodayR', d.summary.today[act]);
       setKpi('vsumRangeU', d.summary.range.uniques);
       setKpi('vsumRangeV', d.summary.range.visits);
-      setKpi('vsumRangeR', d.summary.range.requests);
+      setKpi('vsumRangeR', d.summary.range[act]);
       setKpi('vsumAllU', d.summary.allTime.uniques);
       setKpi('vsumAllV', d.summary.allTime.visits);
-      setKpi('vsumAllR', d.summary.allTime.requests);
+      setKpi('vsumAllR', d.summary.allTime[act]);
+      document.querySelectorAll('.vsum-act-key').forEach(el => { el.textContent = act === 'votes' ? 'Votes' : 'Requests'; });
+      const setText = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+      setText('chartActTitle', act === 'votes' ? 'Total Votes' : 'Total Requests');
+      setText('visitorRangeLabel', d.from === d.to
+        ? formatBucketLabel(d.from, 'day')
+        : formatBucketLabel(d.from, 'day') + ' ' + d.from.slice(0, 4) + ' – ' + formatBucketLabel(d.to, 'day') + ' ' + d.to.slice(0, 4));
+      setText('visitorTz', d.timezone ? ' (' + d.timezone + ')' : '');
+      setText('visitorLeftOut', d.leftOut > 0
+        ? d.leftOut.toLocaleString() + (d.leftOut === 1 ? ' page load' : ' page loads') + ' in this range never checked in and were left out.'
+        : '');
 
       // Charts
-      const labels = d.series.map(p => formatBucketLabel(p.bucket, d.bucketStep));
+      const labels = d.series.map(p => formatBucketLabel(p.bucket, d.bucketStep, d.from !== d.to));
       const uniqueData = d.series.map(p => p.uniques);
       const visitsData = d.series.map(p => p.visits);
-      const requestsData = d.series.map(p => p.requests);
+      const requestsData = d.series.map(p => p[act]);
 
       // Empty-state: if no buckets, render a flat zero line so the canvas isn't empty
       if (labels.length === 0) {
@@ -9625,23 +9610,33 @@
     // ============================================================
     let statsCache = null;
 
+    // Sets From/To, which drive both the visitor charts and the table.
+    // Dates are local calendar days (toISOString would give tomorrow's UTC
+    // date during an evening show west of UTC).
     function setStatsRange(range) {
       const now = new Date();
-      const fmt = d => d.toISOString().slice(0, 10);
+      const fmt = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
       const fromEl = document.getElementById('statsFrom');
       const toEl = document.getElementById('statsTo');
       if (range === 'today') {
         fromEl.value = fmt(now); toEl.value = fmt(now);
       } else if (range === 'week') {
-        const w = new Date(now); w.setDate(w.getDate() - 7);
+        const w = new Date(now); w.setDate(w.getDate() - 6);
         fromEl.value = fmt(w); toEl.value = fmt(now);
       } else if (range === 'month') {
-        const m = new Date(now); m.setDate(m.getDate() - 30);
+        const m = new Date(now); m.setDate(m.getDate() - 29);
         fromEl.value = fmt(m); toEl.value = fmt(now);
+      } else if (range === 'season') {
+        // Oct 1 through New Year's Day — Halloween + Christmas in one window.
+        // Before Oct 1 this is the season that ended last January.
+        const s = new Date(now.getFullYear(), 9, 1);
+        if (now < s) s.setFullYear(s.getFullYear() - 1);
+        fromEl.value = fmt(s); toEl.value = fmt(new Date(s.getFullYear() + 1, 0, 1));
       } else {
         fromEl.value = ''; toEl.value = '';
       }
       loadStatsTab();
+      loadVisitorStats();
     }
 
     async function loadStatsTab() {

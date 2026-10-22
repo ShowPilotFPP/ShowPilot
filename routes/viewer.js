@@ -8,7 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp,
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, logVote, logVoteChange, getNextUp,
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext , updateConfig } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
@@ -325,6 +325,9 @@ router.post('/heartbeat', (req, res) => {
   // An admin's browser (e.g. a viewer tab left open) isn't a viewer.
   if (require('../lib/admin-viewers').isAdminViewerToken(token)) return res.json({ ok: true, token });
 
+  // The page's script is running, so its page load was a real visit.
+  require('../lib/visit-tracking').confirmVisit(req, db);
+
   db.prepare(`
     INSERT INTO active_viewers (viewer_token, last_seen, ip_hash, user_agent)
     VALUES (?, CURRENT_TIMESTAMP, ?, ?)
@@ -415,6 +418,7 @@ router.post('/vote', (req, res) => {
             INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
             VALUES (?, ?, ?, ?)
           `).run(seq.id, seq.name, token, cfg.current_voting_round);
+          logVoteChange(token, cfg.current_voting_round, seq.name);
         });
         try {
           swap();
@@ -437,6 +441,7 @@ router.post('/vote', (req, res) => {
         INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
         VALUES (?, ?, ?, ?)
       `).run(seq.id, seq.name, token, cfg.current_voting_round);
+      logVote(token, cfg.current_voting_round, seq.name);
     } catch (e) {
       if (String(e.message).includes('UNIQUE')) {
         return res.status(409).json({ error: 'You have already voted this round' });

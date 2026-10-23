@@ -52,7 +52,7 @@
 
     // ---- Songs & categories ----
     { id: 'songList', group: 'Songs & categories', label: 'Songs', kind: 'board', board: 'songs', size: 2, hint: 'Show or hide each song' },
-    cfgSwitch('cooldownFpp', 'Songs & categories', 'Skip cooled-down songs in FPP', 'cooldown_suppress_fpp_playlist', 'Also in FPP\u2019s normal playlist'),
+    cfgSwitch('cooldownFpp', 'Songs & categories', 'Skip cooled-down songs in playlist', 'cooldown_suppress_fpp_playlist', 'Also in the show player\u2019s normal playlist'),
 
     // ---- Viewer page ----
     { id: 'template', group: 'Viewer page', label: 'Viewer page template', kind: 'seg', size: 2, hint: 'Switch the active page',
@@ -72,7 +72,7 @@
     { id: 'sLeft', group: 'Status', label: 'Time left in song', kind: 'status', size: 1, live: true,
       value: (c) => { const v = c.vstate; if (!c.stats.nowPlaying || !v || !v.nowPlayingStartedAtIso || !v.nowPlayingDurationSeconds) return '--:--';
         return SP.fmtTime(v.nowPlayingDurationSeconds - (SP.serverNow() - Date.parse(v.nowPlayingStartedAtIso)) / 1000); } },
-    { id: 'sFpp', group: 'Status', label: 'FPP', kind: 'status', size: 1, value: (c) => (c.fppOnline ? 'Online' : 'Offline') },
+    { id: 'sFpp', group: 'Status', label: 'Player', kind: 'status', size: 1, value: (c) => (c.fppOnline ? 'Online' : 'Offline') },
   ];
 
   function parseCategories(cfg) {

@@ -136,7 +136,7 @@
 <body>
 <header>
   <span class="brand" id="brand">ShowPilot Cockpit</span>
-  <span class="chip"><span class="dot" id="fppDot"></span><span id="fppText">Checking FPP…</span></span>
+  <span class="chip"><span class="dot" id="fppDot"></span><span id="fppText">Checking player…</span></span>
   <span class="chip"><span class="num" id="watchCount" style="font-weight:700">0</span><span class="muted">watching</span></span>
   <span class="spacer"></span>
   <label class="select-wrap"><span class="muted">Theme</span><select id="themeSelect" aria-label="Theme"></select></label>
@@ -273,7 +273,7 @@
     return list.length ? '<div class="rows">' + list.map(s => { const vis = s.visible !== 0 && s.visible !== false;
       return '<div class="row"><span class="title"' + (vis ? '' : ' style="color:var(--text-muted)"') + '>' + esc(s.display_name || s.name) + '</span>' +
         '<button type="button" class="switch" data-act="song" data-id="' + esc(s.id) + '" data-vis="' + (vis ? 1 : 0) + '" aria-pressed="' + vis + '" aria-label="' + esc((vis ? 'Hide ' : 'Show ') + (s.display_name || s.name)) + '"><span class="t" aria-hidden="true"><i></i></span></button></div>'; }).join('') + '</div>'
-      : '<div class="empty">No sequences yet. Sync them from FPP in the full admin.</div>';
+      : '<div class="empty">No sequences yet. Sync them from your show player in the full admin.</div>';
   }
 
   function render() {
@@ -454,7 +454,7 @@
     const seen = typeof d.lastSeen === 'number' ? d.lastSeen : Date.parse(d.lastSeen || '');
     ctx.fppOnline = isFinite(seen) && Date.now() - seen < 30000;
     $('fppDot').className = 'dot ' + (ctx.fppOnline ? 'ok' : 'bad');
-    $('fppText').textContent = ctx.fppOnline ? 'FPP online' : 'FPP offline';
+    $('fppText').textContent = ctx.fppOnline ? 'Player online' : 'Player offline';
   }
   let busy = false;
   async function refresh() {

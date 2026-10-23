@@ -1314,7 +1314,7 @@ router.get('/audio-stream/:sequence', async (req, res) => {
 
     const upstream = await fetch(upstreamUrl, { headers });
     if (!upstream.ok && upstream.status !== 206) {
-      return res.status(upstream.status).send('FPP returned ' + upstream.status);
+      return res.status(upstream.status).send('Show player returned ' + upstream.status);
     }
 
     // Mirror the relevant headers from FPP (excluding cache-control — we set our own)
@@ -1357,7 +1357,7 @@ router.get('/audio-stream/:sequence', async (req, res) => {
     }
   } catch (err) {
     console.error('[audio-stream] proxy error:', err.message);
-    if (!res.headersSent) res.status(502).send('Could not reach FPP: ' + err.message);
+    if (!res.headersSent) res.status(502).send('Could not reach the show player: ' + err.message);
   }
 });
 

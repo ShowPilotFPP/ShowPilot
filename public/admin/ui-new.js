@@ -113,7 +113,7 @@
     rail.appendChild(nav);
 
     const foot = el('<div class="spn-foot"></div>');
-    const status = el('<div class="spn-status" title="FPP connection"></div>');
+    const status = el('<div class="spn-status" title="Show player connection"></div>');
     const dot = document.getElementById('headerPluginDot');
     const txt = document.getElementById('headerPluginText');
     if (dot) status.appendChild(dot);

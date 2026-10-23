@@ -1808,7 +1808,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.243</span>
+        <span class="app-version">v0.33.244</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2021,7 +2021,7 @@
                   <th style="width: 30px;"></th>
                   <th style="width: 60px;">Art</th>
                   <th>Display Name</th>
-                  <th style="width: 200px;">FPP Name</th>
+                  <th style="width: 200px;">Sequence Name</th>
                   <th>Artist</th>
                   <th style="width: 150px;" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
                   <th style="width: 70px;">Visible</th>
@@ -2037,7 +2037,7 @@
           </div>
           <h3>Add Sequence</h3>
           <div class="row">
-            <input type="text" id="newSeqName" placeholder="FPP sequence name" style="flex:1;" />
+            <input type="text" id="newSeqName" placeholder="Sequence name (as named on your show player)" style="flex:1;" />
             <input type="text" id="newSeqDisplay" placeholder="Display name" style="flex:1;" />
             <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
             <button onclick="addSequence()">Add</button>
@@ -2049,7 +2049,7 @@
           <h2 style="margin-top: 0;">Categories</h2>
           <p class="muted" style="font-size: 0.85rem; margin-top: 0;">
             Group sequences under headings on the viewer page. Turning a category <strong>off</strong> hides all of its
-            sequences from viewers and blocks votes/requests for them — it does not change what FPP plays on its own schedule.
+            sequences from viewers and blocks votes/requests for them — it does not change what your show player plays on its own schedule.
             Assign a category with the Category column above. Sequences with no category are always shown.
           </p>
           <div id="categoriesList"></div>
@@ -2974,9 +2974,9 @@
             <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Song disappears from the viewer's request grid after playing and stays hidden for the cooldown period set on each sequence.</p>
             <div class="row" style="margin-top: 0.75rem;">
               <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
-              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in FPP's normal playlist rotation</label>
+              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in the show player's normal playlist rotation</label>
             </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, ShowPilot tells the FPP plugin to disable the song in your playlist file during the cooldown window. FPP will skip it automatically and re-enable it when the cooldown expires. Requires plugin v0.13.40+.</p>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, your show player skips the song in your playlist during the cooldown window and brings it back when the cooldown ends. On FPP this needs plugin v0.13.40+.</p>
           </div>
 
           <!-- VOTING SETTINGS -->
@@ -3013,7 +3013,7 @@
               triggers a tiebreak round — viewers see an urgent banner
               listing the tied songs and have a limited window to vote
               again. If the timer expires without a clear winner,
-              all votes for that round are dumped and FPP plays its
+              all votes for that round are dumped and the show plays its
               scheduled next song.
               <br /><br />
               Disabled by default; without this, ties are broken by
@@ -3120,7 +3120,7 @@
               deliver audio externally (PulseMesh, FM transmitter, Icecast)
               and don't want ShowPilot to host audio at all. When disabled:
               the listen-on-phone button is hidden from viewers, audio
-              streaming endpoints are turned off, and the FPP plugin skips
+              streaming endpoints are turned off, and your show player skips
               uploading audio files entirely (saves disk space and sync time).
               Other audio settings below have no effect when this is off.
             </p>
@@ -3208,10 +3208,9 @@
 
             <h3 style="margin-top: 1.5rem;">Audio daemon</h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
-              ShowPilot connects to the audio daemon running on your FPP Pi to relay
-              live audio to all listeners simultaneously. The daemon is automatically
-              started by the ShowPilot FPP plugin on port 8090. Only change this if
-              you configured a different port in the plugin.
+              ShowPilot connects to the audio daemon on your show player to relay
+              live audio to all listeners simultaneously. The ShowPilot plugin starts it
+              on port 8090. Only change this if you set a different port there.
             </p>
             <div class="row" style="gap: 0.5rem; align-items: center;">
               <label for="cfg_audio_daemon_port" style="margin: 0;">Daemon port:</label>
@@ -3326,7 +3325,7 @@
             <label for="cfg_psa_trigger_mode" style="margin-top: 0.5rem;">When to fire</label>
             <select id="cfg_psa_trigger_mode" onchange="onPsaTriggerModeChange(this.value)" style="max-width: 360px;">
               <option value="interactions">After every N viewer interactions (votes / requests)</option>
-              <option value="sequences">After every N sequences FPP plays</option>
+              <option value="sequences">After every N sequences played</option>
             </select>
             <!-- Two side-by-side help blocks; only one shows based on the selected mode.
                  Concrete descriptions of what each mode means in practice — operators
@@ -3337,7 +3336,7 @@
               shows where most plays are viewer-driven. <strong>If nobody is voting or requesting, PSAs never fire.</strong>
             </div>
             <div id="psaModeHelp_sequences" class="muted" style="font-size: 0.85rem; margin: 0.4rem 0 1rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; display: none;">
-              <strong>Sequences mode.</strong> The counter ticks up each time FPP plays a sequence (PSAs themselves
+              <strong>Sequences mode.</strong> The counter ticks up each time a sequence plays (PSAs themselves
               don't count). After <em>N</em> sequences, the next plugin poll receives a PSA to play. Fires regardless
               of viewer activity — best for schedule-driven shows that want regular sponsor or safety
               reminders even when no one is voting.
@@ -3630,7 +3629,7 @@
               <label for="cfg_debug_overlay_enabled" style="margin: 0;">Show sync debug overlay on viewer page</label>
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 1rem 1.5rem;">
-              Displays a live readout (drift, FPP position, clock offset, calibration) pinned to
+              Displays a live readout (drift, player position, clock offset, calibration) pinned to
               the top of the viewer page for every visitor. Equivalent to appending
               <code>?debug=1</code> to the URL. Turn off when done.
             </p>
@@ -3649,13 +3648,13 @@
             <div class="row">
               <input type="checkbox" id="cfg_debug_sync_probe"
                      onchange="saveSetting('debug_sync_probe', this.checked ? 1 : 0)" />
-              <label for="cfg_debug_sync_probe" style="margin: 0;">Sync probe: compare relayed timing with FPP directly</label>
+              <label for="cfg_debug_sync_probe" style="margin: 0;">Sync probe: compare relayed timing with the show player directly</label>
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
-              For measuring audio sync. The player also connects straight to the FPP audio daemon and reports how far
-              the relayed position is from FPP's own, in the debug overlay and the browser console. Browsers block this on
+              For measuring audio sync. The phone player also connects straight to the show player's audio daemon and reports how far
+              the relayed position is from the show player's own, in the debug overlay and the browser console. Browsers block this on
               an <code>https://</code> page, so open the viewer page from this server's local <code>http://</code> address on
-              the same network as FPP. Turn it off when you're done.
+              the same network as the show player. Turn it off when you're done.
             </p>
             <div class="row">
               <input type="checkbox" id="cfg_player_stats_enabled"
@@ -3701,7 +3700,7 @@
 
         <div class="card">
           <h2>Show Token (for ShowPilot Plugin)</h2>
-          <p class="muted">Paste this into the FPP plugin's "Show Token" field. Treat it like a password — anyone with it can control your show.</p>
+          <p class="muted">Paste this into the "Show Token" field of the ShowPilot plugin on your show player. Treat it like a password — anyone with it can control your show.</p>
           <div class="row">
             <code id="showToken" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; word-break: break-all;">—</code>
             <button class="secondary" onclick="copyShowToken()">Copy</button>
@@ -3712,10 +3711,10 @@
         <div class="card">
           <h2>Audio Cache</h2>
           <p class="muted">
-            When the FPP plugin syncs, it uploads audio files here. Viewers
-            then stream audio directly from ShowPilot instead of through FPP,
+            When your show player syncs, it uploads audio files here. Viewers
+            then stream audio directly from ShowPilot instead of through the show player,
             which is much faster and scales to many concurrent listeners.
-            If a file isn't cached, viewers fall back to streaming through FPP.
+            If a file isn't cached, viewers fall back to streaming through the show player.
           </p>
           <div class="row" style="align-items: center; gap: 1rem; flex-wrap: wrap;">
             <div>
@@ -4460,7 +4459,7 @@
         countEl.textContent = data.fileCount;
         sizeEl.textContent = formatBytes(data.totalBytes);
         statusEl.textContent = data.fileCount === 0
-          ? 'No files cached yet — run Sync from the FPP plugin to populate.'
+          ? 'No files cached yet — run Sync from your show player to populate.'
           : '';
         statusEl.style.color = 'var(--text-dim)';
       } catch (e) {
@@ -5320,7 +5319,7 @@
       // ${...} substitution — that pattern was causing parse errors in some
       // browser configurations even though Node parses it fine.
       const secretsExplain = summary.hasConfigJs
-        ? "Restores just the jwtSecret and showToken from the backup, leaving this server's port, database path, and other config.js settings untouched. All current admin sessions will end. The FPP plugin keeps working without re-pasting the token. Server restart required."
+        ? "Restores just the jwtSecret and showToken from the backup, leaving this server's port, database path, and other config.js settings untouched. All current admin sessions will end. Your show player keeps working without re-pasting the token. Server restart required."
         : "The backup does not include a config.js — secrets cannot be restored.";
       const secretsRadios = summary.hasConfigJs
         ? '<div class="sp-restore-panel-radios">'
@@ -7396,7 +7395,7 @@
             sourceEl.textContent = '⚡ from cache';
             sourceEl.style.color = 'var(--status-success, #4ade80)';
           } else if (src === 'fpp') {
-            sourceEl.textContent = '↪ via FPP proxy';
+            sourceEl.textContent = '↪ via show player';
             sourceEl.style.color = 'var(--status-warning, #f59e0b)';
           } else {
             sourceEl.textContent = src;
@@ -7629,7 +7628,7 @@
 
     // ======= Bulk actions =======
     async function sortSequencesAlphabetically() {
-      if (!await showConfirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to FPP playlist position).')) return;
+      if (!await showConfirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to the show player\'s playlist position).')) return;
       const r = await api('/sequences/sort-alphabetically', { method: 'POST' });
       if (r.ok) loadSequences();
       else showAlert('Sort failed');
@@ -7694,7 +7693,7 @@
       const name = document.getElementById('newSeqName').value.trim();
       const display_name = document.getElementById('newSeqDisplay').value.trim();
       const artist = document.getElementById('newSeqArtist').value.trim();
-      if (!name || !display_name) { showAlert('FPP name and display name required'); return; }
+      if (!name || !display_name) { showAlert('Sequence name and display name required'); return; }
       const r = await api('/sequences', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, display_name, artist }),
@@ -7977,7 +7976,7 @@
       const count = _seqSelection.size;
       if (count === 0) return;
       const ok = await showConfirm(
-        `Delete ${count} selected sequence${count === 1 ? '' : 's'}?\n\nThis cannot be undone, but the FPP sequence files on disk are not affected.`,
+        `Delete ${count} selected sequence${count === 1 ? '' : 's'}?\n\nThis cannot be undone, but the sequence files on your show player are not affected.`,
         { danger: true, okLabel: `Delete ${count}` }
       );
       if (!ok) return;
@@ -8012,7 +8011,7 @@
       // a typed confirmation to prove it wasn't an accidental click. Same
       // pattern GitHub / DigitalOcean use for irreversible destructive ops.
       const first = await showConfirm(
-        'Delete ALL sequences from ShowPilot?\n\nThis removes every sequence from the database (play history, votes, queue, all of it). Your FPP sequence files on disk are not affected — you can re-sync from the plugin afterward to start fresh.',
+        'Delete ALL sequences from ShowPilot?\n\nThis removes every sequence from the database (play history, votes, queue, all of it). The sequence files on your show player are not affected — you can re-sync afterward to start fresh.',
         { danger: true, okLabel: 'Continue' }
       );
       if (!first) return;

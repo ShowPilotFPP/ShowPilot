@@ -3940,7 +3940,7 @@
         setInterval(() => {
           if (probe.relay.length || probe.apiVsDirect.length) {
             console.log('[ShowPilot] sync probe — relay minus direct: ' + fmtStat(probeStats(probe.relay)) +
-              ' | FPP status (' + (probe.apiField || '?') + ') minus event position: ' + fmtStat(probeStats(probe.apiVsDirect)) +
+              ' | player status (' + (probe.apiField || '?') + ') minus event position: ' + fmtStat(probeStats(probe.apiVsDirect)) +
               ' | phone↔Pi rtt ' + probe.rttMs + 'ms');
           }
         }, 5000);
@@ -4023,7 +4023,7 @@
       const changed = !prev || prev.playing !== msg.playing || prev.filename !== msg.filename;
       if (msg.playing === false) {
         if (currentSource) {
-          console.log('[ShowPilot] FPP stopped — stopping audio');
+          console.log('[ShowPilot] Show player stopped — stopping audio');
           stopAudio();
           // Any restart, even of the same song, must count as a new track.
           currentSequence = null;
@@ -4032,7 +4032,7 @@
         return;
       }
       if (changed && msg.filename && msg.filename !== currentTrackMediaName) {
-        console.log('[ShowPilot] FPP switched to', msg.filename, '— syncing now');
+        console.log('[ShowPilot] Show player switched to', msg.filename, '— syncing now');
         startFastSync();
       }
     }

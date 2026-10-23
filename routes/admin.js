@@ -1178,7 +1178,7 @@ router.post(
     const seq = getSequenceByName(seqName);
     if (!seq) return res.status(404).json({ error: 'Sequence not found' });
     if (!seq.media_name) {
-      return res.status(400).json({ error: 'Sequence has no media_name — sync with FPP first' });
+      return res.status(400).json({ error: 'Sequence has no audio file yet — sync from your show player first' });
     }
 
     try {

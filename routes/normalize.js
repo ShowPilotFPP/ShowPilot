@@ -37,20 +37,20 @@ function fppHost() {
   return EDITION === 'lite' ? '127.0.0.1' : null;
 }
 
-// Which show player ShowPilot is connected to. ShowPilot Player reports
+// Which show player ShowPilot is connected to. A non-FPP show player reports
 // itself as "player-<version>" in its heartbeat; anything else is FPP with
 // the ShowPilot plugin. Both answer the same FPP file API, so only the
 // wording changes.
 function target() {
   const v = String((getConfig() || {}).plugin_version || '');
   return /^player-/i.test(v)
-    ? { kind: 'player', name: 'ShowPilot Player' }
+    ? { kind: 'player', name: 'the show player' }
     : { kind: 'fpp', name: 'FPP' };
 }
 
 function noHostMsg() {
   return target().kind === 'player'
-    ? 'ShowPilot doesn\'t know your ShowPilot Player\'s address yet — turn on ShowPilot on the Player and press Test.'
+    ? 'ShowPilot doesn\'t know your show player\'s address yet — turn on ShowPilot on the player and press Test.'
     : 'ShowPilot doesn\'t know your FPP address yet — make sure the ShowPilot plugin has connected.';
 }
 
@@ -227,7 +227,7 @@ router.post('/batches/:id/items/:itemId/trim', (req, res) => {
 });
 
 // Send the normalized (or, with {original:true}, the original) file back
-// to the player's music folder (FPP or ShowPilot Player) under the same name.
+// to the player's music folder (FPP or another show player) under the same name.
 router.post('/batches/:id/items/:itemId/send', async (req, res) => {
   const { b, item } = findItem(req, res);
   if (!item) return;

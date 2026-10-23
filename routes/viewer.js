@@ -8,7 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, logVote, logVoteChange, getNextUp,
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, getSequenceLabel, castTiebreakVote, logVote, logVoteChange, getNextUp,
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext , updateConfig } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
@@ -260,10 +260,18 @@ router.get('/state', (req, res) => {
     }
   }
 
+  // Display names/cover for the labels, looked up directly — see
+  // getSequenceLabel (the playing song is usually not in `sequences`).
+  const npLabel = getSequenceLabel(nowPlaying.sequence_name);
+  const nextLabel = getSequenceLabel(nextUp);
+
   res.json({
     showName: cfg.show_name,
     viewerControlMode: cfg.viewer_control_mode,
     nowPlaying: nowPlaying.sequence_name || null,
+    nowPlayingDisplayName: npLabel.displayName,
+    nowPlayingImageUrl: npLabel.imageUrl ? bustCoverUrl(npLabel.imageUrl) : null,
+    nextScheduledDisplayName: nextLabel.displayName,
     nowPlayingStartedAtIso,
     nowPlayingDurationSeconds,
     // v0.33.206: server clock (for the viewer page's clock-offset estimate,

@@ -489,6 +489,8 @@ app.get('/', async (req, res) => {
       }
     }
 
+    const nextUpName = getNextUp(cfg, nowPlaying.sequence_name || null);
+    const { getSequenceLabel } = require('./lib/db');
     const html = renderTemplate(tpl, {
       config: cfg,
       sequences: sequencesBusted,
@@ -496,7 +498,10 @@ app.get('/', async (req, res) => {
       raceTapCounts,
       queue,
       nowPlaying: nowPlaying.sequence_name,
-      nextScheduled: getNextUp(cfg, nowPlaying.sequence_name || null),
+      nextScheduled: nextUpName,
+      // See getSequenceLabel: the playing song is often not in `sequences`.
+      nowPlayingLabel: getSequenceLabel(nowPlaying.sequence_name),
+      nextScheduledLabel: getSequenceLabel(nextUpName),
       nowPlayingStartedAtIso,
       nowPlayingDurationSeconds,
       isAdmin,

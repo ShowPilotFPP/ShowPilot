@@ -807,8 +807,10 @@
     // --- NOW_PLAYING text ---
     const nowEls = document.querySelectorAll('.now-playing-text');
     if (nowEls.length) {
+      // nowPlayingDisplayName (v0.33.243+) is looked up by the server; the
+      // playing song is usually not in data.sequences (cooldown, hidden).
       const nowDisplay = data.nowPlaying
-        ? (data.sequences || []).find(s => s.name === data.nowPlaying)?.display_name || data.nowPlaying
+        ? data.nowPlayingDisplayName || (data.sequences || []).find(s => s.name === data.nowPlaying)?.display_name || data.nowPlaying
         : '—';
       nowEls.forEach(el => {
         if (el.textContent !== nowDisplay) el.textContent = nowDisplay;
@@ -825,7 +827,8 @@
       const nowSeq = data.nowPlaying
         ? (data.sequences || []).find(s => s.name === data.nowPlaying)
         : null;
-      const nowImgUrl = nowSeq && nowSeq.image_url ? nowSeq.image_url : '';
+      const nowImgUrl = nowSeq && nowSeq.image_url ? nowSeq.image_url
+        : (data.nowPlaying && data.nowPlayingImageUrl) || '';
       nowImgEls.forEach(el => {
         if (nowImgUrl) {
           if (el.getAttribute('src') !== nowImgUrl) el.setAttribute('src', nowImgUrl);
@@ -848,7 +851,7 @@
     const nextEls = document.querySelectorAll('[data-showpilot-next], [data-openfalcon-next]');
     if (nextEls.length) {
       const nextDisplay = data.nextScheduled
-        ? (data.sequences || []).find(s => s.name === data.nextScheduled)?.display_name || data.nextScheduled
+        ? data.nextScheduledDisplayName || (data.sequences || []).find(s => s.name === data.nextScheduled)?.display_name || data.nextScheduled
         : '—';
       nextEls.forEach(el => {
         if (el.textContent !== nextDisplay) el.textContent = nextDisplay;

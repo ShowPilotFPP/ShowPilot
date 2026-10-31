@@ -1403,11 +1403,19 @@
     #sequencesTable.hide-status .col-status, #sequencesTable.hide-index .col-index { display: none !important; }
     .sp-menu-list .sp-col-row { display: flex; align-items: center; gap: 0.25rem; }
     .sp-menu-list .sp-col-row label { flex: 1; }
-    .sp-menu-list .sp-col-row .sp-col-fixed { flex: 1; padding: 0.3rem 0.4rem 0.3rem 1.9rem; font-size: 0.85rem; white-space: nowrap; }
+    .sp-menu-list .sp-col-row .sp-col-fixed { flex: 1; padding: 0.3rem 0.4rem 0.3rem calc(0.4rem + 13px + 0.5rem); font-size: 0.85rem; white-space: nowrap; }
+    .sp-menu-list .sp-menu-hint { font-size: 0.75rem; color: var(--text-muted); padding: 0 0.4rem 0.3rem; }
     .sp-menu-list .sp-col-row button { padding: 0 !important; width: 1.6rem; height: 1.6rem; min-height: 1.6rem !important; min-width: 1.6rem;
                                        display: inline-flex !important; align-items: center; justify-content: center; font-size: 0.8rem; margin: 0; }
     .sp-menu-list .sp-col-reset { display: block; width: 100%; margin-top: 0.35rem; font-size: 0.8rem; }
     #seqColumnsList { max-height: 70vh; overflow-y: auto; min-width: 250px; }
+    /* Drag-to-reorder lists (Columns menu, Categories) — v0.33.248-beta.5 */
+    .sp-drag-row { cursor: grab; border-radius: 6px; }
+    .sp-drag-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .sp-drag-row.sp-dragging { opacity: 0.4; }
+    .sp-drag-row.sp-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+    .sp-drag-row.sp-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+    .sp-grip { color: var(--text-dim, var(--text-muted)); cursor: grab; padding: 0 0.35rem; user-select: none; letter-spacing: -1px; }
     .sp-menu-list label { display: flex; align-items: center; gap: 0.5rem; margin: 0; padding: 0.3rem 0.4rem; border-radius: 6px;
                           font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
     .sp-menu-list label:hover { background: var(--bg-tertiary); }
@@ -1898,7 +1906,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.248-beta.4</span>
+        <span class="app-version">v0.33.248-beta.5</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -7213,8 +7221,11 @@
           b.addEventListener('click', fn);
           return b;
         };
-        const up = mkBtn('↑', 'Move up (viewer page order)', () => moveCategory(idx, -1), 'secondary', idx === 0);
-        const down = mkBtn('↓', 'Move down (viewer page order)', () => moveCategory(idx, 1), 'secondary', idx === categoriesCache.length - 1);
+        // v0.33.248-beta.5: drag the row (⋮⋮) to reorder instead of ↑/↓.
+        row.dataset.key = c.name;
+        row.title = 'Drag to reorder (viewer page order), or Alt+↑ / Alt+↓';
+        const grip = document.createElement('span');
+        grip.className = 'sp-grip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
         const ren = mkBtn('Rename', 'Rename this category', async () => {
           const nn = await showPrompt('Rename category', c.name);
           if (nn && nn.trim() && nn.trim() !== c.name) categoryAction('/categories/rename', { name: c.name, new_name: nn.trim() });
@@ -7224,23 +7235,18 @@
           if (ok) categoryAction('/categories/delete', { name: c.name });
         }, 'danger');
 
-        [tog, name, count, up, down, ren, del].forEach(el => row.appendChild(el));
+        [grip, tog, name, count, ren, del].forEach(el => row.appendChild(el));
         host.appendChild(row);
       });
+      if (categoriesCache.length > 1) {
+        enableDragReorder(host, '.row', (names) => categoryAction('/categories/reorder', { names }));
+      }
     }
 
     async function categoryAction(path, body) {
       const r = await api(path, { method: 'POST', body: JSON.stringify(body) });
       if (!r.ok) showAlert('Category update failed — the name may be empty or already in use.');
       await loadSequences(); // also reloads categories
-    }
-
-    function moveCategory(idx, delta) {
-      const names = categoriesCache.map(c => c.name);
-      const j = idx + delta;
-      if (j < 0 || j >= names.length) return;
-      [names[idx], names[j]] = [names[j], names[idx]];
-      categoryAction('/categories/reorder', { names });
     }
 
     function addCategory() {
@@ -7412,6 +7418,55 @@
       return String(s || '').replace(/"/g, '&quot;');
     }
 
+    // ======= Drag-to-reorder for short lists (v0.33.248-beta.5) =======
+    // Rows (direct children of `host` matching `rowSel`, each with
+    // data-key) can be dragged into place; keyboard: focus a row and press
+    // Alt+↑ / Alt+↓. onReorder(keys) gets the new order.
+    function enableDragReorder(host, rowSel, onReorder) {
+      let dragEl = null;
+      const rows = () => Array.from(host.querySelectorAll(':scope > ' + rowSel));
+      const clearMarks = () => rows().forEach(r => r.classList.remove('sp-drop-before', 'sp-drop-after'));
+      const done = () => onReorder(rows().map(r => r.dataset.key));
+      rows().forEach(row => {
+        row.classList.add('sp-drag-row');
+        row.draggable = true;
+        row.tabIndex = 0;
+        row.addEventListener('dragstart', (e) => {
+          dragEl = row; row.classList.add('sp-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          try { e.dataTransfer.setData('text/plain', row.dataset.key || ''); } catch (_) {}
+        });
+        row.addEventListener('dragend', () => { row.classList.remove('sp-dragging'); dragEl = null; clearMarks(); });
+        row.addEventListener('dragover', (e) => {
+          if (!dragEl || dragEl === row) return;
+          e.preventDefault();
+          const r = row.getBoundingClientRect();
+          const before = e.clientY < r.top + r.height / 2;
+          row.classList.toggle('sp-drop-before', before);
+          row.classList.toggle('sp-drop-after', !before);
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('sp-drop-before', 'sp-drop-after'));
+        row.addEventListener('drop', (e) => {
+          e.preventDefault();
+          if (!dragEl || dragEl === row) return;
+          const before = row.classList.contains('sp-drop-before');
+          clearMarks();
+          host.insertBefore(dragEl, before ? row : row.nextSibling);
+          done();
+        });
+        row.addEventListener('keydown', (e) => {
+          if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+          e.preventDefault();
+          const list = rows(), i = list.indexOf(row);
+          const j = e.key === 'ArrowUp' ? i - 1 : i + 1;
+          if (j < 0 || j >= list.length) return;
+          host.insertBefore(row, e.key === 'ArrowUp' ? list[j] : list[j].nextSibling);
+          row.focus();
+          done();
+        });
+      });
+    }
+
     // Inline SVG icons for the Sequences rows (v0.33.248-beta.2).
     const SEQ_ICONS = (() => {
       const i = (d, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -7511,14 +7566,6 @@
       saveSeqColumnPrefs();
       applySeqColumns();
     }
-    function moveSeqColumn(key, delta) {
-      const i = _seqColOrder.indexOf(key), j = i + delta;
-      if (i < 0 || j < 0 || j >= _seqColOrder.length) return;
-      [_seqColOrder[i], _seqColOrder[j]] = [_seqColOrder[j], _seqColOrder[i]];
-      saveSeqColumnPrefs();
-      applySeqColumns();
-      buildSeqColumnsMenu();
-    }
     function resetSeqColumns() {
       _seqColOrder = SEQ_DEFAULT_ORDER.slice();
       _seqHiddenCols = new Set(SEQ_COLS.filter(c => c.defaultHidden).map(c => c.key));
@@ -7542,27 +7589,35 @@
         return lab;
       };
       head('Columns (left to right)');
-      _seqColOrder.forEach((key, i) => {
+      const hint = document.createElement('div');
+      hint.className = 'sp-menu-hint'; hint.textContent = 'Drag to reorder';
+      host.appendChild(hint);
+      const list = document.createElement('div');
+      list.className = 'sp-col-list';
+      _seqColOrder.forEach((key) => {
         const c = SEQ_COLS.find(x => x.key === key);
         if (!c) return;
         const row = document.createElement('div');
         row.className = 'sp-col-row';
+        row.dataset.key = key;
+        row.title = 'Drag to move (or Alt+↑ / Alt+↓)';
+        const grip = document.createElement('span');
+        grip.className = 'sp-grip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
+        row.appendChild(grip);
         if (c.fixed) {
           const span = document.createElement('span');
-          span.className = 'sp-col-fixed'; span.textContent = c.label; span.title = 'Always shown';
+          span.className = 'sp-col-fixed'; span.textContent = c.label + ' (always shown)';
           row.appendChild(span);
         } else {
           row.appendChild(check(c));
         }
-        const mk = (txt, title, delta, disabled) => {
-          const b = document.createElement('button');
-          b.type = 'button'; b.className = 'secondary'; b.textContent = txt; b.title = title; b.disabled = disabled;
-          b.addEventListener('click', (e) => { e.preventDefault(); moveSeqColumn(key, delta); });
-          return b;
-        };
-        row.appendChild(mk('↑', 'Move left', -1, i === 0));
-        row.appendChild(mk('↓', 'Move right', 1, i === _seqColOrder.length - 1));
-        host.appendChild(row);
+        list.appendChild(row);
+      });
+      host.appendChild(list);
+      enableDragReorder(list, '.sp-col-row', (keys) => {
+        _seqColOrder = keys;
+        saveSeqColumnPrefs();
+        applySeqColumns();
       });
       head('Row buttons');
       SEQ_BUTTONS.forEach(c => host.appendChild(check(c)));
@@ -7658,7 +7713,9 @@
     document.addEventListener('click', (e) => {
       ['seqExportMenu', 'seqColumnsMenu'].forEach(id => {
         const m = document.getElementById(id);
-        if (m && m.open && !m.contains(e.target)) m.open = false;
+        // composedPath() is fixed when the click starts, so a click on an item
+        // the menu then rebuilds still counts as inside (beta.4 closed it).
+        if (m && m.open && !e.composedPath().includes(m)) m.open = false;
       });
     });
     function exportSequencesCsv(format) {

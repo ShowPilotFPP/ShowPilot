@@ -3559,6 +3559,11 @@
     let trackChangeToken = 0;
     let trackChangeAt = 0;        // when the current track's load started (0 = none pending)
     let trackRetryNotBefore = 0;  // backoff after a failed load
+    // v0.33.246: set when the listener presses Pause. While true, nothing
+    // restarts audio on its own (song changes, the 15s watchdog, the show
+    // stopping and starting) — only pressing Play again, or closing and
+    // reopening the player, clears it.
+    let userPaused = false;
     let resumeOnTapArmed = false;
 
     // Some devices (Android audio-route/focus changes, e.g. Bluetooth car
@@ -4229,21 +4234,30 @@
     closeBtn.onclick = () => setMode('closed');
     minimizedPill.onclick = () => setMode('open');
     playBtn.onclick = () => {
-      // With HTML5 audio, the playBtn acts as a stop/restart toggle.
-      // Stop: clear out the audio element so the user can re-sync.
-      // Restart: kick a syncOnce() which triggers handleTrackChange with
-      // fresh data, and that builds a new <audio> element seeked to the
-      // current expected position.
-      if (htmlAudio && !htmlAudio.paused) {
+      // v0.33.246 (issue #33): a real Pause/Play toggle.
+      // Pause: stop audio and stay stopped — userPaused blocks every
+      // automatic restart path (song change, watchdog, show restart).
+      // Play: clear the flag and force a fresh load so audio rejoins the
+      // show at its LIVE position, not where the listener paused.
+      // (Before this, Pause stopped audio and immediately re-synced, and
+      // the 15s watchdog restarted it a few seconds later.)
+      if (!userPaused && (currentSource || (htmlAudio && !htmlAudio.paused))) {
+        userPaused = true;
         stopAudio();
-        statusEl.textContent = 'Resuming…';
+        trackChangeAt = 0;
         setPlayIcon(false);
-        syncOnce();
-      } else {
-        // Either nothing playing yet, or audio is paused. Either way,
-        // a fresh sync will rebuild and seek correctly.
-        syncOnce();
+        statusEl.textContent = _pt('Paused');
+        return;
       }
+      userPaused = false;
+      // Resume inside the tap so iOS allows it.
+      if (audioCtx && audioCtx.state === 'suspended') {
+        try { audioCtx.resume().catch(() => {}); } catch {}
+      }
+      currentSequence = null;   // treat as a new track: rebuild at live position
+      trackRetryNotBefore = 0;
+      statusEl.textContent = _pt('Loading audio…');
+      syncOnce();
     };
     muteBtn.onclick = () => {
       isMuted = !isMuted;
@@ -4267,6 +4281,7 @@
         panel.style.transform = 'translateY(100%)';
         minimizedPill.style.display = 'none';
         btn.style.display = 'flex';
+        userPaused = false; // reopening the player starts fresh
         stopAudio();
         teardown();
       } else if (mode === 'open') {
@@ -4863,7 +4878,7 @@
         // Track changed?
         if (data.sequenceName !== currentSequence) {
           if (Date.now() >= trackRetryNotBefore) handleTrackChange(data);
-        } else if (!currentSource && trackChangeAt && audioCtx &&
+        } else if (!userPaused && !currentSource && trackChangeAt && audioCtx &&
                    (!htmlAudio || htmlAudio._isWebAudio) &&
                    Date.now() - trackChangeAt > 15000) {
           // v0.33.203 watchdog: the server says this song is playing, we
@@ -4957,6 +4972,15 @@
       setupMarquee(artistEl, artistWrap);
       coverEl.src = data.imageUrl || '';
       coverEl.style.visibility = data.imageUrl ? 'visible' : 'hidden';
+      // v0.33.246: listener paused — show the new song's details but don't
+      // load or play it. Play rebuilds from scratch (currentSequence reset).
+      if (userPaused) {
+        stopAudio();
+        trackChangeAt = 0;
+        setPlayIcon(false);
+        statusEl.textContent = _pt('Paused');
+        return;
+      }
       statusEl.textContent = 'Loading audio…';
       setPlayIcon(false);
 

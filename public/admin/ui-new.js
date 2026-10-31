@@ -43,8 +43,37 @@
 
   // Phones and touch-only devices (v0.33.212+): no hover, so the rail is a
   // slide-out menu instead. Must match the media query in ui-new.css.
-  const DRAWER_QUERY = '(max-width: 760px), (hover: none)';
-  const isDrawerMode = () => { try { return window.matchMedia(DRAWER_QUERY).matches; } catch (_) { return false; } };
+  //
+  // v0.33.247-beta.4: decided here and applied as body.spn-drawer (ui-new.css
+  // keys off that class). A media query alone got touchscreen PCs wrong:
+  // Chrome on some of them reports no hover at all even with a mouse or
+  // trackpad attached, so they got the phone menu (and its hover flicker).
+  // Rule: narrow screens always get the drawer; wider screens get it only
+  // when the browser reports no hover AND no mouse has been used here. The
+  // first real mouse movement (pointerType "mouse") switches to the desktop
+  // rail, and that's remembered in this browser.
+  const NARROW_QUERY = '(max-width: 760px)';
+  const NO_HOVER_QUERY = '(any-hover: none)';
+  const mq = (q) => { try { return window.matchMedia(q).matches; } catch (_) { return false; } };
+  let sawMouse = (() => { try { return localStorage.getItem('sp_saw_mouse') === '1'; } catch (_) { return false; } })();
+  const isDrawerMode = () => document.body.classList.contains('spn-drawer');
+  function updateDrawerMode() {
+    const on = mq(NARROW_QUERY) || (mq(NO_HOVER_QUERY) && !sawMouse);
+    if (!on) closeDrawer(false);
+    document.body.classList.toggle('spn-drawer', on);
+  }
+  function watchDrawerMode() {
+    updateDrawerMode();
+    [NARROW_QUERY, NO_HOVER_QUERY].forEach(q => {
+      try { window.matchMedia(q).addEventListener('change', updateDrawerMode); } catch (_) {}
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (sawMouse || e.pointerType !== 'mouse') return;
+      sawMouse = true;
+      try { localStorage.setItem('sp_saw_mouse', '1'); } catch (_) {}
+      updateDrawerMode();
+    }, { passive: true });
+  }
   function openDrawer() {
     document.body.classList.add('spn-drawer-open');
     const b = document.getElementById('spnMenuBtn');
@@ -398,6 +427,7 @@
       if (applied || !me || me.adminLayout === 'classic') return;
       applied = true;
       document.body.classList.add('ui-new');
+      watchDrawerMode();
       sections = readSections();
       buildRail();
       buildTopbar();

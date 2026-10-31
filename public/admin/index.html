@@ -1328,6 +1328,38 @@
                        border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
                        color: var(--text-dim); font-size: 0.7rem; cursor: pointer; }
     .editable { cursor: text; padding: 0.25rem 0.4rem; border-radius: 4px; min-width: 60px; display: inline-block; }
+    /* v0.33.247: Sequences page — cover edit overlay, filters, icon actions, compact rows */
+    .art-wrap { position: relative; width: 44px; height: 44px; cursor: pointer; }
+    .art-wrap .art-edit { position: absolute; inset: 0; border-radius: 6px; display: flex; align-items: center;
+                          justify-content: center; background: rgba(0,0,0,0.55); color: #fff; font-size: 1rem;
+                          opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+    .art-wrap:hover .art-edit, .art-wrap:focus-visible .art-edit { opacity: 1; }
+    .seq-filterbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .seq-filterbar input[type=search] { width: 240px; max-width: 100%; padding: 0.4rem 0.6rem; }
+    .seq-pill { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 999px;
+                padding: 0.2rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+    .seq-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .seq-catchip { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.2rem 0.4rem 0.2rem 0.7rem;
+                   font-size: 0.8rem; background: var(--bg-input); border: 1px solid var(--accent); }
+    .seq-catchip button { padding: 0 0.35rem; font-size: 0.8rem; line-height: 1.2; }
+    .seq-icon-btn { padding: 0.3rem 0.5rem !important; min-width: 2rem; margin-right: 0.3rem; }
+    .seq-icon-slot { display: inline-block; width: 2rem; margin-right: 0.3rem; }
+    .seq-cat-filter { padding: 0.15rem 0.35rem !important; margin-left: 0.25rem; font-size: 0.75rem; }
+    .seq-status { display: inline-block; margin-top: 0.2rem; }
+    tr.seq-inactive td { opacity: 0.55; }
+    tr.seq-inactive td:first-child, tr.seq-inactive td:last-child { opacity: 1; }
+    table.seq-compact td { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    table.seq-compact .art-wrap, table.seq-compact .art-thumb, table.seq-compact .art-placeholder { width: 30px; height: 30px; }
+    table.seq-compact .seq-clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+                                  white-space: nowrap; vertical-align: middle; }
+    table.seq-compact .seq-clip:focus { max-width: none; white-space: normal; }
+    table.seq-compact .seq-status { margin: 0 0 0 0.3rem; }
+    .sp-menu { position: relative; display: inline-block; }
+    .sp-menu > summary { list-style: none; cursor: pointer; }
+    .sp-menu > summary::-webkit-details-marker { display: none; }
+    .sp-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 220px; background: var(--bg-elevated, var(--bg-input));
+                    border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .sp-menu-list button { display: block; width: 100%; text-align: left; margin: 0.15rem 0; }
     .editable:hover { background: var(--bg-tertiary); }
     .editable:focus { outline: 2px solid var(--accent); background: var(--bg-input); }
 
@@ -1808,7 +1840,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.247</span>
+        <span class="app-version">v0.33.248-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1992,9 +2024,32 @@
               <button class="secondary" onclick="fetchAllCovers()">Fetch Covers</button>
               <button class="secondary" onclick="scrapeAllMetadata()" title="Auto-fill display names and artist info by looking up filenames online">Auto-Fill Song Info</button>
               <button class="secondary" onclick="sortSequencesAlphabetically()">Sort A→Z</button>
-              <button class="secondary" onclick="deleteInactiveSequences()">Delete Inactive</button>
+              <button class="secondary" onclick="document.getElementById('seqImportFile').click()" title="Update sequences from a ShowPilot or Remote Falcon sequence CSV">Import CSV</button>
+              <input type="file" id="seqImportFile" accept=".csv,text/csv" style="display:none;" onchange="importSequencesCsv(this)" />
+              <details class="sp-menu" id="seqExportMenu">
+                <summary class="button secondary" style="display:inline-block; padding: 0.5rem 0.9rem; border: 1px solid var(--border); border-radius: 6px;">Export CSV ▾</summary>
+                <div class="sp-menu-list">
+                  <button class="secondary" onclick="exportSequencesCsv('showpilot')" title="Every field, including the toggles and cooldown — a full backup of the list">ShowPilot (all fields)</button>
+                  <button class="secondary" onclick="exportSequencesCsv('rf')" title="Remote Falcon's six columns: name, display name, artist, group, image, category">Remote Falcon format</button>
+                </div>
+              </details>
+              <button class="secondary" onclick="deleteInactiveSequences()" title="Delete sequences no longer in your show player's playlist, and ones switched off everywhere">Delete Inactive</button>
               <button class="danger" onclick="deleteAllSequences()" title="Delete every sequence in the database">Delete All</button>
             </div>
+          </div>
+
+          <!-- v0.33.247: search + filter pills + compact view -->
+          <div class="seq-filterbar">
+            <input type="search" id="seqSearch" placeholder="Search sequences…" oninput="applySeqFilter()" />
+            <button class="seq-pill active" data-seq-filter="all" onclick="setSeqFilter('all')">All</button>
+            <button class="seq-pill" data-seq-filter="active" onclick="setSeqFilter('active')" title="In your show player's playlist">Active</button>
+            <button class="seq-pill" data-seq-filter="inactive" onclick="setSeqFilter('inactive')" title="No longer in the playlist — kept with all their details, hidden from viewers">Inactive</button>
+            <button class="seq-pill" data-seq-filter="hidden" onclick="setSeqFilter('hidden')" title="Visible switched off">Hidden</button>
+            <span id="seqCatChip" class="seq-catchip" style="display:none;"><span id="seqCatChipText"></span><button class="secondary" onclick="setSeqCategoryFilter(null)" title="Clear category filter">✕</button></span>
+            <span style="flex:1;"></span>
+            <label style="display:flex; align-items:center; gap:0.35rem; margin:0; font-size:0.85rem; cursor:pointer;" title="Shorter rows: smaller art, long names cut off with …">
+              <input type="checkbox" id="seqCompact" onchange="setSeqCompact(this.checked)" /> Compact rows
+            </label>
           </div>
 
           <!-- Bulk action toolbar — only visible when one or more rows are selected.
@@ -2012,7 +2067,7 @@
           </div>
 
           <div style="overflow-x: auto;">
-            <table style="min-width: 1200px;">
+            <table id="sequencesTable" style="min-width: 1100px;">
               <thead>
                 <tr>
                   <th style="width: 30px;">
@@ -2029,11 +2084,12 @@
                   <th style="width: 70px;">Jukebox</th>
                   <th style="width: 60px;">PSA</th>
                   <th style="width: 90px;" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
-                  <th></th>
+                  <th style="width: 150px;"></th>
                 </tr>
               </thead>
               <tbody id="sequencesBody"></tbody>
             </table>
+            <p id="seqNoMatch" class="muted" style="display:none; padding: 0.75rem;">No sequences match the current search or filter.</p>
           </div>
           <h3>Add Sequence</h3>
           <div class="row">
@@ -7180,7 +7236,11 @@
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
-      document.getElementById('sequenceCount').textContent = `(${r.data.length})`;
+      {
+        const inactive = r.data.filter(s => s.active === 0).length;
+        document.getElementById('sequenceCount').textContent = inactive
+          ? `(${r.data.length - inactive} active, ${inactive} inactive)` : `(${r.data.length})`;
+      }
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
       // tbody.innerHTML wipes out any open preview row, so reset the
@@ -7191,6 +7251,7 @@
       r.data.forEach(seq => {
         tbody.appendChild(buildSequenceRow(seq));
       });
+      applySeqFilter();
       // Drop selection entries for sequences that no longer exist (deleted
       // out from under us) so the toolbar count reflects reality.
       const liveIds = new Set(r.data.map(s => s.id));
@@ -7213,19 +7274,21 @@
       tr.dataset.seqDisplay = seq.display_name || seq.name || '';
 
       const art = seq.image_url
-        ? `<img class="art-thumb" src="${escapeAttr(seq.image_url)}" onclick="promptImageUrl(${seq.id}, ${JSON.stringify(seq.image_url || '').replace(/"/g,'&quot;')})" title="Click to change artwork" />`
-        : `<div class="art-placeholder" onclick="promptImageUrl(${seq.id}, '')" title="Click to add artwork">+</div>`;
+        ? `<div class="art-wrap" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Change cover art"><img class="art-thumb" src="${escapeAttr(seq.image_url)}" alt="" /><span class="art-edit" aria-hidden="true">✎</span></div>`
+        : `<div class="art-placeholder" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Add cover art">+</div>`;
+      const inactive = seq.active === 0;
+      if (inactive) tr.classList.add('seq-inactive');
 
       tr.innerHTML = `
         <td><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
         <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
         <td>${art}</td>
-        <td><span class="editable" contenteditable="true"
+        <td><span class="editable seq-clip" contenteditable="true"
                   onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
-        <td><code>${escapeHtml(seq.name)}</code></td>
-        <td><span class="editable" contenteditable="true"
+        <td><code class="seq-clip" title="${escapeAttr(seq.name)}">${escapeHtml(seq.name)}</code>${inactive ? ' <span class="pill pill-neutral seq-status" title="No longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again if the playlist lists it.">Inactive</span>' : ''}</td>
+        <td><span class="editable seq-clip" contenteditable="true"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
-        <td><select class="seq-category-select" style="width: 140px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select></td>
+        <td style="white-space: nowrap;"><select class="seq-category-select" style="width: 120px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category">⏷</button>' : ''}</td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -7235,10 +7298,7 @@
                    style="width: 70px; padding: 0.3rem 0.4rem; font-size: 0.9rem;"
                    title="Minutes to suppress this sequence after it plays. 0 = no cooldown." /></td>
         <td style="white-space: nowrap;">
-          <button class="secondary" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" style="margin-right: 0.4rem;">▶</button>
-          <button class="secondary" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" style="margin-right: 0.4rem;">🔍 Search</button>
-          ${seq.media_name ? '<button class="secondary sp-lang-btn" style="margin-right: 0.4rem;" title="Manage alternate-language audio variants">🌐 Languages</button>' : ''}
-          <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
+          <button class="secondary seq-icon-btn" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" aria-label="Preview">▶</button><button class="secondary seq-icon-btn" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" aria-label="Search">🔍</button>${seq.media_name ? '<button class="secondary seq-icon-btn sp-lang-btn" title="Manage alternate-language audio variants" aria-label="Languages">🌐</button>' : '<span class="seq-icon-slot"></span>'}<button class="danger seq-icon-btn" onclick="delSeq(${seq.id})" title="Delete this sequence" aria-label="Delete">🗑</button>
         </td>
       `;
 
@@ -7248,6 +7308,8 @@
         fillCategorySelect(catSel, seq.category || '', '— none —');
         catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
       }
+      const catFilterBtn = tr.querySelector('.seq-cat-filter');
+      if (catFilterBtn) catFilterBtn.addEventListener('click', () => setSeqCategoryFilter(seq.category));
 
       // Language variants button — wired here to avoid inline onclick quoting issues
       const langBtn = tr.querySelector('.sp-lang-btn');
@@ -7269,6 +7331,131 @@
 
     function escapeAttr(s) {
       return String(s || '').replace(/"/g, '&quot;');
+    }
+
+    // ======= Search / filters / compact view (v0.33.247) =======
+    // Filtering only hides rows (display:none) so drag-reorder and the saved
+    // order still cover every sequence.
+    let _seqFilter = 'all';
+    let _seqCategoryFilter = null;
+
+    function setSeqFilter(f) {
+      _seqFilter = f;
+      document.querySelectorAll('.seq-pill').forEach(b => b.classList.toggle('active', b.dataset.seqFilter === f));
+      applySeqFilter();
+    }
+
+    function setSeqCategoryFilter(cat) {
+      _seqCategoryFilter = cat ? String(cat) : null;
+      const chip = document.getElementById('seqCatChip');
+      if (chip) chip.style.display = _seqCategoryFilter ? 'inline-flex' : 'none';
+      const t = document.getElementById('seqCatChipText');
+      if (t) t.textContent = 'Category: ' + (_seqCategoryFilter || '');
+      applySeqFilter();
+    }
+
+    function seqMatchesFilter(seq, q) {
+      if (_seqFilter === 'active' && seq.active === 0) return false;
+      if (_seqFilter === 'inactive' && seq.active !== 0) return false;
+      if (_seqFilter === 'hidden' && seq.visible) return false;
+      if (_seqCategoryFilter && String(seq.category || '').toLowerCase() !== _seqCategoryFilter.toLowerCase()) return false;
+      if (q) {
+        const hay = [seq.display_name, seq.name, seq.artist, seq.category].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }
+
+    function applySeqFilter() {
+      const q = (document.getElementById('seqSearch')?.value || '').trim().toLowerCase();
+      const byId = new Map((sequencesCache || []).map(s => [s.id, s]));
+      let shown = 0;
+      document.querySelectorAll('#sequencesBody tr[data-id]').forEach(tr => {
+        const seq = byId.get(Number(tr.dataset.id));
+        const ok = !seq || seqMatchesFilter(seq, q);
+        tr.style.display = ok ? '' : 'none';
+        if (ok) shown++;
+        const prev = tr.nextElementSibling;
+        if (prev && prev.classList.contains('seq-preview-row') && !ok) closeSeqPreview();
+      });
+      const all = sequencesCache || [];
+      const counts = {
+        all: all.length,
+        active: all.filter(s => s.active !== 0).length,
+        inactive: all.filter(s => s.active === 0).length,
+        hidden: all.filter(s => !s.visible).length,
+      };
+      const labels = { all: 'All', active: 'Active', inactive: 'Inactive', hidden: 'Hidden' };
+      document.querySelectorAll('.seq-pill').forEach(b => {
+        const k = b.dataset.seqFilter;
+        b.textContent = `${labels[k]} (${counts[k]})`;
+      });
+      const none = document.getElementById('seqNoMatch');
+      if (none) none.style.display = (all.length && !shown) ? '' : 'none';
+      syncSelectAllState();
+    }
+
+    function setSeqCompact(on) {
+      const t = document.getElementById('sequencesTable');
+      if (t) t.classList.toggle('seq-compact', !!on);
+      try { localStorage.setItem('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
+    }
+    (function initSeqCompact() {
+      let on = false;
+      try { on = localStorage.getItem('sp_seq_compact') === '1'; } catch (e) {}
+      const apply = () => {
+        const cb = document.getElementById('seqCompact');
+        if (cb) cb.checked = on;
+        setSeqCompact(on);
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply); else apply();
+    })();
+
+    // ======= Sequence list CSV import / export (v0.33.247) =======
+    document.addEventListener('click', (e) => {
+      const m = document.getElementById('seqExportMenu');
+      if (m && m.open && !m.contains(e.target)) m.open = false;
+    });
+    function exportSequencesCsv(format) {
+      const m = document.getElementById('seqExportMenu');
+      if (m) m.open = false;
+      const a = document.createElement('a');
+      a.href = '/api/admin/sequences/export?format=' + encodeURIComponent(format);
+      a.download = '';
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    async function importSequencesCsv(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      const csv = await file.text();
+      const send = async (body) => {
+        const res = await fetch('/api/admin/sequences/import', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        let data = null; try { data = await res.json(); } catch (e) {}
+        return { ok: res.ok, data };
+      };
+      const dry = await send({ csv, dryRun: true });
+      if (!dry.ok) { showAlert('Import failed: ' + ((dry.data && dry.data.error) || 'the file could not be read.')); return; }
+      const d = dry.data;
+      if (!d.total) { showAlert('No sequences found in that file.'); return; }
+      let msg = `${d.total} sequence(s) in the file.\n\n${d.matched} match sequences you already have — their details will be updated from the file (blank cells are left alone).`;
+      if (!d.matched && !d.missing) return;
+      let addMissing = false;
+      if (d.missing) {
+        msg += `\n\n${d.missing} aren't in ShowPilot yet` + (d.missingNames.length ? ` (e.g. ${d.missingNames.slice(0, 3).join(', ')}).` : '.');
+      }
+      if (!await showConfirm(msg, { okLabel: 'Import' })) return;
+      if (d.missing) {
+        addMissing = await showConfirm(`Also add the ${d.missing} sequence(s) that aren't in ShowPilot yet?\n\nThey'll be added as Inactive (hidden from viewers) and become active, keeping these details, once your show player's playlist includes them.`, { okLabel: 'Add them', cancelLabel: 'Skip' });
+      }
+      const r = await send({ csv, addMissing });
+      if (!r.ok) { showAlert('Import failed: ' + ((r.data && r.data.error) || 'unknown error')); return; }
+      showAlert(`Import done: ${r.data.updated} updated` + (r.data.added ? `, ${r.data.added} added as inactive.` : '.'));
+      loadSequences();
     }
 
     async function updateSeqField(id, field, value) {
@@ -7444,6 +7631,12 @@
               <button class="secondary" onclick="setCoverFromUrl(${seq.id})">Use URL</button>
               <button class="danger" onclick="clearCover(${seq.id})">Remove</button>
             </div>
+            <div class="row" style="gap: 0.5rem; margin-top: 0.5rem; align-items: center;">
+              <label style="margin: 0; flex-shrink: 0;">Or upload:</label>
+              <button class="secondary" onclick="document.getElementById('coverUploadFile').click()">Choose image…</button>
+              <input type="file" id="coverUploadFile" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="uploadCover(${seq.id}, this)" />
+              <span class="muted" style="font-size: 0.8rem;">JPEG, PNG, GIF or WebP, up to 10 MB. Square works best.</span>
+            </div>
             <div id="coverResults" class="cover-grid"></div>
             <div id="coverStatus" class="muted" style="margin-top: 0.75rem;"></div>
           </div>
@@ -7520,6 +7713,26 @@
         setTimeout(() => { closeCoverModal(); loadSequences(); }, 700);
       } else {
         status.textContent = 'Failed: ' + (r.data?.error || 'unknown');
+      }
+    }
+
+    async function uploadCover(seqId, input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      const status = document.getElementById('coverStatus');
+      if (file.size > 10 * 1024 * 1024) { status.textContent = 'That image is over 10 MB.'; return; }
+      status.textContent = 'Uploading…';
+      const res = await fetch(`/api/admin/sequences/${seqId}/cover-upload`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      });
+      let data = null; try { data = await res.json(); } catch (e) {}
+      if (res.ok) {
+        status.textContent = '✓ Cover updated';
+        setTimeout(() => { closeCoverModal(); loadSequences(); }, 700);
+      } else {
+        status.textContent = 'Upload failed: ' + ((data && data.error) || 'HTTP ' + res.status);
       }
     }
 
@@ -7635,8 +7848,11 @@
     }
 
     async function deleteInactiveSequences() {
-      // "Inactive" = not visible AND not votable AND not jukeboxable
-      if (!await showConfirm('Delete all sequences that are NOT visible, NOT votable, and NOT jukeboxable?', { danger: true, okLabel: 'Delete' })) return;
+      // "Inactive" = no longer in the show player's playlist, OR switched off
+      // everywhere (not visible, votable or jukeboxable, not a PSA).
+      const n = (sequencesCache || []).filter(s => s.active === 0 || (!s.visible && !s.votable && !s.jukeboxable && !s.is_psa)).length;
+      if (!n) { showAlert('There are no inactive sequences to delete.'); return; }
+      if (!await showConfirm(`Delete ${n} inactive sequence(s)?\n\nThat's sequences no longer in your show player's playlist, plus ones switched off everywhere (not visible, votable or jukebox). Their display names, artists, covers and categories are deleted too.`, { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/sequences/delete-inactive', { method: 'POST' });
       if (r.ok) {
         showAlert('Deleted ' + (r.data.deleted || 0) + ' sequence(s)');
@@ -7908,7 +8124,8 @@
     }
 
     function toggleSelectAllSeqs(checked) {
-      const checkboxes = document.querySelectorAll('.seq-row-check');
+      // v0.33.247: only rows the current search/filter shows.
+      const checkboxes = Array.from(document.querySelectorAll('.seq-row-check')).filter(cb => cb.closest('tr').style.display !== 'none');
       checkboxes.forEach(cb => {
         cb.checked = checked;
         const id = Number(cb.dataset.seqId);
@@ -7921,7 +8138,7 @@
     function syncSelectAllState() {
       const all = document.getElementById('seqSelectAll');
       if (!all) return;
-      const checkboxes = document.querySelectorAll('.seq-row-check');
+      const checkboxes = Array.from(document.querySelectorAll('.seq-row-check')).filter(cb => cb.closest('tr').style.display !== 'none');
       const total = checkboxes.length;
       const selected = Array.from(checkboxes).filter(cb => cb.checked).length;
       if (selected === 0) {

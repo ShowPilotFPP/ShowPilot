@@ -428,7 +428,7 @@ app.get('/', async (req, res) => {
              duration_seconds, votable, jukeboxable,
              last_played_at, plays_since_hidden
       FROM sequences
-      WHERE visible = 1 AND is_psa = 0
+      WHERE visible = 1 AND active = 1 AND is_psa = 0
       ORDER BY display_order, display_name
     `).all();
 

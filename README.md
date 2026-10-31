@@ -675,7 +675,7 @@ sudo chown -R showpilot:showpilot /opt/showpilot/data
 
 ### "Cover art doesn't show" / "wrong covers"
 
-In admin → **Sequences**, click **Fetch Covers** to re-pull all sequence covers (MusicBrainz / Cover Art Archive, then iTunes). If a specific cover is wrong, click on it directly to upload or replace.
+In admin → **Sequences**, click **Fetch Covers** to re-pull all sequence covers (MusicBrainz / Cover Art Archive, then iTunes). If a specific cover is wrong, click it (a ✎ appears on hover) to search for another, paste an image URL, or upload your own image.
 
 ### Logs
 

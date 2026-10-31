@@ -189,7 +189,7 @@ router.get('/state', (req, res) => {
            duration_seconds, votable, jukeboxable,
            last_played_at, plays_since_hidden, cooldown_minutes
     FROM sequences
-    WHERE visible = 1 AND is_psa = 0
+    WHERE visible = 1 AND active = 1 AND is_psa = 0
     ORDER BY display_order, display_name
   `).all();
 
@@ -356,7 +356,7 @@ router.post('/vote', (req, res) => {
 
   const seq = getSequenceByName(sequenceName);
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
-  if (!seq.votable || seq.is_psa) return res.status(400).json({ error: 'Sequence is not votable' });
+  if (!seq.votable || seq.is_psa || seq.active === 0) return res.status(400).json({ error: 'Sequence is not votable' });
   if (categories.isCategoryDisabled(seq.category, cfg)) {
     return res.status(400).json({ error: 'That sequence is not available right now.' });
   }
@@ -616,7 +616,7 @@ router.post('/race/tap', (req, res) => {
   if (!sequenceName) return res.status(400).json({ error: 'sequenceName required' });
 
   const seq = getSequenceByName(sequenceName);
-  if (!seq || !seq.visible) return res.status(404).json({ error: 'Sequence not found' });
+  if (!seq || !seq.visible || seq.active === 0) return res.status(404).json({ error: 'Sequence not found' });
   if (categories.isCategoryDisabled(seq.category, cfg)) {
     return res.status(404).json({ error: 'Sequence not found' });
   }
@@ -662,7 +662,7 @@ router.post('/jukebox/add', (req, res) => {
 
   const seq = getSequenceByName(sequenceName);
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
-  if (!seq.jukeboxable || seq.is_psa) {
+  if (!seq.jukeboxable || seq.is_psa || seq.active === 0) {
     return res.status(400).json({ error: 'Sequence is not available via jukebox' });
   }
   if (categories.isCategoryDisabled(seq.category, cfg)) {

@@ -12,7 +12,6 @@
   <link rel="stylesheet" href="/admin/ui-new.css">
   <script src="/admin/ui-new.js"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
-  <script src="/admin/announcer.js?v=1"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -1188,33 +1187,8 @@
 
     /* ============================================================
      * VISITOR ANALYTICS
-     * Three-up charts + summary cards on the Dashboard
+     * Three-up charts + summary cards on the Stats tab
      * ============================================================ */
-    /* Segmented range selector */
-    .of-vrange {
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      padding: 6px 14px;
-      font-size: 0.82rem;
-      font-weight: 500;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.12s ease, color 0.12s ease;
-      margin: 0;
-    }
-    .of-vrange:hover {
-      color: var(--text);
-      background: rgba(255, 255, 255, 0.04);
-    }
-    .of-vrange.active {
-      background: var(--bg-elevated);
-      color: var(--text);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    }
-    [data-theme="stage-light"] .of-vrange:hover, body.theme-stage-light .of-vrange:hover, body.theme-easter .of-vrange:hover { background: rgba(0, 0, 0, 0.04); }
-    [data-theme="stage-light"] .of-vrange.active, body.theme-stage-light .of-vrange.active, body.theme-easter .of-vrange.active { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
-
     /* Summary cards (Today / Range / All time) */
     .visitor-summary-grid {
       display: grid;
@@ -1354,6 +1328,38 @@
                        border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
                        color: var(--text-dim); font-size: 0.7rem; cursor: pointer; }
     .editable { cursor: text; padding: 0.25rem 0.4rem; border-radius: 4px; min-width: 60px; display: inline-block; }
+    /* v0.33.247: Sequences page — cover edit overlay, filters, icon actions, compact rows */
+    .art-wrap { position: relative; width: 44px; height: 44px; cursor: pointer; }
+    .art-wrap .art-edit { position: absolute; inset: 0; border-radius: 6px; display: flex; align-items: center;
+                          justify-content: center; background: rgba(0,0,0,0.55); color: #fff; font-size: 1rem;
+                          opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+    .art-wrap:hover .art-edit, .art-wrap:focus-visible .art-edit { opacity: 1; }
+    .seq-filterbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .seq-filterbar input[type=search] { width: 240px; max-width: 100%; padding: 0.4rem 0.6rem; }
+    .seq-pill { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 999px;
+                padding: 0.2rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+    .seq-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .seq-catchip { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.2rem 0.4rem 0.2rem 0.7rem;
+                   font-size: 0.8rem; background: var(--bg-input); border: 1px solid var(--accent); }
+    .seq-catchip button { padding: 0 0.35rem; font-size: 0.8rem; line-height: 1.2; }
+    .seq-icon-btn { padding: 0.3rem 0.5rem !important; min-width: 2rem; margin-right: 0.3rem; }
+    .seq-icon-slot { display: inline-block; width: 2rem; margin-right: 0.3rem; }
+    .seq-cat-filter { padding: 0.15rem 0.35rem !important; margin-left: 0.25rem; font-size: 0.75rem; }
+    .seq-status { display: inline-block; margin-top: 0.2rem; }
+    tr.seq-inactive td { opacity: 0.55; }
+    tr.seq-inactive td:first-child, tr.seq-inactive td:last-child { opacity: 1; }
+    table.seq-compact td { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    table.seq-compact .art-wrap, table.seq-compact .art-thumb, table.seq-compact .art-placeholder { width: 30px; height: 30px; }
+    table.seq-compact .seq-clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+                                  white-space: nowrap; vertical-align: middle; }
+    table.seq-compact .seq-clip:focus { max-width: none; white-space: normal; }
+    table.seq-compact .seq-status { margin: 0 0 0 0.3rem; }
+    .sp-menu { position: relative; display: inline-block; }
+    .sp-menu > summary { list-style: none; cursor: pointer; }
+    .sp-menu > summary::-webkit-details-marker { display: none; }
+    .sp-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 220px; background: var(--bg-elevated, var(--bg-input));
+                    border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .sp-menu-list button { display: block; width: 100%; text-align: left; margin: 0.15rem 0; }
     .editable:hover { background: var(--bg-tertiary); }
     .editable:focus { outline: 2px solid var(--accent); background: var(--bg-input); }
 
@@ -1834,7 +1840,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.238-beta.2</span>
+        <span class="app-version">v0.33.247-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2018,9 +2024,32 @@
               <button class="secondary" onclick="fetchAllCovers()">Fetch Covers</button>
               <button class="secondary" onclick="scrapeAllMetadata()" title="Auto-fill display names and artist info by looking up filenames online">Auto-Fill Song Info</button>
               <button class="secondary" onclick="sortSequencesAlphabetically()">Sort A→Z</button>
-              <button class="secondary" onclick="deleteInactiveSequences()">Delete Inactive</button>
+              <button class="secondary" onclick="document.getElementById('seqImportFile').click()" title="Update sequences from a ShowPilot or Remote Falcon sequence CSV">Import CSV</button>
+              <input type="file" id="seqImportFile" accept=".csv,text/csv" style="display:none;" onchange="importSequencesCsv(this)" />
+              <details class="sp-menu" id="seqExportMenu">
+                <summary class="button secondary" style="display:inline-block; padding: 0.5rem 0.9rem; border: 1px solid var(--border); border-radius: 6px;">Export CSV ▾</summary>
+                <div class="sp-menu-list">
+                  <button class="secondary" onclick="exportSequencesCsv('showpilot')" title="Every field, including the toggles and cooldown — a full backup of the list">ShowPilot (all fields)</button>
+                  <button class="secondary" onclick="exportSequencesCsv('rf')" title="Remote Falcon's six columns: name, display name, artist, group, image, category">Remote Falcon format</button>
+                </div>
+              </details>
+              <button class="secondary" onclick="deleteInactiveSequences()" title="Delete sequences no longer in your show player's playlist, and ones switched off everywhere">Delete Inactive</button>
               <button class="danger" onclick="deleteAllSequences()" title="Delete every sequence in the database">Delete All</button>
             </div>
+          </div>
+
+          <!-- v0.33.247: search + filter pills + compact view -->
+          <div class="seq-filterbar">
+            <input type="search" id="seqSearch" placeholder="Search sequences…" oninput="applySeqFilter()" />
+            <button class="seq-pill active" data-seq-filter="all" onclick="setSeqFilter('all')">All</button>
+            <button class="seq-pill" data-seq-filter="active" onclick="setSeqFilter('active')" title="In your show player's playlist">Active</button>
+            <button class="seq-pill" data-seq-filter="inactive" onclick="setSeqFilter('inactive')" title="No longer in the playlist — kept with all their details, hidden from viewers">Inactive</button>
+            <button class="seq-pill" data-seq-filter="hidden" onclick="setSeqFilter('hidden')" title="Visible switched off">Hidden</button>
+            <span id="seqCatChip" class="seq-catchip" style="display:none;"><span id="seqCatChipText"></span><button class="secondary" onclick="setSeqCategoryFilter(null)" title="Clear category filter">✕</button></span>
+            <span style="flex:1;"></span>
+            <label style="display:flex; align-items:center; gap:0.35rem; margin:0; font-size:0.85rem; cursor:pointer;" title="Shorter rows: smaller art, long names cut off with …">
+              <input type="checkbox" id="seqCompact" onchange="setSeqCompact(this.checked)" /> Compact rows
+            </label>
           </div>
 
           <!-- Bulk action toolbar — only visible when one or more rows are selected.
@@ -2038,7 +2067,7 @@
           </div>
 
           <div style="overflow-x: auto;">
-            <table style="min-width: 1200px;">
+            <table id="sequencesTable" style="min-width: 1100px;">
               <thead>
                 <tr>
                   <th style="width: 30px;">
@@ -2047,7 +2076,7 @@
                   <th style="width: 30px;"></th>
                   <th style="width: 60px;">Art</th>
                   <th>Display Name</th>
-                  <th style="width: 200px;">FPP Name</th>
+                  <th style="width: 200px;">Sequence Name</th>
                   <th>Artist</th>
                   <th style="width: 150px;" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
                   <th style="width: 70px;">Visible</th>
@@ -2055,15 +2084,16 @@
                   <th style="width: 70px;">Jukebox</th>
                   <th style="width: 60px;">PSA</th>
                   <th style="width: 90px;" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
-                  <th></th>
+                  <th style="width: 150px;"></th>
                 </tr>
               </thead>
               <tbody id="sequencesBody"></tbody>
             </table>
+            <p id="seqNoMatch" class="muted" style="display:none; padding: 0.75rem;">No sequences match the current search or filter.</p>
           </div>
           <h3>Add Sequence</h3>
           <div class="row">
-            <input type="text" id="newSeqName" placeholder="FPP sequence name" style="flex:1;" />
+            <input type="text" id="newSeqName" placeholder="Sequence name (as named on your show player)" style="flex:1;" />
             <input type="text" id="newSeqDisplay" placeholder="Display name" style="flex:1;" />
             <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
             <button onclick="addSequence()">Add</button>
@@ -2075,7 +2105,7 @@
           <h2 style="margin-top: 0;">Categories</h2>
           <p class="muted" style="font-size: 0.85rem; margin-top: 0;">
             Group sequences under headings on the viewer page. Turning a category <strong>off</strong> hides all of its
-            sequences from viewers and blocks votes/requests for them — it does not change what FPP plays on its own schedule.
+            sequences from viewers and blocks votes/requests for them — it does not change what your show player plays on its own schedule.
             Assign a category with the Category column above. Sequences with no category are always shown.
           </p>
           <div id="categoriesList"></div>
@@ -2165,31 +2195,25 @@
           <div class="row" style="gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: end;">
             <div>
               <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">From</label>
-              <input type="date" id="statsFrom" onchange="loadStatsTab()" />
+              <input type="date" id="statsFrom" onchange="loadStatsTab(); loadVisitorStats()" />
             </div>
             <div>
               <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">To</label>
-              <input type="date" id="statsTo" onchange="loadStatsTab()" />
+              <input type="date" id="statsTo" onchange="loadStatsTab(); loadVisitorStats()" />
             </div>
             <button class="secondary" onclick="setStatsRange('today')">Today</button>
             <button class="secondary" onclick="setStatsRange('week')">7 days</button>
             <button class="secondary" onclick="setStatsRange('month')">30 days</button>
+            <button class="secondary" onclick="setStatsRange('season')">This season</button>
             <button class="secondary" onclick="setStatsRange('all')">All time</button>
           </div>
 
-          <!-- Visitor analytics — moved from Dashboard. Range tabs control the
-               three-up charts and KPI summary independently of the per-sequence
-               date range above (different data sources, different time semantics). -->
+          <!-- Visitor analytics. The From/To range above drives these charts,
+               the "Range" card and the per-sequence table alike. -->
           <div style="border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 0.5rem;">
             <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
               <h3 style="margin: 0; font-size: 1.05rem;">Visitor Analytics</h3>
-              <div class="row" id="visitorRangeTabs" style="gap: 0; margin: 0; background: var(--bg-tertiary); border-radius: 6px; padding: 2px;">
-                <button class="of-vrange" data-range="today" onclick="setVisitorRange('today')">Today</button>
-                <button class="of-vrange" data-range="7d" onclick="setVisitorRange('7d')">7 days</button>
-                <button class="of-vrange active" data-range="30d" onclick="setVisitorRange('30d')">30 days</button>
-                <button class="of-vrange" data-range="season" onclick="setVisitorRange('season')">This season</button>
-                <button class="of-vrange" data-range="all" onclick="setVisitorRange('all')">All time</button>
-              </div>
+              <span class="muted" id="visitorRangeLabel" style="font-size: 0.8rem;"></span>
             </div>
 
             <div class="visitor-summary-grid">
@@ -2197,19 +2221,19 @@
                 <div class="vsum-label">Today</div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumTodayU">—</span></div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumTodayV">—</span></div>
-                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumTodayR">—</span></div>
+                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key vsum-act-key">Requests</span><span class="vsum-val" id="vsumTodayR">—</span></div>
               </div>
               <div class="vsum">
                 <div class="vsum-label">Range</div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumRangeU">—</span></div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumRangeV">—</span></div>
-                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumRangeR">—</span></div>
+                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key vsum-act-key">Requests</span><span class="vsum-val" id="vsumRangeR">—</span></div>
               </div>
               <div class="vsum">
                 <div class="vsum-label">All time</div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#22c55e;"></span><span class="vsum-key">Unique</span><span class="vsum-val" id="vsumAllU">—</span></div>
                 <div class="vsum-row"><span class="vsum-dot" style="background:#3b82f6;"></span><span class="vsum-key">Visits</span><span class="vsum-val" id="vsumAllV">—</span></div>
-                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key">Requests</span><span class="vsum-val" id="vsumAllR">—</span></div>
+                <div class="vsum-row"><span class="vsum-dot" style="background:#f59e0b;"></span><span class="vsum-key vsum-act-key">Requests</span><span class="vsum-val" id="vsumAllR">—</span></div>
               </div>
             </div>
 
@@ -2223,13 +2247,15 @@
                 <div class="vchart-canvas-wrap"><canvas id="chartVisits"></canvas></div>
               </div>
               <div class="vchart-wrap">
-                <div class="vchart-title"><span class="vchart-dot" style="background:#f59e0b;"></span>Total Requests</div>
+                <div class="vchart-title"><span class="vchart-dot" style="background:#f59e0b;"></span><span id="chartActTitle">Total Requests</span></div>
                 <div class="vchart-canvas-wrap"><canvas id="chartRequests"></canvas></div>
               </div>
             </div>
 
             <p class="muted" style="font-size: 0.75rem; margin: 0.75rem 0 1rem;">
-              Visitor stats use a session cookie (<code>of_vid</code>) and an anonymized IP (last octet truncated) for analytics. Data stays on your server. Bots are filtered before logging.
+              Visitor stats use a session cookie (<code>of_vid</code>) and an anonymized IP (last octet truncated) for analytics. Data stays on your server.
+              A page load only counts once the page's own script checks in, so bots, link previews and scanners that just fetch the page are left out.
+              Days are in the show's time zone<span id="visitorTz"></span>. <span id="visitorLeftOut"></span>
             </p>
           </div>
 
@@ -2545,8 +2571,7 @@
               <label for="cfg_player_decoration">Decoration theme</label>
               <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value); updatePlayerCustomColorVisibility();">
                 <option value="none">None</option>
-                <option value="newyear">🎉 New Year's — confetti &amp; spinning mirror ball</option>
-                <option value="newyear-live">🎉 New Year's Live — mirror ball reacts to the music</option>
+                <option value="newyear">🎉 New Year's — confetti &amp; glitter ball</option>
                 <option value="lunarnewyear">🏮 Lunar New Year — red lanterns</option>
                 <option value="valentines">💝 Valentine's — hearts</option>
                 <option value="mardigras">🎭 Mardi Gras — beads &amp; mask</option>
@@ -2559,7 +2584,6 @@
                 <option value="thanksgiving">🍂 Thanksgiving — autumn leaves</option>
                 <option value="hanukkah">🕎 Hanukkah — menorah &amp; stars</option>
                 <option value="christmas">🎄 Christmas — string lights</option>
-                <option value="christmas-live">🎄 Christmas Live — lights react to the music</option>
                 <option value="kwanzaa">🕯️ Kwanzaa — kinara</option>
                 <option value="snow">❄️ Snow (winter generic)</option>
               </select>
@@ -3006,9 +3030,9 @@
             <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Song disappears from the viewer's request grid after playing and stays hidden for the cooldown period set on each sequence.</p>
             <div class="row" style="margin-top: 0.75rem;">
               <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
-              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in FPP's normal playlist rotation</label>
+              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in the show player's normal playlist rotation</label>
             </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, ShowPilot tells the FPP plugin to disable the song in your playlist file during the cooldown window. FPP will skip it automatically and re-enable it when the cooldown expires. Requires plugin v0.13.40+.</p>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, your show player skips the song in your playlist during the cooldown window and brings it back when the cooldown ends. On FPP this needs plugin v0.13.40+.</p>
           </div>
 
           <!-- VOTING SETTINGS -->
@@ -3045,7 +3069,7 @@
               triggers a tiebreak round — viewers see an urgent banner
               listing the tied songs and have a limited window to vote
               again. If the timer expires without a clear winner,
-              all votes for that round are dumped and FPP plays its
+              all votes for that round are dumped and the show plays its
               scheduled next song.
               <br /><br />
               Disabled by default; without this, ties are broken by
@@ -3152,7 +3176,7 @@
               deliver audio externally (PulseMesh, FM transmitter, Icecast)
               and don't want ShowPilot to host audio at all. When disabled:
               the listen-on-phone button is hidden from viewers, audio
-              streaming endpoints are turned off, and the FPP plugin skips
+              streaming endpoints are turned off, and your show player skips
               uploading audio files entirely (saves disk space and sync time).
               Other audio settings below have no effect when this is off.
             </p>
@@ -3240,10 +3264,9 @@
 
             <h3 style="margin-top: 1.5rem;">Audio daemon</h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
-              ShowPilot connects to the audio daemon running on your FPP Pi to relay
-              live audio to all listeners simultaneously. The daemon is automatically
-              started by the ShowPilot FPP plugin on port 8090. Only change this if
-              you configured a different port in the plugin.
+              ShowPilot connects to the audio daemon on your show player to relay
+              live audio to all listeners simultaneously. The ShowPilot plugin starts it
+              on port 8090. Only change this if you set a different port there.
             </p>
             <div class="row" style="gap: 0.5rem; align-items: center;">
               <label for="cfg_audio_daemon_port" style="margin: 0;">Daemon port:</label>
@@ -3358,7 +3381,7 @@
             <label for="cfg_psa_trigger_mode" style="margin-top: 0.5rem;">When to fire</label>
             <select id="cfg_psa_trigger_mode" onchange="onPsaTriggerModeChange(this.value)" style="max-width: 360px;">
               <option value="interactions">After every N viewer interactions (votes / requests)</option>
-              <option value="sequences">After every N sequences FPP plays</option>
+              <option value="sequences">After every N sequences played</option>
             </select>
             <!-- Two side-by-side help blocks; only one shows based on the selected mode.
                  Concrete descriptions of what each mode means in practice — operators
@@ -3369,7 +3392,7 @@
               shows where most plays are viewer-driven. <strong>If nobody is voting or requesting, PSAs never fire.</strong>
             </div>
             <div id="psaModeHelp_sequences" class="muted" style="font-size: 0.85rem; margin: 0.4rem 0 1rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; display: none;">
-              <strong>Sequences mode.</strong> The counter ticks up each time FPP plays a sequence (PSAs themselves
+              <strong>Sequences mode.</strong> The counter ticks up each time a sequence plays (PSAs themselves
               don't count). After <em>N</em> sequences, the next plugin poll receives a PSA to play. Fires regardless
               of viewer activity — best for schedule-driven shows that want regular sponsor or safety
               reminders even when no one is voting.
@@ -3561,6 +3584,17 @@
                 <div id="cfControlStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
               </div>
 
+              <!-- UPDATE (v0.33.239+) — in-place binary update that keeps the token.
+                   Shown whenever cloudflared is installed. -->
+              <div id="cfUpdateBlock" style="display: none; margin-top: 1rem;">
+                <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                  <span id="cfUpdateLine" class="muted" style="font-size: 0.85rem;">Checking for updates…</span>
+                  <button id="cfUpdateBtn" class="secondary" onclick="cfUpdate()">Update cloudflared</button>
+                  <button class="secondary" onclick="cfCheckUpdate(true)">Check again</button>
+                </div>
+                <div id="cfUpdateStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+              </div>
+
               <!-- LOGS — toggled by View Logs button. Also shown automatically
                    when the tunnel is running but not yet "connected" — useful
                    for diagnosing why a freshly-pasted token isn't connecting. -->
@@ -3651,19 +3685,9 @@
               <label for="cfg_debug_overlay_enabled" style="margin: 0;">Show sync debug overlay on viewer page</label>
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 1rem 1.5rem;">
-              Displays a live readout (drift, FPP position, clock offset, calibration) pinned to
+              Displays a live readout (drift, player position, clock offset, calibration) pinned to
               the top of the viewer page for every visitor. Equivalent to appending
               <code>?debug=1</code> to the URL. Turn off when done.
-            </p>
-            <div class="row">
-              <input type="checkbox" id="cfg_debug_output_delay_comp"
-                     onchange="saveSetting('debug_output_delay_comp', this.checked ? 1 : 0)" />
-              <label for="cfg_debug_output_delay_comp" style="margin: 0;">Compensate hidden output delay (experimental)</label>
-            </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
-              Some phones (often Android) report no output delay but quietly buffer audio, so the music lags the lights
-              like an echo. The debug overlay's <code>outDelay</code> line shows the delay measured directly; with this on,
-              the player also corrects for it. Takes effect on page reload.
             </p>
             <div class="row">
               <input type="checkbox" id="cfg_debug_mic_measure"
@@ -3680,13 +3704,13 @@
             <div class="row">
               <input type="checkbox" id="cfg_debug_sync_probe"
                      onchange="saveSetting('debug_sync_probe', this.checked ? 1 : 0)" />
-              <label for="cfg_debug_sync_probe" style="margin: 0;">Sync probe: compare relayed timing with FPP directly</label>
+              <label for="cfg_debug_sync_probe" style="margin: 0;">Sync probe: compare relayed timing with the show player directly</label>
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
-              For measuring audio sync. The player also connects straight to the FPP audio daemon and reports how far
-              the relayed position is from FPP's own, in the debug overlay and the browser console. Browsers block this on
+              For measuring audio sync. The phone player also connects straight to the show player's audio daemon and reports how far
+              the relayed position is from the show player's own, in the debug overlay and the browser console. Browsers block this on
               an <code>https://</code> page, so open the viewer page from this server's local <code>http://</code> address on
-              the same network as FPP. Turn it off when you're done.
+              the same network as the show player. Turn it off when you're done.
             </p>
             <div class="row">
               <input type="checkbox" id="cfg_player_stats_enabled"
@@ -3732,7 +3756,7 @@
 
         <div class="card">
           <h2>Show Token (for ShowPilot Plugin)</h2>
-          <p class="muted">Paste this into the FPP plugin's "Show Token" field. Treat it like a password — anyone with it can control your show.</p>
+          <p class="muted">Paste this into the "Show Token" field of the ShowPilot plugin on your show player. Treat it like a password — anyone with it can control your show.</p>
           <div class="row">
             <code id="showToken" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; word-break: break-all;">—</code>
             <button class="secondary" onclick="copyShowToken()">Copy</button>
@@ -3743,10 +3767,10 @@
         <div class="card">
           <h2>Audio Cache</h2>
           <p class="muted">
-            When the FPP plugin syncs, it uploads audio files here. Viewers
-            then stream audio directly from ShowPilot instead of through FPP,
+            When your show player syncs, it uploads audio files here. Viewers
+            then stream audio directly from ShowPilot instead of through the show player,
             which is much faster and scales to many concurrent listeners.
-            If a file isn't cached, viewers fall back to streaming through FPP.
+            If a file isn't cached, viewers fall back to streaming through the show player.
           </p>
           <div class="row" style="align-items: center; gap: 1rem; flex-wrap: wrap;">
             <div>
@@ -3794,18 +3818,7 @@
            TAB: TOOLS — Audio Normalizer (public/admin/audio-normalizer.js)
            ============================================================ -->
       <div class="tab-pane" data-pane="tools">
-        <div class="card" style="padding-bottom: 0; margin-bottom: 0;">
-          <div class="sub-tabs">
-            <div class="sub-tab active" data-subtab="tools-normalizer" onclick="switchTab('tools-normalizer')">Audio Normalizer</div>
-            <div class="sub-tab" data-subtab="tools-announcer" onclick="switchTab('tools-announcer')">Announcements</div>
-          </div>
-        </div>
-        <div class="sub-tab-pane active" data-subtab="tools-normalizer">
-          <div id="spNormalizerRoot"></div>
-        </div>
-        <div class="sub-tab-pane" data-subtab="tools-announcer">
-          <div id="spAnnouncerRoot"></div>
-        </div>
+        <div id="spNormalizerRoot"></div>
       </div>
 
       <!-- ============================================================
@@ -4086,11 +4099,7 @@
       if (name === 'stats') { loadStatsTab(); loadVisitorStats(); }
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
-      if (name === 'tools') {
-        const sub = document.querySelector('.tab-pane[data-pane="tools"] .sub-tab.active');
-        if (sub && sub.dataset.subtab === 'tools-announcer') { if (window.SPAnnouncer) window.SPAnnouncer.open(); }
-        else if (window.SPNormalizer) window.SPNormalizer.open();
-      }
+      if (name === 'tools' && window.SPNormalizer) window.SPNormalizer.open();
       if (name === 'settings') refreshAudioCacheStats();
     }
 
@@ -4213,6 +4222,9 @@
         setShow('cfStopBtn',   s.running);
       }
 
+      setShow('cfUpdateBlock', s.installed);
+      if (s.installed && !cfUpdateChecked) cfCheckUpdate();
+
       // Disable install button on unsupported platforms
       const installBtn = document.getElementById('cfInstallBtn');
       if (installBtn) {
@@ -4269,6 +4281,110 @@
       } finally {
         btn.disabled = false;
         loadCloudflaredStatus();
+      }
+    }
+
+    let cfUpdateChecked = false;
+    let cfUpdatePollTimer = null;
+
+    // Read a JSON reply; when the reply isn't JSON (e.g. a proxy error page
+    // while the tunnel restarts) say so instead of "unknown error".
+    async function cfReadJson(r) {
+      try { return await r.json(); }
+      catch { return { ok: false, error: 'HTTP ' + r.status + ' (no JSON reply — the tunnel may be restarting)' }; }
+    }
+
+    function cfRenderUpdateLine(j) {
+      const line = document.getElementById('cfUpdateLine');
+      const btn = document.getElementById('cfUpdateBtn');
+      const cur = j.current || 'unknown';
+      if (j.latest && j.updateAvailable) {
+        line.textContent = 'Installed: ' + cur + ' · Latest: ' + j.latest + ' — update available';
+        btn.textContent = 'Update to ' + j.latest;
+      } else if (j.latest) {
+        line.textContent = 'Installed: ' + cur + ' · up to date';
+        btn.textContent = 'Reinstall latest';
+      } else {
+        line.textContent = 'Installed: ' + cur + ' · couldn\'t check latest' + (j.latestError ? ' (' + j.latestError + ')' : '');
+        btn.textContent = 'Update cloudflared';
+      }
+    }
+
+    async function cfCheckUpdate(manual) {
+      cfUpdateChecked = true;
+      const line = document.getElementById('cfUpdateLine');
+      if (manual) line.textContent = 'Checking for updates…';
+      try {
+        const r = await fetch('/api/admin/cloudflared/update-check', { credentials: 'include' });
+        const j = await cfReadJson(r);
+        if (!j.ok) { line.textContent = 'Update check failed: ' + (j.error || 'error'); return; }
+        cfRenderUpdateLine(j);
+        // Picked up an update still running (e.g. after a page reload)?
+        if (j.job && j.job.state === 'running' && !cfUpdatePollTimer) cfWatchUpdate(j.job.id);
+      } catch (err) {
+        line.textContent = 'Update check failed: ' + err.message;
+      }
+    }
+
+    // The update runs in the background on the server. If this page is
+    // reached through the tunnel, the connection drops while the tunnel
+    // restarts, so keep polling (ignoring failures) until the job finishes.
+    function cfWatchUpdate(jobId) {
+      const btn = document.getElementById('cfUpdateBtn');
+      btn.disabled = true;
+      const startedAt = Date.now();
+      if (cfUpdatePollTimer) clearInterval(cfUpdatePollTimer);
+      cfUpdatePollTimer = setInterval(async () => {
+        if (Date.now() - startedAt > 4 * 60 * 1000) {
+          clearInterval(cfUpdatePollTimer); cfUpdatePollTimer = null; btn.disabled = false;
+          cfSetStatusMessage('cfUpdateStatus', 'Lost track of the update. Refresh the page to see the installed version.', 'error');
+          return;
+        }
+        let j;
+        try {
+          const r = await fetch('/api/admin/cloudflared/update-check', { credentials: 'include', cache: 'no-store' });
+          j = await r.json();
+        } catch { return; } // tunnel still restarting; try again
+        if (!j || !j.ok || !j.job || (jobId && j.job.id !== jobId) || j.job.state === 'running') return;
+        if (j.job.state === 'idle') {
+          if (Date.now() - startedAt < 15000) return;
+          clearInterval(cfUpdatePollTimer); cfUpdatePollTimer = null; btn.disabled = false;
+          cfSetStatusMessage('cfUpdateStatus', 'The update didn\'t start (connection lost). Try again.', 'error');
+          return;
+        }
+        clearInterval(cfUpdatePollTimer); cfUpdatePollTimer = null; btn.disabled = false;
+        const res = j.job.result || {};
+        if (j.job.state === 'failed') {
+          cfSetStatusMessage('cfUpdateStatus', 'Update failed: ' + (res.error || 'unknown error') + '. Your existing install was kept.', 'error');
+        } else if (!res.updated) {
+          cfSetStatusMessage('cfUpdateStatus', res.message || 'Already up to date.', 'success');
+        } else {
+          cfSetStatusMessage('cfUpdateStatus',
+            'Updated ' + (res.from || '?') + ' → ' + res.to + (res.restarted ? '. Tunnel restarted.' : '.') + ' Your token was kept.',
+            'success');
+        }
+        cfRenderUpdateLine(j);
+        loadCloudflaredStatus();
+      }, 3000);
+    }
+
+    async function cfUpdate() {
+      const btn = document.getElementById('cfUpdateBtn');
+      btn.disabled = true;
+      cfSetStatusMessage('cfUpdateStatus', 'Updating cloudflared… This takes up to a minute. If you\'re connected through the tunnel, this page loses connection for a few seconds while it restarts — leave it open.', 'info');
+      try {
+        const r = await fetch('/api/admin/cloudflared/update', { method: 'POST', credentials: 'include' });
+        const j = await cfReadJson(r);
+        if (!j.ok) {
+          cfSetStatusMessage('cfUpdateStatus', 'Update failed: ' + (j.error || 'unknown error'), 'error');
+          btn.disabled = false;
+          return;
+        }
+        cfWatchUpdate(j.job && j.job.id);
+      } catch (err) {
+        // The request may have started the update before the connection
+        // dropped; watch for any running job.
+        cfWatchUpdate(null);
       }
     }
 
@@ -4399,7 +4515,7 @@
         countEl.textContent = data.fileCount;
         sizeEl.textContent = formatBytes(data.totalBytes);
         statusEl.textContent = data.fileCount === 0
-          ? 'No files cached yet — run Sync from the FPP plugin to populate.'
+          ? 'No files cached yet — run Sync from your show player to populate.'
           : '';
         statusEl.style.color = 'var(--text-dim)';
       } catch (e) {
@@ -5259,7 +5375,7 @@
       // ${...} substitution — that pattern was causing parse errors in some
       // browser configurations even though Node parses it fine.
       const secretsExplain = summary.hasConfigJs
-        ? "Restores just the jwtSecret and showToken from the backup, leaving this server's port, database path, and other config.js settings untouched. All current admin sessions will end. The FPP plugin keeps working without re-pasting the token. Server restart required."
+        ? "Restores just the jwtSecret and showToken from the backup, leaving this server's port, database path, and other config.js settings untouched. All current admin sessions will end. Your show player keeps working without re-pasting the token. Server restart required."
         : "The backup does not include a config.js — secrets cannot be restored.";
       const secretsRadios = summary.hasConfigJs
         ? '<div class="sp-restore-panel-radios">'
@@ -5829,7 +5945,6 @@
       setChk('cfg_player_stats_enabled', c.player_stats_enabled);
       setChk('cfg_debug_sync_probe', c.debug_sync_probe === 1);
       setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
-      setChk('cfg_debug_output_delay_comp', c.debug_output_delay_comp === 1);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
       setChk('cfg_sync_help_enabled', c.sync_help_enabled !== 0);
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
@@ -6462,8 +6577,6 @@
       if (name === 'public-access') loadCloudflaredStatus();
       if (name === 'viewer-translation') loadTranslationSettings();
       if (name === 'viewer-schedule') loadSchedules();
-      if (name === 'tools-normalizer' && window.SPNormalizer) window.SPNormalizer.open();
-      if (name === 'tools-announcer' && window.SPAnnouncer) window.SPAnnouncer.open();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're
@@ -6780,29 +6893,22 @@
     // ============================================================
     // VISITOR ANALYTICS
     // ============================================================
-    let _visitorRange = '30d';
+    // The third chart follows the viewer mode: votes in voting mode,
+    // jukebox requests otherwise. The key stays 'requests' either way.
     const _visitorCharts = { unique: null, visits: null, requests: null };
 
-    function setVisitorRange(range) {
-      _visitorRange = range;
-      // Update active tab styling
-      document.querySelectorAll('.of-vrange').forEach(b => {
-        b.classList.toggle('active', b.dataset.range === range);
-      });
-      loadVisitorStats();
-    }
-
-    // Format a SQLite bucket key into a friendly axis label.
-    // bucketStep is 'hour' | 'day' | 'month'.
-    function formatBucketLabel(key, step) {
-      // Hour bucket: "2026-04-25 14:00:00" → "2pm"
+    // Format a bucket key from /stats/audience into a friendly axis label.
+    // bucketStep is 'hour' | 'day' | 'month'; withDay prefixes hour labels
+    // with the date when the range spans more than one day.
+    function formatBucketLabel(key, step, withDay) {
+      // Hour bucket: "2026-04-25 14:00" → "2pm" (or "Apr 25 2pm")
       if (step === 'hour') {
-        const m = key.match(/^\d{4}-\d{2}-\d{2} (\d{2}):/);
+        const m = key.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):/);
         if (!m) return key;
-        const h = parseInt(m[1], 10);
+        const h = parseInt(m[2], 10);
         const ampm = h >= 12 ? 'pm' : 'am';
         const h12 = h % 12 === 0 ? 12 : h % 12;
-        return h12 + ampm;
+        return (withDay ? formatBucketLabel(m[1], 'day') + ' ' : '') + h12 + ampm;
       }
       // Month bucket: "2026-04" → "Apr 26"
       if (step === 'month') {
@@ -6856,6 +6962,10 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          // Hovering anywhere above a day shows its value. Long ranges hide
+          // the point dots, and the default (hit a dot exactly) left nothing
+          // to hover.
+          interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -6893,28 +7003,45 @@
       };
     }
 
+    // Uses the same From/To range as the per-sequence table (empty = all time).
     async function loadVisitorStats() {
-      const r = await api('/stats/audience?range=' + encodeURIComponent(_visitorRange));
+      const from = document.getElementById('statsFrom')?.value || '';
+      const to = document.getElementById('statsTo')?.value || '';
+      const params = new URLSearchParams();
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      const r = await api('/stats/audience' + (params.toString() ? '?' + params : ''));
       if (!r.ok) return;
       const d = r.data;
+      const act = d.mode === 'VOTING' ? 'votes' : 'requests';
 
       // Summary cards
       const setKpi = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v ?? 0).toLocaleString(); };
       setKpi('vsumTodayU', d.summary.today.uniques);
       setKpi('vsumTodayV', d.summary.today.visits);
-      setKpi('vsumTodayR', d.summary.today.requests);
+      setKpi('vsumTodayR', d.summary.today[act]);
       setKpi('vsumRangeU', d.summary.range.uniques);
       setKpi('vsumRangeV', d.summary.range.visits);
-      setKpi('vsumRangeR', d.summary.range.requests);
+      setKpi('vsumRangeR', d.summary.range[act]);
       setKpi('vsumAllU', d.summary.allTime.uniques);
       setKpi('vsumAllV', d.summary.allTime.visits);
-      setKpi('vsumAllR', d.summary.allTime.requests);
+      setKpi('vsumAllR', d.summary.allTime[act]);
+      document.querySelectorAll('.vsum-act-key').forEach(el => { el.textContent = act === 'votes' ? 'Votes' : 'Requests'; });
+      const setText = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+      setText('chartActTitle', act === 'votes' ? 'Total Votes' : 'Total Requests');
+      setText('visitorRangeLabel', d.from === d.to
+        ? formatBucketLabel(d.from, 'day')
+        : formatBucketLabel(d.from, 'day') + ' ' + d.from.slice(0, 4) + ' – ' + formatBucketLabel(d.to, 'day') + ' ' + d.to.slice(0, 4));
+      setText('visitorTz', d.timezone ? ' (' + d.timezone + ')' : '');
+      setText('visitorLeftOut', d.leftOut > 0
+        ? d.leftOut.toLocaleString() + (d.leftOut === 1 ? ' page load' : ' page loads') + ' in this range never checked in and were left out.'
+        : '');
 
       // Charts
-      const labels = d.series.map(p => formatBucketLabel(p.bucket, d.bucketStep));
+      const labels = d.series.map(p => formatBucketLabel(p.bucket, d.bucketStep, d.from !== d.to));
       const uniqueData = d.series.map(p => p.uniques);
       const visitsData = d.series.map(p => p.visits);
-      const requestsData = d.series.map(p => p.requests);
+      const requestsData = d.series.map(p => p[act]);
 
       // Empty-state: if no buckets, render a flat zero line so the canvas isn't empty
       if (labels.length === 0) {
@@ -7109,7 +7236,11 @@
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
-      document.getElementById('sequenceCount').textContent = `(${r.data.length})`;
+      {
+        const inactive = r.data.filter(s => s.active === 0).length;
+        document.getElementById('sequenceCount').textContent = inactive
+          ? `(${r.data.length - inactive} active, ${inactive} inactive)` : `(${r.data.length})`;
+      }
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
       // tbody.innerHTML wipes out any open preview row, so reset the
@@ -7120,6 +7251,7 @@
       r.data.forEach(seq => {
         tbody.appendChild(buildSequenceRow(seq));
       });
+      applySeqFilter();
       // Drop selection entries for sequences that no longer exist (deleted
       // out from under us) so the toolbar count reflects reality.
       const liveIds = new Set(r.data.map(s => s.id));
@@ -7142,19 +7274,21 @@
       tr.dataset.seqDisplay = seq.display_name || seq.name || '';
 
       const art = seq.image_url
-        ? `<img class="art-thumb" src="${escapeAttr(seq.image_url)}" onclick="promptImageUrl(${seq.id}, ${JSON.stringify(seq.image_url || '').replace(/"/g,'&quot;')})" title="Click to change artwork" />`
-        : `<div class="art-placeholder" onclick="promptImageUrl(${seq.id}, '')" title="Click to add artwork">+</div>`;
+        ? `<div class="art-wrap" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Change cover art"><img class="art-thumb" src="${escapeAttr(seq.image_url)}" alt="" /><span class="art-edit" aria-hidden="true">✎</span></div>`
+        : `<div class="art-placeholder" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Add cover art">+</div>`;
+      const inactive = seq.active === 0;
+      if (inactive) tr.classList.add('seq-inactive');
 
       tr.innerHTML = `
         <td><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
         <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
         <td>${art}</td>
-        <td><span class="editable" contenteditable="true"
+        <td><span class="editable seq-clip" contenteditable="true"
                   onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
-        <td><code>${escapeHtml(seq.name)}</code></td>
-        <td><span class="editable" contenteditable="true"
+        <td><code class="seq-clip" title="${escapeAttr(seq.name)}">${escapeHtml(seq.name)}</code>${inactive ? ' <span class="pill pill-neutral seq-status" title="No longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again if the playlist lists it.">Inactive</span>' : ''}</td>
+        <td><span class="editable seq-clip" contenteditable="true"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
-        <td><select class="seq-category-select" style="width: 140px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select></td>
+        <td style="white-space: nowrap;"><select class="seq-category-select" style="width: 120px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category">⏷</button>' : ''}</td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -7164,10 +7298,7 @@
                    style="width: 70px; padding: 0.3rem 0.4rem; font-size: 0.9rem;"
                    title="Minutes to suppress this sequence after it plays. 0 = no cooldown." /></td>
         <td style="white-space: nowrap;">
-          <button class="secondary" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" style="margin-right: 0.4rem;">▶</button>
-          <button class="secondary" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" style="margin-right: 0.4rem;">🔍 Search</button>
-          ${seq.media_name ? '<button class="secondary sp-lang-btn" style="margin-right: 0.4rem;" title="Manage alternate-language audio variants">🌐 Languages</button>' : ''}
-          <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
+          <button class="secondary seq-icon-btn" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" aria-label="Preview">▶</button><button class="secondary seq-icon-btn" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" aria-label="Search">🔍</button>${seq.media_name ? '<button class="secondary seq-icon-btn sp-lang-btn" title="Manage alternate-language audio variants" aria-label="Languages">🌐</button>' : '<span class="seq-icon-slot"></span>'}<button class="danger seq-icon-btn" onclick="delSeq(${seq.id})" title="Delete this sequence" aria-label="Delete">🗑</button>
         </td>
       `;
 
@@ -7177,6 +7308,8 @@
         fillCategorySelect(catSel, seq.category || '', '— none —');
         catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
       }
+      const catFilterBtn = tr.querySelector('.seq-cat-filter');
+      if (catFilterBtn) catFilterBtn.addEventListener('click', () => setSeqCategoryFilter(seq.category));
 
       // Language variants button — wired here to avoid inline onclick quoting issues
       const langBtn = tr.querySelector('.sp-lang-btn');
@@ -7198,6 +7331,131 @@
 
     function escapeAttr(s) {
       return String(s || '').replace(/"/g, '&quot;');
+    }
+
+    // ======= Search / filters / compact view (v0.33.247) =======
+    // Filtering only hides rows (display:none) so drag-reorder and the saved
+    // order still cover every sequence.
+    let _seqFilter = 'all';
+    let _seqCategoryFilter = null;
+
+    function setSeqFilter(f) {
+      _seqFilter = f;
+      document.querySelectorAll('.seq-pill').forEach(b => b.classList.toggle('active', b.dataset.seqFilter === f));
+      applySeqFilter();
+    }
+
+    function setSeqCategoryFilter(cat) {
+      _seqCategoryFilter = cat ? String(cat) : null;
+      const chip = document.getElementById('seqCatChip');
+      if (chip) chip.style.display = _seqCategoryFilter ? 'inline-flex' : 'none';
+      const t = document.getElementById('seqCatChipText');
+      if (t) t.textContent = 'Category: ' + (_seqCategoryFilter || '');
+      applySeqFilter();
+    }
+
+    function seqMatchesFilter(seq, q) {
+      if (_seqFilter === 'active' && seq.active === 0) return false;
+      if (_seqFilter === 'inactive' && seq.active !== 0) return false;
+      if (_seqFilter === 'hidden' && seq.visible) return false;
+      if (_seqCategoryFilter && String(seq.category || '').toLowerCase() !== _seqCategoryFilter.toLowerCase()) return false;
+      if (q) {
+        const hay = [seq.display_name, seq.name, seq.artist, seq.category].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }
+
+    function applySeqFilter() {
+      const q = (document.getElementById('seqSearch')?.value || '').trim().toLowerCase();
+      const byId = new Map((sequencesCache || []).map(s => [s.id, s]));
+      let shown = 0;
+      document.querySelectorAll('#sequencesBody tr[data-id]').forEach(tr => {
+        const seq = byId.get(Number(tr.dataset.id));
+        const ok = !seq || seqMatchesFilter(seq, q);
+        tr.style.display = ok ? '' : 'none';
+        if (ok) shown++;
+        const prev = tr.nextElementSibling;
+        if (prev && prev.classList.contains('seq-preview-row') && !ok) closeSeqPreview();
+      });
+      const all = sequencesCache || [];
+      const counts = {
+        all: all.length,
+        active: all.filter(s => s.active !== 0).length,
+        inactive: all.filter(s => s.active === 0).length,
+        hidden: all.filter(s => !s.visible).length,
+      };
+      const labels = { all: 'All', active: 'Active', inactive: 'Inactive', hidden: 'Hidden' };
+      document.querySelectorAll('.seq-pill').forEach(b => {
+        const k = b.dataset.seqFilter;
+        b.textContent = `${labels[k]} (${counts[k]})`;
+      });
+      const none = document.getElementById('seqNoMatch');
+      if (none) none.style.display = (all.length && !shown) ? '' : 'none';
+      syncSelectAllState();
+    }
+
+    function setSeqCompact(on) {
+      const t = document.getElementById('sequencesTable');
+      if (t) t.classList.toggle('seq-compact', !!on);
+      try { localStorage.setItem('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
+    }
+    (function initSeqCompact() {
+      let on = false;
+      try { on = localStorage.getItem('sp_seq_compact') === '1'; } catch (e) {}
+      const apply = () => {
+        const cb = document.getElementById('seqCompact');
+        if (cb) cb.checked = on;
+        setSeqCompact(on);
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply); else apply();
+    })();
+
+    // ======= Sequence list CSV import / export (v0.33.247) =======
+    document.addEventListener('click', (e) => {
+      const m = document.getElementById('seqExportMenu');
+      if (m && m.open && !m.contains(e.target)) m.open = false;
+    });
+    function exportSequencesCsv(format) {
+      const m = document.getElementById('seqExportMenu');
+      if (m) m.open = false;
+      const a = document.createElement('a');
+      a.href = '/api/admin/sequences/export?format=' + encodeURIComponent(format);
+      a.download = '';
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    async function importSequencesCsv(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      const csv = await file.text();
+      const send = async (body) => {
+        const res = await fetch('/api/admin/sequences/import', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        let data = null; try { data = await res.json(); } catch (e) {}
+        return { ok: res.ok, data };
+      };
+      const dry = await send({ csv, dryRun: true });
+      if (!dry.ok) { showAlert('Import failed: ' + ((dry.data && dry.data.error) || 'the file could not be read.')); return; }
+      const d = dry.data;
+      if (!d.total) { showAlert('No sequences found in that file.'); return; }
+      let msg = `${d.total} sequence(s) in the file.\n\n${d.matched} match sequences you already have — their details will be updated from the file (blank cells are left alone).`;
+      if (!d.matched && !d.missing) return;
+      let addMissing = false;
+      if (d.missing) {
+        msg += `\n\n${d.missing} aren't in ShowPilot yet` + (d.missingNames.length ? ` (e.g. ${d.missingNames.slice(0, 3).join(', ')}).` : '.');
+      }
+      if (!await showConfirm(msg, { okLabel: 'Import' })) return;
+      if (d.missing) {
+        addMissing = await showConfirm(`Also add the ${d.missing} sequence(s) that aren't in ShowPilot yet?\n\nThey'll be added as Inactive (hidden from viewers) and become active, keeping these details, once your show player's playlist includes them.`, { okLabel: 'Add them', cancelLabel: 'Skip' });
+      }
+      const r = await send({ csv, addMissing });
+      if (!r.ok) { showAlert('Import failed: ' + ((r.data && r.data.error) || 'unknown error')); return; }
+      showAlert(`Import done: ${r.data.updated} updated` + (r.data.added ? `, ${r.data.added} added as inactive.` : '.'));
+      loadSequences();
     }
 
     async function updateSeqField(id, field, value) {
@@ -7324,7 +7582,7 @@
             sourceEl.textContent = '⚡ from cache';
             sourceEl.style.color = 'var(--status-success, #4ade80)';
           } else if (src === 'fpp') {
-            sourceEl.textContent = '↪ via FPP proxy';
+            sourceEl.textContent = '↪ via show player';
             sourceEl.style.color = 'var(--status-warning, #f59e0b)';
           } else {
             sourceEl.textContent = src;
@@ -7372,6 +7630,12 @@
               <input type="text" id="coverManualUrl" placeholder="https://..." style="flex: 1;" />
               <button class="secondary" onclick="setCoverFromUrl(${seq.id})">Use URL</button>
               <button class="danger" onclick="clearCover(${seq.id})">Remove</button>
+            </div>
+            <div class="row" style="gap: 0.5rem; margin-top: 0.5rem; align-items: center;">
+              <label style="margin: 0; flex-shrink: 0;">Or upload:</label>
+              <button class="secondary" onclick="document.getElementById('coverUploadFile').click()">Choose image…</button>
+              <input type="file" id="coverUploadFile" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="uploadCover(${seq.id}, this)" />
+              <span class="muted" style="font-size: 0.8rem;">JPEG, PNG, GIF or WebP, up to 10 MB. Square works best.</span>
             </div>
             <div id="coverResults" class="cover-grid"></div>
             <div id="coverStatus" class="muted" style="margin-top: 0.75rem;"></div>
@@ -7449,6 +7713,26 @@
         setTimeout(() => { closeCoverModal(); loadSequences(); }, 700);
       } else {
         status.textContent = 'Failed: ' + (r.data?.error || 'unknown');
+      }
+    }
+
+    async function uploadCover(seqId, input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      const status = document.getElementById('coverStatus');
+      if (file.size > 10 * 1024 * 1024) { status.textContent = 'That image is over 10 MB.'; return; }
+      status.textContent = 'Uploading…';
+      const res = await fetch(`/api/admin/sequences/${seqId}/cover-upload`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      });
+      let data = null; try { data = await res.json(); } catch (e) {}
+      if (res.ok) {
+        status.textContent = '✓ Cover updated';
+        setTimeout(() => { closeCoverModal(); loadSequences(); }, 700);
+      } else {
+        status.textContent = 'Upload failed: ' + ((data && data.error) || 'HTTP ' + res.status);
       }
     }
 
@@ -7557,15 +7841,18 @@
 
     // ======= Bulk actions =======
     async function sortSequencesAlphabetically() {
-      if (!await showConfirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to FPP playlist position).')) return;
+      if (!await showConfirm('Reorder all sequences alphabetically by display name?\n\nThis changes the admin and viewer page display order. It does NOT change which song plays when a viewer picks something (that is tied to the show player\'s playlist position).')) return;
       const r = await api('/sequences/sort-alphabetically', { method: 'POST' });
       if (r.ok) loadSequences();
       else showAlert('Sort failed');
     }
 
     async function deleteInactiveSequences() {
-      // "Inactive" = not visible AND not votable AND not jukeboxable
-      if (!await showConfirm('Delete all sequences that are NOT visible, NOT votable, and NOT jukeboxable?', { danger: true, okLabel: 'Delete' })) return;
+      // "Inactive" = no longer in the show player's playlist, OR switched off
+      // everywhere (not visible, votable or jukeboxable, not a PSA).
+      const n = (sequencesCache || []).filter(s => s.active === 0 || (!s.visible && !s.votable && !s.jukeboxable && !s.is_psa)).length;
+      if (!n) { showAlert('There are no inactive sequences to delete.'); return; }
+      if (!await showConfirm(`Delete ${n} inactive sequence(s)?\n\nThat's sequences no longer in your show player's playlist, plus ones switched off everywhere (not visible, votable or jukebox). Their display names, artists, covers and categories are deleted too.`, { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/sequences/delete-inactive', { method: 'POST' });
       if (r.ok) {
         showAlert('Deleted ' + (r.data.deleted || 0) + ' sequence(s)');
@@ -7622,7 +7909,7 @@
       const name = document.getElementById('newSeqName').value.trim();
       const display_name = document.getElementById('newSeqDisplay').value.trim();
       const artist = document.getElementById('newSeqArtist').value.trim();
-      if (!name || !display_name) { showAlert('FPP name and display name required'); return; }
+      if (!name || !display_name) { showAlert('Sequence name and display name required'); return; }
       const r = await api('/sequences', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, display_name, artist }),
@@ -7837,7 +8124,8 @@
     }
 
     function toggleSelectAllSeqs(checked) {
-      const checkboxes = document.querySelectorAll('.seq-row-check');
+      // v0.33.247: only rows the current search/filter shows.
+      const checkboxes = Array.from(document.querySelectorAll('.seq-row-check')).filter(cb => cb.closest('tr').style.display !== 'none');
       checkboxes.forEach(cb => {
         cb.checked = checked;
         const id = Number(cb.dataset.seqId);
@@ -7850,7 +8138,7 @@
     function syncSelectAllState() {
       const all = document.getElementById('seqSelectAll');
       if (!all) return;
-      const checkboxes = document.querySelectorAll('.seq-row-check');
+      const checkboxes = Array.from(document.querySelectorAll('.seq-row-check')).filter(cb => cb.closest('tr').style.display !== 'none');
       const total = checkboxes.length;
       const selected = Array.from(checkboxes).filter(cb => cb.checked).length;
       if (selected === 0) {
@@ -7905,7 +8193,7 @@
       const count = _seqSelection.size;
       if (count === 0) return;
       const ok = await showConfirm(
-        `Delete ${count} selected sequence${count === 1 ? '' : 's'}?\n\nThis cannot be undone, but the FPP sequence files on disk are not affected.`,
+        `Delete ${count} selected sequence${count === 1 ? '' : 's'}?\n\nThis cannot be undone, but the sequence files on your show player are not affected.`,
         { danger: true, okLabel: `Delete ${count}` }
       );
       if (!ok) return;
@@ -7940,7 +8228,7 @@
       // a typed confirmation to prove it wasn't an accidental click. Same
       // pattern GitHub / DigitalOcean use for irreversible destructive ops.
       const first = await showConfirm(
-        'Delete ALL sequences from ShowPilot?\n\nThis removes every sequence from the database (play history, votes, queue, all of it). Your FPP sequence files on disk are not affected — you can re-sync from the plugin afterward to start fresh.',
+        'Delete ALL sequences from ShowPilot?\n\nThis removes every sequence from the database (play history, votes, queue, all of it). The sequence files on your show player are not affected — you can re-sync afterward to start fresh.',
         { danger: true, okLabel: 'Continue' }
       );
       if (!first) return;
@@ -9538,23 +9826,33 @@
     // ============================================================
     let statsCache = null;
 
+    // Sets From/To, which drive both the visitor charts and the table.
+    // Dates are local calendar days (toISOString would give tomorrow's UTC
+    // date during an evening show west of UTC).
     function setStatsRange(range) {
       const now = new Date();
-      const fmt = d => d.toISOString().slice(0, 10);
+      const fmt = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
       const fromEl = document.getElementById('statsFrom');
       const toEl = document.getElementById('statsTo');
       if (range === 'today') {
         fromEl.value = fmt(now); toEl.value = fmt(now);
       } else if (range === 'week') {
-        const w = new Date(now); w.setDate(w.getDate() - 7);
+        const w = new Date(now); w.setDate(w.getDate() - 6);
         fromEl.value = fmt(w); toEl.value = fmt(now);
       } else if (range === 'month') {
-        const m = new Date(now); m.setDate(m.getDate() - 30);
+        const m = new Date(now); m.setDate(m.getDate() - 29);
         fromEl.value = fmt(m); toEl.value = fmt(now);
+      } else if (range === 'season') {
+        // Oct 1 through New Year's Day — Halloween + Christmas in one window.
+        // Before Oct 1 this is the season that ended last January.
+        const s = new Date(now.getFullYear(), 9, 1);
+        if (now < s) s.setFullYear(s.getFullYear() - 1);
+        fromEl.value = fmt(s); toEl.value = fmt(new Date(s.getFullYear() + 1, 0, 1));
       } else {
         fromEl.value = ''; toEl.value = '';
       }
       loadStatsTab();
+      loadVisitorStats();
     }
 
     async function loadStatsTab() {

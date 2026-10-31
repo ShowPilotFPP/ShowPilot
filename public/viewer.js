@@ -36,7 +36,7 @@
     el('showName').textContent = data.showName || 'Light Show';
     el('viewerCount').textContent = data.activeViewers || 0;
     el('nowPlayingName').textContent = data.nowPlaying
-      ? (data.sequences.find(s => s.name === data.nowPlaying)?.display_name || data.nowPlaying)
+      ? (data.nowPlayingDisplayName || data.sequences.find(s => s.name === data.nowPlaying)?.display_name || data.nowPlaying)
       : '—';
     // v0.32.8+: Up Next is shown in all modes. Server computes nextScheduled
     // as the queue head in JUKEBOX, the current vote leader in VOTING, and
@@ -46,7 +46,7 @@
     const nextEl = el('nextUpName');
     if (nextEl) {
       nextEl.textContent = data.nextScheduled
-        ? (data.sequences.find(s => s.name === data.nextScheduled)?.display_name || data.nextScheduled)
+        ? (data.nextScheduledDisplayName || data.sequences.find(s => s.name === data.nextScheduled)?.display_name || data.nextScheduled)
         : '—';
     }
 
@@ -275,8 +275,11 @@
   try {
     const socket = io();
     socket.on('nowPlaying', (data) => {
+      // Only update from the list when the song is in it; otherwise wait for
+      // fetchState() below (it carries the server's display name) instead
+      // of flashing the raw file name.
       const seq = state.sequences.find(s => s.name === data.sequenceName);
-      el('nowPlayingName').textContent = seq ? seq.display_name : data.sequenceName;
+      if (seq) el('nowPlayingName').textContent = seq.display_name;
       // Song change ⇒ next-up changes too. Fetch full state to refresh
       // the Up Next line + queue without a 30s wait.
       fetchState();

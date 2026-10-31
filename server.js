@@ -152,10 +152,6 @@ app.use('/api/admin/cloudflared', adminRouter.requireAdmin, require('./routes/cl
 // the route itself (the global json parser ignores non-JSON bodies).
 app.use('/api/admin/tools/normalize', adminRouter.requireAdmin, require('./routes/normalize'));
 
-// Tools → Announcements (beta v0.33.235-beta.1). Same mount pattern; uploads
-// are streamed to disk by the route itself.
-app.use('/api/admin/tools/announcer', adminRouter.requireAdmin, require('./routes/announcer'));
-
 // In-app updater endpoints (v0.33.0+). Same sibling pattern as backup
 // and cloudflared. The router itself handles the Docker/demoMode
 // gating internally — it returns 503 with an explanation rather than
@@ -432,7 +428,7 @@ app.get('/', async (req, res) => {
              duration_seconds, votable, jukeboxable,
              last_played_at, plays_since_hidden
       FROM sequences
-      WHERE visible = 1 AND is_psa = 0
+      WHERE visible = 1 AND active = 1 AND is_psa = 0
       ORDER BY display_order, display_name
     `).all();
 
@@ -493,6 +489,8 @@ app.get('/', async (req, res) => {
       }
     }
 
+    const nextUpName = getNextUp(cfg, nowPlaying.sequence_name || null);
+    const { getSequenceLabel } = require('./lib/db');
     const html = renderTemplate(tpl, {
       config: cfg,
       sequences: sequencesBusted,
@@ -500,7 +498,10 @@ app.get('/', async (req, res) => {
       raceTapCounts,
       queue,
       nowPlaying: nowPlaying.sequence_name,
-      nextScheduled: getNextUp(cfg, nowPlaying.sequence_name || null),
+      nextScheduled: nextUpName,
+      // See getSequenceLabel: the playing song is often not in `sequences`.
+      nowPlayingLabel: getSequenceLabel(nowPlaying.sequence_name),
+      nextScheduledLabel: getSequenceLabel(nextUpName),
       nowPlayingStartedAtIso,
       nowPlayingDurationSeconds,
       isAdmin,

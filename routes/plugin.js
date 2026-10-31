@@ -155,7 +155,7 @@ router.get('/state', (req, res) => {
     if (counter >= cfg.psa_frequency) {
       const psa = db.prepare(`
         SELECT name, sort_order FROM sequences
-        WHERE is_psa = 1 AND visible = 1
+        WHERE is_psa = 1 AND visible = 1 AND active = 1
         ORDER BY COALESCE(last_played_at, '1970-01-01') ASC
         LIMIT 1
       `).get();
@@ -823,10 +823,12 @@ router.post('/position', (req, res) => {
 // POST /api/plugin/next
 // ============================================================
 router.post('/next', (req, res) => {
-  const { sequence } = req.body || {};
+  const { sequence, exact } = req.body || {};
   const name = (sequence || '').trim();
 
-  setNextScheduled(name || null);
+  // exact: the plugin/Player read this from the live play order (shuffle
+  // included), so an empty value is the truth, not "unknown".
+  setNextScheduled(name || null, exact === true);
 
   // Interrupt-mode detection: cfg.interrupt_schedule may not be set when the
   // FPP plugin manages its own interrupt flag independently. Instead, detect
@@ -923,12 +925,14 @@ router.post('/heartbeat', (req, res) => {
 //   ]
 // }
 //
-// Behavior: upsert sequences by name, then remove sequences that aren't in
-// the new list (v0.33.236+), so ShowPilot matches the FPP playlist. Before that
-// they were kept forever and a song dropped from the playlist stayed on the
-// viewer page. An empty list never removes anything (a playlist FPP couldn't
-// read is far more likely than an empty show). To keep custom names/art for
-// a song dropped only for a while, save a sequence snapshot first.
+// Behavior: upsert sequences by name (marking them active), then mark every
+// sequence that isn't in the new list INACTIVE (v0.33.247+). Inactive
+// sequences keep their display name, artist, cover, category and toggles but
+// never reach viewers, voting, the jukebox or the schedule fallback; when a
+// later sync lists the name again (e.g. next season's playlist) it comes back
+// active with everything intact. v0.33.236–246 deleted them instead, and
+// before that they stayed on the viewer page. An empty list never changes
+// anything (a playlist FPP couldn't read is far more likely than an empty show).
 // ============================================================
 router.post('/sync-sequences', (req, res) => {
   const { playlistName, sequences } = req.body || {};
@@ -943,6 +947,7 @@ router.post('/sync-sequences', (req, res) => {
     INSERT INTO sequences (name, display_name, artist, image_url, media_name, duration_seconds, visible, votable, jukeboxable, sort_order, display_order)
     VALUES (@name, @display_name, @artist, @image_url, @media_name, @duration_seconds, 1, 1, 1, @sort_order, @sort_order)
     ON CONFLICT(name) DO UPDATE SET
+      active = 1,
       duration_seconds = excluded.duration_seconds,
       sort_order = excluded.sort_order,
       -- media_name comes straight from FPP — always trust the plugin's value
@@ -998,24 +1003,26 @@ router.post('/sync-sequences', (req, res) => {
   });
   tx(sequences);
 
-  // Remove sequences no longer in the playlist. Their pending requests and
-  // votes go first (foreign keys), like a delete from the admin.
+  // Mark sequences no longer in the playlist inactive (v0.33.247+) — kept
+  // with all their customizations, but out of the viewer page, voting and
+  // the jukebox. Their pending requests and votes are cleared (the show
+  // player can't play them anyway).
   const keep = new Set(sequences.map((s) => String((s && s.name) || '').trim()).filter(Boolean));
   let removed = 0;
   if (keep.size) {
-    const stale = db.prepare(`SELECT id, name, media_name FROM sequences`).all().filter((r) => !keep.has(r.name));
+    const stale = db.prepare(`SELECT id, name, media_name FROM sequences WHERE active = 1`).all().filter((r) => !keep.has(r.name));
     if (stale.length) {
       const delQueue = db.prepare(`DELETE FROM jukebox_queue WHERE sequence_id = ?`);
       const delVotes = db.prepare(`DELETE FROM votes WHERE sequence_id = ?`);
-      const delSeq = db.prepare(`DELETE FROM sequences WHERE id = ?`);
+      const deactivate = db.prepare(`UPDATE sequences SET active = 0 WHERE id = ?`);
       db.transaction(() => {
-        for (const r of stale) { delQueue.run(r.id); delVotes.run(r.id); removed += delSeq.run(r.id).changes; }
+        for (const r of stale) { delQueue.run(r.id); delVotes.run(r.id); removed += deactivate.run(r.id).changes; }
       })();
-      console.log(`[sync] removed ${removed} sequence(s) no longer in the playlist: ${stale.map((r) => r.name).join(', ')}`);
-    // Cached audio for a media file no remaining sequence uses goes too
-    // (same as deleting a sequence in the admin).
+      console.log(`[sync] marked ${removed} sequence(s) inactive (no longer in the playlist): ${stale.map((r) => r.name).join(', ')}`);
+    // Cached audio for a media file no ACTIVE sequence uses is dropped; it
+    // is fetched again if the sequence returns to the playlist.
     const dropCache = db.prepare(`DELETE FROM audio_cache_files WHERE media_name = ?
-      AND NOT EXISTS (SELECT 1 FROM sequences WHERE media_name = ?)`);
+      AND NOT EXISTS (SELECT 1 FROM sequences WHERE media_name = ? AND active = 1)`);
     for (const r of stale) {
       if (r.media_name) { try { dropCache.run(r.media_name, r.media_name); } catch (e) { console.warn('[sync] cache cleanup:', e.message); } }
     }

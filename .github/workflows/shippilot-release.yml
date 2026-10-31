@@ -47,7 +47,9 @@ jobs:
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/ship') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
-    runs-on: ubuntu-latest
+    # Self-hosted build runner (labels self-hosted, linux, arm64, showpilot).
+    # Repo variable SPP_RUNNER=github switches back to GitHub-hosted runners.
+    runs-on: ${{ vars.SPP_RUNNER == 'github' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     concurrency:
       group: shippilot-${{ github.repository }}
       cancel-in-progress: false

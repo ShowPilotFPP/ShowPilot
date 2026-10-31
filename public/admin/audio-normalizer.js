@@ -20,7 +20,7 @@
   let root = null;
   let status = null;
   // The connected show player's name, as the server reports it:
-  // 'FPP' or 'ShowPilot Player'.
+  // 'FPP' or 'the show player'.
   const T = () => (status && status.target) || 'FPP';
   const isPlayer = () => !!(status && status.targetKind === 'player');
   let batch = null;
@@ -228,7 +228,7 @@
 
   function phoneHint() {
     return isPlayer()
-      ? 'Phone listeners get the new versions after you press Sync on the Player\'s ShowPilot page.'
+      ? 'Phone listeners get the new versions after you press Sync on the player\'s ShowPilot page.'
       : 'ShowPilot picks up the new versions for phone listeners the next time the plugin syncs.';
   }
 
@@ -413,7 +413,7 @@
 
   function renderFppPicker(box) {
     if (!status.fppHost) {
-      box.appendChild(h('p', { class: 'muted', text: 'ShowPilot doesn\'t know your show player\'s address yet — once the ShowPilot plugin (FPP) or ShowPilot Player connects, your songs appear here. You can still use "Files from this computer".' }));
+      box.appendChild(h('p', { class: 'muted', text: 'ShowPilot doesn\'t know your show player\'s address yet — once your show player connects, your songs appear here. You can still use "Files from this computer".' }));
       return;
     }
     if (fppFiles === null) {
@@ -607,7 +607,7 @@
 
     const notes = [];
     notes.push(isPlayer()
-      ? 'To do it by hand: download the fixed files and upload them on the Player\'s Files page, replacing the old ones (same names, so your sequences and playlists keep working).'
+      ? 'To do it by hand: download the fixed files and upload them on the player\'s Files page, replacing the old ones (same names, so your sequences and playlists keep working).'
       : 'To do it by hand: download the fixed files and upload them in FPP\'s File Manager → Audio, replacing the old ones (same names, so your sequences and playlists keep working).');
     if (status.edition === 'main') notes.push(phoneHint());
     notes.push('Files are kept here for 3 hours after you last open this page.');

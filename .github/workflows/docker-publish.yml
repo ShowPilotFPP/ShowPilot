@@ -33,6 +33,13 @@
 # job stitches the digests into one multi-arch manifest with the tags above.
 # This replaces QEMU emulation of arm64 on the amd64 runner, which compiled
 # better-sqlite3 under emulation — slow, and intermittently crashing.
+#
+# SELF-HOSTED RUNNER (v0.33.238+): both platforms and the merge run on the
+# self-hosted arm64 build runner (labels self-hosted, linux, arm64, showpilot).
+# arm64 builds natively; amd64 uses the emulator the machine already has
+# (Rosetta under OrbStack on Apple Silicon) or QEMU via tonistiigi/binfmt.
+# Repo variable SPP_RUNNER=github switches back to the native GitHub-hosted
+# pair above (ubuntu-latest + ubuntu-24.04-arm).
 # ============================================================
 
 name: Build and publish Docker image
@@ -53,15 +60,15 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.platform }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ vars.SPP_RUNNER == 'github' && matrix.hosted || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-latest
+            hosted: ubuntu-latest
           - platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            hosted: ubuntu-24.04-arm
 
     permissions:
       contents: read
@@ -94,6 +101,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Only when the platform differs from this machine (amd64 on the arm64
+      # self-hosted runner). An emulator that is already registered (OrbStack's
+      # Rosetta, an earlier run) is used as is.
+      - name: Emulation for ${{ matrix.platform }}
+        if: (matrix.platform == 'linux/amd64' && runner.arch != 'X64') || (matrix.platform == 'linux/arm64' && runner.arch != 'ARM64')
+        run: |
+          case "${{ matrix.platform }}" in linux/amd64) want='x86_64|rosetta'; arch=amd64 ;; *) want='aarch64'; arch=arm64 ;; esac
+          if ls /proc/sys/fs/binfmt_misc | grep -E "$want" >/dev/null; then
+            echo "Emulator already registered: $(ls /proc/sys/fs/binfmt_misc | grep -E "$want" | tr '\n' ' ')"
+          else
+            docker run --privileged --rm tonistiigi/binfmt --install "$arch"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -124,7 +144,7 @@ jobs:
 
   merge:
     name: Publish multi-arch manifest
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.SPP_RUNNER == 'github' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     needs: build
 
     permissions:

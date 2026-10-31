@@ -8,7 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp,
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, getSequenceLabel, castTiebreakVote, logVote, logVoteChange, getNextUp,
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext , updateConfig } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
@@ -189,7 +189,7 @@ router.get('/state', (req, res) => {
            duration_seconds, votable, jukeboxable,
            last_played_at, plays_since_hidden, cooldown_minutes
     FROM sequences
-    WHERE visible = 1 AND is_psa = 0
+    WHERE visible = 1 AND active = 1 AND is_psa = 0
     ORDER BY display_order, display_name
   `).all();
 
@@ -260,10 +260,18 @@ router.get('/state', (req, res) => {
     }
   }
 
+  // Display names/cover for the labels, looked up directly — see
+  // getSequenceLabel (the playing song is usually not in `sequences`).
+  const npLabel = getSequenceLabel(nowPlaying.sequence_name);
+  const nextLabel = getSequenceLabel(nextUp);
+
   res.json({
     showName: cfg.show_name,
     viewerControlMode: cfg.viewer_control_mode,
     nowPlaying: nowPlaying.sequence_name || null,
+    nowPlayingDisplayName: npLabel.displayName,
+    nowPlayingImageUrl: npLabel.imageUrl ? bustCoverUrl(npLabel.imageUrl) : null,
+    nextScheduledDisplayName: nextLabel.displayName,
     nowPlayingStartedAtIso,
     nowPlayingDurationSeconds,
     // v0.33.206: server clock (for the viewer page's clock-offset estimate,
@@ -325,6 +333,9 @@ router.post('/heartbeat', (req, res) => {
   // An admin's browser (e.g. a viewer tab left open) isn't a viewer.
   if (require('../lib/admin-viewers').isAdminViewerToken(token)) return res.json({ ok: true, token });
 
+  // The page's script is running, so its page load was a real visit.
+  require('../lib/visit-tracking').confirmVisit(req, db);
+
   db.prepare(`
     INSERT INTO active_viewers (viewer_token, last_seen, ip_hash, user_agent)
     VALUES (?, CURRENT_TIMESTAMP, ?, ?)
@@ -345,7 +356,7 @@ router.post('/vote', (req, res) => {
 
   const seq = getSequenceByName(sequenceName);
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
-  if (!seq.votable || seq.is_psa) return res.status(400).json({ error: 'Sequence is not votable' });
+  if (!seq.votable || seq.is_psa || seq.active === 0) return res.status(400).json({ error: 'Sequence is not votable' });
   if (categories.isCategoryDisabled(seq.category, cfg)) {
     return res.status(400).json({ error: 'That sequence is not available right now.' });
   }
@@ -415,6 +426,7 @@ router.post('/vote', (req, res) => {
             INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
             VALUES (?, ?, ?, ?)
           `).run(seq.id, seq.name, token, cfg.current_voting_round);
+          logVoteChange(token, cfg.current_voting_round, seq.name);
         });
         try {
           swap();
@@ -437,6 +449,7 @@ router.post('/vote', (req, res) => {
         INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
         VALUES (?, ?, ?, ?)
       `).run(seq.id, seq.name, token, cfg.current_voting_round);
+      logVote(token, cfg.current_voting_round, seq.name);
     } catch (e) {
       if (String(e.message).includes('UNIQUE')) {
         return res.status(409).json({ error: 'You have already voted this round' });
@@ -603,7 +616,7 @@ router.post('/race/tap', (req, res) => {
   if (!sequenceName) return res.status(400).json({ error: 'sequenceName required' });
 
   const seq = getSequenceByName(sequenceName);
-  if (!seq || !seq.visible) return res.status(404).json({ error: 'Sequence not found' });
+  if (!seq || !seq.visible || seq.active === 0) return res.status(404).json({ error: 'Sequence not found' });
   if (categories.isCategoryDisabled(seq.category, cfg)) {
     return res.status(404).json({ error: 'Sequence not found' });
   }
@@ -649,7 +662,7 @@ router.post('/jukebox/add', (req, res) => {
 
   const seq = getSequenceByName(sequenceName);
   if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
-  if (!seq.jukeboxable || seq.is_psa) {
+  if (!seq.jukeboxable || seq.is_psa || seq.active === 0) {
     return res.status(400).json({ error: 'Sequence is not available via jukebox' });
   }
   if (categories.isCategoryDisabled(seq.category, cfg)) {
@@ -1301,7 +1314,7 @@ router.get('/audio-stream/:sequence', async (req, res) => {
 
     const upstream = await fetch(upstreamUrl, { headers });
     if (!upstream.ok && upstream.status !== 206) {
-      return res.status(upstream.status).send('FPP returned ' + upstream.status);
+      return res.status(upstream.status).send('Show player returned ' + upstream.status);
     }
 
     // Mirror the relevant headers from FPP (excluding cache-control — we set our own)
@@ -1344,7 +1357,7 @@ router.get('/audio-stream/:sequence', async (req, res) => {
     }
   } catch (err) {
     console.error('[audio-stream] proxy error:', err.message);
-    if (!res.headersSent) res.status(502).send('Could not reach FPP: ' + err.message);
+    if (!res.headersSent) res.status(502).send('Could not reach the show player: ' + err.message);
   }
 });
 

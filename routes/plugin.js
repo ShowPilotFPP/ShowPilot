@@ -99,6 +99,18 @@ function isPrivateLanIp(ip) {
   return false;
 }
 
+// ---- PSA counter handling (patched) ----
+// The PSA counter is zeroed when a PSA actually STARTS playing (see /playing),
+// not when /state hands it to the plugin. If the plugin never plays it, we
+// give up after PSA_GIVE_UP_MS so a stuck PSA can't block voting forever.
+const PSA_GIVE_UP_MS = 5 * 60 * 1000;
+let psaHandout = null; // { name, since } — PSA given to the plugin, not yet confirmed playing
+
+function resetPsaCounter(mode) {
+  const col = mode === 'sequences' ? 'sequences_since_last_psa' : 'interactions_since_last_psa';
+  db.prepare(`UPDATE config SET ${col} = 0 WHERE id = 1`).run();
+}
+
 // Track plugin heartbeats and sync — hydrated from config on startup,
 // re-saved to config whenever values change so restarts don't lose state.
 const pluginStatus = (() => {
@@ -160,16 +172,21 @@ router.get('/state', (req, res) => {
         LIMIT 1
       `).get();
 
-      if (psa) {
+      const psaStuck = !!(psa && psaHandout && psaHandout.name === psa.name &&
+        (Date.now() - psaHandout.since) > PSA_GIVE_UP_MS);
+      if (psaStuck) {
+        console.log(`[psa] "${psa.name}" was handed to the plugin ${Math.round((Date.now() - psaHandout.since) / 1000)}s ago but never started; resetting counter and carrying on`);
+        resetPsaCounter(mode);
+        psaHandout = null;
+      } else if (psa) {
         const psaEntry = { sequence: psa.name, playlistIndex: psa.sort_order };
         response.psa = psaEntry;
-        // Reset only the counter we acted on. The other counter keeps
-        // accumulating in the background — operators switching modes
-        // mid-show don't get a hard reset to zero.
-        if (mode === 'sequences') {
-          db.prepare(`UPDATE config SET sequences_since_last_psa = 0 WHERE id = 1`).run();
-        } else {
-          db.prepare(`UPDATE config SET interactions_since_last_psa = 0 WHERE id = 1`).run();
+        // The counter is NOT reset here any more. It is reset in /playing
+        // when the PSA really starts, so a PSA the plugin drops or delays
+        // doesn't silently lose its place. The plugin already ignores
+        // repeats while the PSA is in its pending queue.
+        if (!psaHandout || psaHandout.name !== psa.name) {
+          psaHandout = { name: psa.name, since: Date.now() };
         }
 
         // Deliver PSA via the mode-appropriate slot so plugin acts on it
@@ -741,6 +758,10 @@ router.post('/playing', (req, res) => {
     // whether to consult it.
     if (seq && !seq.is_psa) {
       db.prepare(`UPDATE config SET sequences_since_last_psa = sequences_since_last_psa + 1 WHERE id = 1`).run();
+    } else if (seq && seq.is_psa) {
+      // A PSA has actually started: reset the counter we count with.
+      resetPsaCounter(cfgForRound.psa_trigger_mode === 'sequences' ? 'sequences' : 'interactions');
+      psaHandout = null;
     }
   }
 

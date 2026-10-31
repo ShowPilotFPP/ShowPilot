@@ -580,6 +580,11 @@ router.post('/categories/enabled', requireAdmin, (req, res) => {
   const { name, enabled } = req.body || {};
   categoryResult(req, res, require('../lib/categories').setCategoryEnabled(name, !!enabled));
 });
+// Time-slot schedule (v0.33.248-beta.6): { name, schedule: { days, from, to } | null }
+router.post('/categories/schedule', requireAdmin, (req, res) => {
+  const { name, schedule } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').setCategorySchedule(name, schedule || null));
+});
 router.post('/categories/rename', requireAdmin, (req, res) => {
   const { name, new_name } = req.body || {};
   categoryResult(req, res, require('../lib/categories').renameCategory(name, new_name));

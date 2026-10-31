@@ -1339,9 +1339,6 @@
     .seq-pill { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 999px;
                 padding: 0.2rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
     .seq-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .seq-catchip { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.2rem 0.4rem 0.2rem 0.7rem;
-                   font-size: 0.8rem; background: var(--bg-input); border: 1px solid var(--accent); }
-    .seq-catchip button { padding: 0 0.35rem; font-size: 0.8rem; line-height: 1.2; }
     /* Row action buttons use inline SVG icons (v0.33.248-beta.2): emoji
        rendered as dots or blank boxes on some systems. */
     .seq-icon-btn { padding: 0 !important; width: 2rem; height: 2rem; min-width: 2rem; margin-right: 0.3rem;
@@ -1416,6 +1413,21 @@
     .sp-drag-row.sp-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
     .sp-drag-row.sp-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
     .sp-grip { color: var(--text-dim, var(--text-muted)); cursor: grab; padding: 0 0.35rem; user-select: none; letter-spacing: -1px; }
+    /* Category pills on the Sequences page + category schedules (v0.33.248-beta.6) */
+    .seq-catpills { display: flex; flex-wrap: wrap; gap: 0.4rem; flex-basis: 100%; align-items: center; }
+    .seq-catpills .seq-pill.cat-off { opacity: 0.6; text-decoration: line-through; }
+    .seq-catpills .seq-pill.cat-off.active { opacity: 1; }
+    .seq-catpills-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.2rem; }
+    .cat-sched-btn { display: inline-flex !important; align-items: center; gap: 0.35rem; }
+    .cat-sched-btn svg { width: 14px; height: 14px; }
+    .cat-sched-summary { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+    .cat-sched-summary.off-now { color: var(--status-warning, #f59e0b); }
+    .cat-days { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.4rem 0 0.9rem; }
+    .cat-days label { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; padding: 0.3rem 0.6rem; border: 1px solid var(--border);
+                      border-radius: 999px; font-size: 0.85rem; cursor: pointer; }
+    .cat-days label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft, rgba(249,115,22,.15)); }
+    .cat-times { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+    .cat-times input[type=time] { width: auto; }
     .sp-menu-list label { display: flex; align-items: center; gap: 0.5rem; margin: 0; padding: 0.3rem 0.4rem; border-radius: 6px;
                           font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
     .sp-menu-list label:hover { background: var(--bg-tertiary); }
@@ -1906,7 +1918,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.248-beta.5</span>
+        <span class="app-version">v0.33.248-beta.6</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2111,7 +2123,7 @@
             <button class="seq-pill" data-seq-filter="active" onclick="setSeqFilter('active')" title="In your show player's playlist">Active</button>
             <button class="seq-pill" data-seq-filter="inactive" onclick="setSeqFilter('inactive')" title="No longer in the playlist — kept with all their details, hidden from viewers">Inactive</button>
             <button class="seq-pill" data-seq-filter="hidden" onclick="setSeqFilter('hidden')" title="Visible switched off">Hidden</button>
-            <span id="seqCatChip" class="seq-catchip" style="display:none;"><span id="seqCatChipText"></span><button class="secondary" onclick="setSeqCategoryFilter(null)" title="Clear category filter">✕</button></span>
+
             <span style="flex:1;"></span>
             <label style="display:flex; align-items:center; gap:0.35rem; margin:0; font-size:0.85rem; cursor:pointer;" title="One line per row: smaller art, names on a single line">
               <input type="checkbox" id="seqCompact" onchange="setSeqCompact(this.checked)" /> Compact rows
@@ -2120,6 +2132,7 @@
               <summary class="button secondary" style="display:inline-block; padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem;" title="Show or hide columns. Hidden columns keep their settings.">Columns ▾</summary>
               <div class="sp-menu-list" id="seqColumnsList"></div>
             </details>
+            <div id="seqCatPills" class="seq-catpills" style="display:none;"></div>
           </div>
 
           <!-- Bulk action toolbar — only visible when one or more rows are selected.
@@ -7209,6 +7222,16 @@
         name.style.cssText = 'flex:1; font-weight:600;' + (c.enabled ? '' : ' opacity:0.55; text-decoration: line-through;');
         name.textContent = c.name;
 
+        // Time-slot schedule (v0.33.248-beta.6)
+        const sched = document.createElement('span');
+        sched.className = 'cat-sched-summary';
+        if (c.schedule) {
+          const offNow = c.enabled !== 0 && c.available_now === false;
+          sched.textContent = describeCategorySchedule(c.schedule) + (offNow ? ' · hidden now' : (c.enabled ? ' · showing now' : ''));
+          if (offNow) sched.classList.add('off-now');
+          sched.title = 'Times are in the show time zone' + (c.timezone ? ' (' + c.timezone + ')' : '') + '. Outside this schedule the category is hidden from viewers, like switching it off.';
+        }
+
         const count = document.createElement('span');
         count.className = 'muted';
         count.style.fontSize = '0.85rem';
@@ -7235,12 +7258,111 @@
           if (ok) categoryAction('/categories/delete', { name: c.name });
         }, 'danger');
 
-        [grip, tog, name, count, ren, del].forEach(el => row.appendChild(el));
+        const schedBtn = document.createElement('button');
+        schedBtn.type = 'button';
+        schedBtn.className = 'secondary cat-sched-btn';
+        schedBtn.title = c.schedule ? 'Change when this category is shown' : 'Only show this category on certain days or times';
+        schedBtn.innerHTML = SEQ_ICONS.clock + '<span>' + (c.schedule ? 'Schedule' : 'Add schedule') + '</span>';
+        schedBtn.addEventListener('click', () => openCategoryScheduleModal(c));
+
+        [grip, tog, name, sched, count, schedBtn, ren, del].forEach(el => row.appendChild(el));
         host.appendChild(row);
       });
       if (categoriesCache.length > 1) {
         enableDragReorder(host, '.row', (names) => categoryAction('/categories/reorder', { names }));
       }
+    }
+
+    // ======= Category schedules (v0.33.248-beta.6) =======
+    const CAT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    function fmt12(t) {
+      const m = /^(\d{2}):(\d{2})$/.exec(t || '');
+      if (!m) return t || '';
+      const h = +m[1], ap = h < 12 ? 'AM' : 'PM', h12 = h % 12 || 12;
+      return h12 + ':' + m[2] + ' ' + ap;
+    }
+    function describeCategorySchedule(s) {
+      if (!s) return '';
+      // Listed Monday-first so a weekend reads "Fri, Sat, Sun".
+      const days = (s.days && s.days.length) ? s.days.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)) : [1, 2, 3, 4, 5, 6, 0];
+      let dayText;
+      if (days.length === 7) dayText = 'Every day';
+      else if (days.join() === '1,2,3,4,5') dayText = 'Weekdays';
+      else if (days.join() === '6,0') dayText = 'Weekends';
+      else dayText = days.map(d => CAT_DAY_NAMES[d]).join(', ');
+      const time = (s.from && s.to) ? fmt12(s.from) + '–' + fmt12(s.to) : 'all day';
+      return dayText + ' · ' + time;
+    }
+    function openCategoryScheduleModal(c) {
+      const existing = document.getElementById('catSchedModal');
+      if (existing) existing.remove();
+      const s = c.schedule || null;
+      const days = s && s.days && s.days.length ? s.days : [0, 1, 2, 3, 4, 5, 6];
+      const allDay = !s || !s.from;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      backdrop.id = 'catSchedModal';
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+      backdrop.innerHTML = `
+        <div class="modal-card" style="max-width: 520px;">
+          <div class="modal-header">
+            <h2 style="margin: 0; font-size: 1.05rem;"></h2>
+            <button class="modal-close" type="button" aria-label="Close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="muted" style="margin-top: 0;">Outside this schedule the category is hidden from viewers and can't be voted for or requested, the same as switching it off. Times use the show time zone<span class="cat-tz"></span>.</p>
+            <div style="font-weight: 600; font-size: 0.9rem;">Days</div>
+            <div class="cat-days">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label><input type="checkbox" value="${i}" ${days.includes(i) ? 'checked' : ''}/> ${CAT_DAY_NAMES[i]}</label>`).join('')}</div>
+            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem;">Time</div>
+            <div class="cat-times">
+              <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0;"><input type="checkbox" class="cat-allday" ${allDay ? 'checked' : ''}/> All day</label>
+              <span class="cat-range" style="display:${allDay ? 'none' : 'inline-flex'}; align-items:center; gap:0.4rem;">
+                from <input type="time" class="cat-from" value="${s && s.from ? s.from : '17:00'}"/>
+                to <input type="time" class="cat-to" value="${s && s.to ? s.to : '20:00'}"/>
+              </span>
+            </div>
+            <p class="muted cat-overnight" style="font-size: 0.8rem; display: none; margin: 0.4rem 0 0;">Ends after midnight: the part after midnight counts as the starting day.</p>
+            <div class="cat-err" style="color: var(--status-danger); font-size: 0.85rem; margin-top: 0.6rem;"></div>
+            <div class="row" style="justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
+              ${s ? '<button type="button" class="secondary cat-clear">Remove schedule</button>' : ''}
+              <button type="button" class="secondary cat-cancel">Cancel</button>
+              <button type="button" class="cat-save">Save</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+      const $ = (sel) => backdrop.querySelector(sel);
+      $('h2').textContent = 'When to show “' + c.name + '”';
+      if (c.timezone) $('.cat-tz').textContent = ' (' + c.timezone + ')';
+      const close = () => backdrop.remove();
+      $('.modal-close').addEventListener('click', close);
+      $('.cat-cancel').addEventListener('click', close);
+      const syncUi = () => {
+        $('.cat-err').textContent = '';
+        const ad = $('.cat-allday').checked;
+        $('.cat-range').style.display = ad ? 'none' : 'inline-flex';
+        $('.cat-overnight').style.display = (!ad && $('.cat-from').value && $('.cat-to').value && $('.cat-from').value > $('.cat-to').value) ? 'block' : 'none';
+      };
+      ['.cat-allday', '.cat-from', '.cat-to'].forEach(sel => $(sel).addEventListener('input', syncUi));
+      backdrop.querySelectorAll('.cat-days input').forEach(x => x.addEventListener('change', () => { $('.cat-err').textContent = ''; }));
+      syncUi();
+      const send = async (schedule) => {
+        const res = await fetch('/api/admin/categories/schedule', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: c.name, schedule }),
+        });
+        let data = null; try { data = await res.json(); } catch (e) {}
+        if (!res.ok) { $('.cat-err').textContent = (data && data.error) || 'Could not save the schedule.'; return; }
+        close();
+        loadSequences();
+      };
+      if ($('.cat-clear')) $('.cat-clear').addEventListener('click', () => send(null));
+      $('.cat-save').addEventListener('click', () => {
+        const picked = Array.from(backdrop.querySelectorAll('.cat-days input:checked')).map(x => +x.value);
+        if (!picked.length) { $('.cat-err').textContent = 'Pick at least one day.'; return; }
+        const ad = $('.cat-allday').checked;
+        send({ days: picked.length === 7 ? [] : picked, from: ad ? '' : $('.cat-from').value, to: ad ? '' : $('.cat-to').value });
+      });
     }
 
     async function categoryAction(path, body) {
@@ -7477,6 +7599,7 @@
         trash: i('<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5M10 11v5.5M14 11v5.5"/>'),
         filter: i('<path d="M3.5 5h17l-6.5 8v6l-4 1.5V13z"/>'),
         stop: i('<rect x="6" y="6" width="12" height="12" rx="1.5"/>', true),
+        clock: i('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
       };
     })();
 
@@ -7644,20 +7767,56 @@
       applySeqFilter();
     }
 
+    // Category filter: a category name, SEQ_UNCATEGORIZED, or null (all).
+    // v0.33.248-beta.6: shown as a row of pills under the search box; the
+    // funnel button on a row picks the same filter. Clicking the active pill
+    // (or All categories) clears it.
+    const SEQ_UNCATEGORIZED = '\u0000none';
     function setSeqCategoryFilter(cat) {
-      _seqCategoryFilter = cat ? String(cat) : null;
-      const chip = document.getElementById('seqCatChip');
-      if (chip) chip.style.display = _seqCategoryFilter ? 'inline-flex' : 'none';
-      const t = document.getElementById('seqCatChipText');
-      if (t) t.textContent = 'Category: ' + (_seqCategoryFilter || '');
+      _seqCategoryFilter = (cat === SEQ_UNCATEGORIZED || cat) ? String(cat) : null;
       applySeqFilter();
+    }
+    function renderSeqCategoryPills() {
+      const host = document.getElementById('seqCatPills');
+      if (!host) return;
+      const all = sequencesCache || [];
+      const count = (pred) => all.filter(pred).length;
+      const key = (v) => String(v || '').trim().toLowerCase();
+      const cats = (categoriesCache || []).filter(c => count(s => key(s.category) === key(c.name)) > 0);
+      const uncat = count(s => !key(s.category));
+      if (!cats.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
+      host.style.display = 'flex';
+      host.innerHTML = '';
+      const lab = document.createElement('span');
+      lab.className = 'seq-catpills-label'; lab.textContent = 'Category';
+      host.appendChild(lab);
+      const pill = (text, value, n, extraTitle, off) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        const active = value === null ? _seqCategoryFilter === null
+          : (_seqCategoryFilter !== null && key(_seqCategoryFilter) === key(value));
+        b.className = 'seq-pill' + (active ? ' active' : '') + (off ? ' cat-off' : '');
+        b.textContent = n === null ? text : `${text} (${n})`;
+        if (extraTitle) b.title = extraTitle;
+        b.addEventListener('click', () => setSeqCategoryFilter(active && value !== null ? null : value));
+        host.appendChild(b);
+      };
+      pill('All categories', null, null);
+      cats.forEach(c => {
+        const off = c.enabled === 0 || c.available_now === false;
+        const why = c.enabled === 0 ? 'Switched off — hidden from viewers'
+          : (c.available_now === false ? 'Outside its schedule right now — hidden from viewers' : '');
+        pill(c.name, c.name, count(s => key(s.category) === key(c.name)), why, off);
+      });
+      if (uncat) pill('Uncategorized', SEQ_UNCATEGORIZED, uncat);
     }
 
     function seqMatchesFilter(seq, q) {
       if (_seqFilter === 'active' && seq.active === 0) return false;
       if (_seqFilter === 'inactive' && seq.active !== 0) return false;
       if (_seqFilter === 'hidden' && seq.visible) return false;
-      if (_seqCategoryFilter && String(seq.category || '').toLowerCase() !== _seqCategoryFilter.toLowerCase()) return false;
+      if (_seqCategoryFilter === SEQ_UNCATEGORIZED) { if (String(seq.category || '').trim()) return false; }
+      else if (_seqCategoryFilter && String(seq.category || '').trim().toLowerCase() !== _seqCategoryFilter.trim().toLowerCase()) return false;
       if (q) {
         const hay = [seq.display_name, seq.name, seq.artist, seq.category].join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
@@ -7688,6 +7847,7 @@
         const k = b.dataset.seqFilter;
         b.textContent = `${labels[k]} (${counts[k]})`;
       });
+      renderSeqCategoryPills();
       const none = document.getElementById('seqNoMatch');
       if (none) none.style.display = (all.length && !shown) ? '' : 'none';
       syncSelectAllState();

@@ -55,6 +55,15 @@ body.ui-new:not(.rail-pinned) .spn-rail:has(:focus-visible) { box-shadow: 8px 0 
 .spn-brand-version { font: 500 11px/1.2 var(--font-mono); color: var(--text-muted); }
 
 .spn-nav { display: flex; flex-direction: column; gap: 2px; }
+/* v0.33.247-beta.3: the menu list scrolls on its own and the footer (status,
+   Classic layout, Keep menu open) stays pinned to the bottom of the rail.
+   Before, the whole rail scrolled, so once the open section's sub-pages made
+   the list taller than the window, "Keep menu open" sat below the fold. */
+body.ui-new .spn-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+body.ui-new .spn-foot { flex: 0 0 auto; }
+body.ui-new .spn-rail:hover,
+body.ui-new.rail-pinned .spn-rail,
+body.ui-new .spn-rail:has(:focus-visible) { overflow-y: hidden; }
 .spn-item {
   display: flex; align-items: center; gap: 14px; width: 100%; min-height: 44px; padding: 0 13px;
   border: 0; border-radius: 10px; background: transparent; text-align: left; text-decoration: none;

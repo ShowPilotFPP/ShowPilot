@@ -90,7 +90,7 @@ body.ui-new:not(.rail-pinned) .spn-rail:has(:focus-visible) .spn-sub.open { disp
 .spn-top > div:first-child { min-width: 160px; }
 .spn-top .spn-crumb { color: var(--text-muted); font-size: 14px; }
 .spn-top .spn-spacer { flex: 1; }
-.spn-top #themeSelect { min-height: 40px; }
+.spn-top #themeSelect { min-height: 40px; width: auto; max-width: 220px; }
 .spn-top .header-show-btn { min-height: 40px; }
 .spn-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); font-size: 14px; }
 
@@ -190,7 +190,7 @@ body:not(.ui-new) #spnDash { display: none; }
    from a button in the top bar; the page gets the full width. Desktop with
    a mouse is unchanged. Same query as isDrawerMode() in ui-new.js. */
 .spn-menu-btn, .spn-backdrop { display: none; }
-@media (max-width: 760px), (hover: none) {
+@media (max-width: 760px), (any-hover: none) {
   body.ui-new, body.ui-new.rail-pinned { padding-left: 0; }
   body.ui-new .spn-rail,
   body.ui-new.rail-pinned .spn-rail {
@@ -223,7 +223,7 @@ body:not(.ui-new) #spnDash { display: none; }
   .spn-top h1 { font-size: 22px; overflow: hidden; text-overflow: ellipsis; }
   .spn-top .spn-spacer { display: none; }
   .spn-top .spn-chip, .spn-top .header-show-btn, .spn-top #themeSelect { min-height: 40px; }
-  .spn-top #themeSelect { max-width: 46vw; }
+  .spn-top #themeSelect { width: auto; max-width: min(46vw, 220px); }
   body.ui-new main { padding: 8px 12px 40px; }
   .spn-notice { margin: 8px 12px 0; }
 
@@ -240,6 +240,6 @@ body:not(.ui-new) #spnDash { display: none; }
   .spn-stat { padding: 14px; }
   .spn-stat .v { font-size: 28px; }
 }
-@media (max-width: 760px), (hover: none) {
+@media (max-width: 760px), (any-hover: none) {
   @media (prefers-reduced-motion: reduce) { body.ui-new .spn-rail { transition: none; } }
 }

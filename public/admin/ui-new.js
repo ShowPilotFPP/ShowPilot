@@ -43,7 +43,7 @@
 
   // Phones and touch-only devices (v0.33.212+): no hover, so the rail is a
   // slide-out menu instead. Must match the media query in ui-new.css.
-  const DRAWER_QUERY = '(max-width: 760px), (hover: none)';
+  const DRAWER_QUERY = '(max-width: 760px), (any-hover: none)';
   const isDrawerMode = () => { try { return window.matchMedia(DRAWER_QUERY).matches; } catch (_) { return false; } };
   function openDrawer() {
     document.body.classList.add('spn-drawer-open');

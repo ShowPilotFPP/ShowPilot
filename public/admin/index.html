@@ -1349,7 +1349,7 @@
     .seq-icon-btn svg, .seq-cat-filter svg { width: 15px; height: 15px; display: block; }
     .seq-icon-slot { display: inline-block; width: 2rem; margin-right: 0.3rem; }
     /* Preview button while playing: stop icon + elapsed time (v0.33.248-beta.3). */
-    .seq-icon-btn.seq-previewing { width: auto !important; min-width: 4.2rem; padding: 0 0.55rem !important; gap: 0.35rem;
+    .seq-icon-btn.seq-previewing { width: 4.6rem !important; min-width: 4.6rem; padding: 0 0.45rem !important; gap: 0.35rem;
                                    background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
                                    font-variant-numeric: tabular-nums; font-size: 0.8rem; }
     .seq-icon-btn.seq-previewing svg { width: 12px; height: 12px; }
@@ -1362,24 +1362,52 @@
     tr.seq-inactive td:not(.col-status):not(.col-check):not(.col-actions) { opacity: 0.6; }
     /* Narrow columns shrink to their content so the text columns get the room. */
     #sequencesTable th.col-tight, #sequencesTable td.col-tight { width: 1%; white-space: nowrap; }
-    #sequencesTable .col-display { min-width: 200px; }
-    #sequencesTable .col-artist { min-width: 140px; }
-    #sequencesTable .seq-category-select { width: auto; max-width: 170px; }
-    /* Sequence name is the lowest-priority text: always one line, cut with …,
-       full name on hover. */
-    #sequencesTable .col-seqname code { display: inline-block; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
-                                        white-space: nowrap; vertical-align: middle; }
-    /* Compact: one line per row. Display name and artist never wrap; the
-       sequence name (lowest priority) is cut with … and shows in full on hover. */
+    /* v0.33.248-beta.4: the four text columns share the free width by
+       percentage (max-width: 0 makes the table honour the shares), so space
+       freed by hiding columns is spread across all of them instead of piling
+       up in Display Name. Text that doesn't fit its share is cut with … (full
+       text on hover; click a name to edit it in full). Shares: Display Name
+       28, Sequence Name 22, Artist 18, Category 22. */
+    #sequencesTable { width: 100%; min-width: 860px; }
+    #sequencesTable th.col-display, #sequencesTable td.col-display { width: 28%; max-width: 0; }
+    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: 22%; max-width: 0; }
+    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: 18%; max-width: 0; }
+    #sequencesTable th.col-category, #sequencesTable td.col-category { width: 22%; max-width: 0; }
+    #sequencesTable .col-seqname code { display: block; max-width: 100%; width: fit-content; overflow: hidden; text-overflow: ellipsis;
+                                        white-space: nowrap; }
+    #sequencesTable .col-display .editable, #sequencesTable .col-artist .editable { max-width: 100%; overflow-wrap: anywhere; vertical-align: middle; }
+    #sequencesTable .seq-cat-wrap { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+    #sequencesTable .seq-category-select { flex: 1 1 auto; min-width: 0; width: 100%; text-overflow: ellipsis; }
+    #sequencesTable .seq-cat-filter { flex: 0 0 auto; margin-left: 0; }
+    /* Row buttons are right-aligned, and the header reserves room for the
+       wider "■ 0:42" preview button, so playing a preview never moves the
+       other buttons or columns. Each hidden button takes its share out. */
+    #sequencesTable { --w-prev: 4.9rem; --w-search: 2.3rem; --w-lang: 2.3rem; }
+    #sequencesTable.hide-preview { --w-prev: 0rem; }
+    #sequencesTable.hide-search { --w-search: 0rem; }
+    #sequencesTable.hide-lang { --w-lang: 0rem; }
+    #sequencesTable .seq-actions-reserve { width: calc(var(--w-prev) + var(--w-search) + var(--w-lang) + 2.3rem); height: 0; }
+    #sequencesTable td.col-actions { text-align: right; }
+    #sequencesTable td.col-index { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85rem; text-align: center; color: var(--text-muted); }
+    /* Compact: one line per row, everything cut with … in its share. */
     table.seq-compact td { padding-top: 0.25rem; padding-bottom: 0.25rem; }
     table.seq-compact .art-wrap, table.seq-compact .art-thumb, table.seq-compact .art-placeholder { width: 30px; height: 30px; }
-    table.seq-compact .col-display, table.seq-compact .col-artist { white-space: nowrap; }
+    table.seq-compact .col-display .editable, table.seq-compact .col-artist .editable {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    table.seq-compact .col-display .editable:focus, table.seq-compact .col-artist .editable:focus { white-space: normal; overflow: visible; }
     /* Column chooser: hidden columns keep their settings, they're just not shown. */
     #sequencesTable.hide-art .col-art, #sequencesTable.hide-seqname .col-seqname, #sequencesTable.hide-artist .col-artist,
     #sequencesTable.hide-category .col-category, #sequencesTable.hide-visible .col-visible, #sequencesTable.hide-vote .col-vote,
     #sequencesTable.hide-jukebox .col-jukebox, #sequencesTable.hide-psa .col-psa, #sequencesTable.hide-cooldown .col-cooldown,
     #sequencesTable.hide-preview .col-preview, #sequencesTable.hide-search .col-search, #sequencesTable.hide-lang .col-lang,
-    #sequencesTable.hide-status .col-status { display: none !important; }
+    #sequencesTable.hide-status .col-status, #sequencesTable.hide-index .col-index { display: none !important; }
+    .sp-menu-list .sp-col-row { display: flex; align-items: center; gap: 0.25rem; }
+    .sp-menu-list .sp-col-row label { flex: 1; }
+    .sp-menu-list .sp-col-row .sp-col-fixed { flex: 1; padding: 0.3rem 0.4rem 0.3rem 1.9rem; font-size: 0.85rem; white-space: nowrap; }
+    .sp-menu-list .sp-col-row button { padding: 0 !important; width: 1.6rem; height: 1.6rem; min-height: 1.6rem !important; min-width: 1.6rem;
+                                       display: inline-flex !important; align-items: center; justify-content: center; font-size: 0.8rem; margin: 0; }
+    .sp-menu-list .sp-col-reset { display: block; width: 100%; margin-top: 0.35rem; font-size: 0.8rem; }
+    #seqColumnsList { max-height: 70vh; overflow-y: auto; min-width: 250px; }
     .sp-menu-list label { display: flex; align-items: center; gap: 0.5rem; margin: 0; padding: 0.3rem 0.4rem; border-radius: 6px;
                           font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
     .sp-menu-list label:hover { background: var(--bg-tertiary); }
@@ -1870,7 +1898,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.248-beta.3</span>
+        <span class="app-version">v0.33.248-beta.4</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2112,14 +2140,15 @@
                   <th class="col-tight col-art">Art</th>
                   <th class="col-display">Display Name</th>
                   <th class="col-seqname">Sequence Name</th>
+                  <th class="col-tight col-index" title="Position in your show player's playlist, from the last sync. If the wrong song plays, check this matches the playlist (and sync again).">Playlist #</th>
                   <th class="col-artist">Artist</th>
-                  <th class="col-tight col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
+                  <th class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
                   <th class="col-tight col-visible">Visible</th>
                   <th class="col-tight col-vote">Vote</th>
                   <th class="col-tight col-jukebox">Jukebox</th>
                   <th class="col-tight col-psa">PSA</th>
                   <th class="col-tight col-cooldown" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
-                  <th class="col-tight col-actions"></th>
+                  <th class="col-tight col-actions"><div class="seq-actions-reserve"></div></th>
                 </tr>
               </thead>
               <tbody id="sequencesBody"></tbody>
@@ -7325,12 +7354,13 @@
               aria-label="${inactive ? 'Inactive' : 'Active'}"
               title="${inactive ? 'Inactive — no longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again when the playlist lists it.' : 'Active — in your show player\'s playlist'}"></span></td>
         <td class="col-tight col-art">${art}</td>
-        <td class="col-display"><span class="editable" contenteditable="true"
+        <td class="col-display"><span class="editable" contenteditable="true" title="${escapeAttr(seq.display_name)}"
                   onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
         <td class="col-seqname"><code title="${escapeAttr(seq.name)}">${escapeHtml(seq.name)}</code></td>
-        <td class="col-artist"><span class="editable" contenteditable="true"
+        <td class="col-tight col-index" title="${inactive ? 'Not in the current playlist' : 'Position in your show player\'s playlist'}">${!inactive && seq.sort_order ? seq.sort_order : '—'}</td>
+        <td class="col-artist"><span class="editable" contenteditable="true" title="${escapeAttr(seq.artist || '')}"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
-        <td class="col-tight col-category"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</td>
+        <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
         <td class="col-tight col-visible"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-vote"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-jukebox"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -7350,6 +7380,7 @@
         fillCategorySelect(catSel, seq.category || '', '— none —');
         catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
       }
+      orderSeqCells(tr);
       const catFilterBtn = tr.querySelector('.seq-cat-filter');
       if (catFilterBtn) catFilterBtn.addEventListener('click', () => setSeqCategoryFilter(seq.category));
 
@@ -7394,14 +7425,17 @@
       };
     })();
 
-    // ======= Column chooser (v0.33.248-beta.2) =======
+    // ======= Column chooser + order (v0.33.248-beta.2, order v0.33.248-beta.4) =======
     // Hidden columns keep their values; they're only taken off the screen.
-    // Remembered per browser.
-    const SEQ_COLUMNS = [
-      { group: 'Columns' },
+    // Columns can be moved up/down in the menu (left/right in the table).
+    // Both are remembered per browser. The checkbox and drag handle stay
+    // first and the row buttons last.
+    const SEQ_COLS = [
       { key: 'status', label: 'Status (active / inactive)' },
       { key: 'art', label: 'Art' },
+      { key: 'display', label: 'Display Name', fixed: true },
       { key: 'seqname', label: 'Sequence Name' },
+      { key: 'index', label: 'Playlist # (position in the playlist)', defaultHidden: true },
       { key: 'artist', label: 'Artist' },
       { key: 'category', label: 'Category' },
       { key: 'visible', label: 'Visible' },
@@ -7409,43 +7443,134 @@
       { key: 'jukebox', label: 'Jukebox' },
       { key: 'psa', label: 'PSA' },
       { key: 'cooldown', label: 'Cooldown' },
-      { group: 'Row buttons' },
+    ];
+    const SEQ_BUTTONS = [
       { key: 'preview', label: 'Preview audio' },
       { key: 'search', label: 'Search title / cover' },
       { key: 'lang', label: 'Languages' },
     ];
+    const SEQ_DEFAULT_ORDER = SEQ_COLS.map(c => c.key);
+    // Saved as { hidden: [...], shown: [...] } so a column that's hidden by
+    // default (Playlist #) can be switched on, and new default-hidden columns
+    // stay hidden for people who already saved settings. Older saves were a
+    // plain array of hidden keys.
     let _seqHiddenCols = new Set();
-    try { _seqHiddenCols = new Set(JSON.parse(localStorage.getItem('sp_seq_hidden_cols') || '[]')); } catch (e) {}
+    let _seqShownCols = new Set();
+    let _seqColOrder = SEQ_DEFAULT_ORDER.slice();
+    (function loadSeqColumnPrefs() {
+      try {
+        const raw = JSON.parse(localStorage.getItem('sp_seq_hidden_cols') || '[]');
+        if (Array.isArray(raw)) _seqHiddenCols = new Set(raw);
+        else { _seqHiddenCols = new Set(raw.hidden || []); _seqShownCols = new Set(raw.shown || []); }
+      } catch (e) {}
+      SEQ_COLS.forEach(c => { if (c.defaultHidden && !_seqShownCols.has(c.key)) _seqHiddenCols.add(c.key); });
+      try {
+        const saved = JSON.parse(localStorage.getItem('sp_seq_col_order') || 'null');
+        if (Array.isArray(saved)) {
+          const known = saved.filter(k => SEQ_DEFAULT_ORDER.includes(k));
+          SEQ_DEFAULT_ORDER.forEach((k, i) => {
+            // A column added in a later version goes after its default neighbour.
+            if (!known.includes(k)) {
+              const prev = SEQ_DEFAULT_ORDER[i - 1];
+              const at = prev ? known.indexOf(prev) + 1 : 0;
+              known.splice(at, 0, k);
+            }
+          });
+          _seqColOrder = known;
+        }
+      } catch (e) {}
+    })();
+
+    function saveSeqColumnPrefs() {
+      try {
+        localStorage.setItem('sp_seq_hidden_cols', JSON.stringify({ hidden: Array.from(_seqHiddenCols), shown: Array.from(_seqShownCols) }));
+        localStorage.setItem('sp_seq_col_order', JSON.stringify(_seqColOrder));
+      } catch (e) {}
+    }
+
+    // Put a row's (or the header's) cells in the saved column order, between
+    // the drag handle and the row buttons.
+    function orderSeqCells(tr) {
+      const anchor = tr.querySelector(':scope > .col-actions');
+      if (!anchor) return;
+      _seqColOrder.forEach(key => {
+        const cell = tr.querySelector(':scope > .col-' + key);
+        if (cell) tr.insertBefore(cell, anchor);
+      });
+    }
 
     function applySeqColumns() {
       const t = document.getElementById('sequencesTable');
       if (!t) return;
-      SEQ_COLUMNS.forEach(c => { if (c.key) t.classList.toggle('hide-' + c.key, _seqHiddenCols.has(c.key)); });
+      SEQ_COLS.concat(SEQ_BUTTONS).forEach(c => { if (!c.fixed) t.classList.toggle('hide-' + c.key, _seqHiddenCols.has(c.key)); });
+      t.querySelectorAll('tr').forEach(orderSeqCells);
     }
     function setSeqColumnVisible(key, visible) {
-      if (visible) _seqHiddenCols.delete(key); else _seqHiddenCols.add(key);
-      try { localStorage.setItem('sp_seq_hidden_cols', JSON.stringify(Array.from(_seqHiddenCols))); } catch (e) {}
+      if (visible) { _seqHiddenCols.delete(key); _seqShownCols.add(key); }
+      else { _seqHiddenCols.add(key); _seqShownCols.delete(key); }
+      saveSeqColumnPrefs();
       applySeqColumns();
+    }
+    function moveSeqColumn(key, delta) {
+      const i = _seqColOrder.indexOf(key), j = i + delta;
+      if (i < 0 || j < 0 || j >= _seqColOrder.length) return;
+      [_seqColOrder[i], _seqColOrder[j]] = [_seqColOrder[j], _seqColOrder[i]];
+      saveSeqColumnPrefs();
+      applySeqColumns();
+      buildSeqColumnsMenu();
+    }
+    function resetSeqColumns() {
+      _seqColOrder = SEQ_DEFAULT_ORDER.slice();
+      _seqHiddenCols = new Set(SEQ_COLS.filter(c => c.defaultHidden).map(c => c.key));
+      _seqShownCols = new Set();
+      saveSeqColumnPrefs();
+      applySeqColumns();
+      buildSeqColumnsMenu();
     }
     function buildSeqColumnsMenu() {
       const host = document.getElementById('seqColumnsList');
       if (!host) return;
       host.innerHTML = '';
-      SEQ_COLUMNS.forEach(c => {
-        if (c.group) {
-          const h = document.createElement('div');
-          h.className = 'sp-menu-head'; h.textContent = c.group;
-          host.appendChild(h);
-          return;
-        }
+      const head = (text) => { const h = document.createElement('div'); h.className = 'sp-menu-head'; h.textContent = text; host.appendChild(h); };
+      const check = (c) => {
         const lab = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox'; cb.checked = !_seqHiddenCols.has(c.key);
         cb.addEventListener('change', () => setSeqColumnVisible(c.key, cb.checked));
         lab.appendChild(cb);
         lab.appendChild(document.createTextNode(c.label));
-        host.appendChild(lab);
+        return lab;
+      };
+      head('Columns (left to right)');
+      _seqColOrder.forEach((key, i) => {
+        const c = SEQ_COLS.find(x => x.key === key);
+        if (!c) return;
+        const row = document.createElement('div');
+        row.className = 'sp-col-row';
+        if (c.fixed) {
+          const span = document.createElement('span');
+          span.className = 'sp-col-fixed'; span.textContent = c.label; span.title = 'Always shown';
+          row.appendChild(span);
+        } else {
+          row.appendChild(check(c));
+        }
+        const mk = (txt, title, delta, disabled) => {
+          const b = document.createElement('button');
+          b.type = 'button'; b.className = 'secondary'; b.textContent = txt; b.title = title; b.disabled = disabled;
+          b.addEventListener('click', (e) => { e.preventDefault(); moveSeqColumn(key, delta); });
+          return b;
+        };
+        row.appendChild(mk('↑', 'Move left', -1, i === 0));
+        row.appendChild(mk('↓', 'Move right', 1, i === _seqColOrder.length - 1));
+        host.appendChild(row);
       });
+      head('Row buttons');
+      SEQ_BUTTONS.forEach(c => host.appendChild(check(c)));
+      const reset = document.createElement('button');
+      reset.type = 'button'; reset.className = 'secondary sp-col-reset'; reset.textContent = 'Reset columns';
+      reset.title = 'Default order, every column shown except Playlist #';
+      reset.addEventListener('click', (e) => { e.preventDefault(); resetSeqColumns(); });
+      host.appendChild(reset);
     }
     (function initSeqColumns() {
       const go = () => { buildSeqColumnsMenu(); applySeqColumns(); };

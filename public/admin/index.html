@@ -1348,6 +1348,11 @@
                     display: inline-flex !important; align-items: center; justify-content: center; vertical-align: middle; }
     .seq-icon-btn svg, .seq-cat-filter svg { width: 15px; height: 15px; display: block; }
     .seq-icon-slot { display: inline-block; width: 2rem; margin-right: 0.3rem; }
+    /* Preview button while playing: stop icon + elapsed time (v0.33.248-beta.3). */
+    .seq-icon-btn.seq-previewing { width: auto !important; min-width: 4.2rem; padding: 0 0.55rem !important; gap: 0.35rem;
+                                   background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
+                                   font-variant-numeric: tabular-nums; font-size: 0.8rem; }
+    .seq-icon-btn.seq-previewing svg { width: 12px; height: 12px; }
     .seq-cat-filter { padding: 0 !important; width: 1.7rem; height: 1.7rem; min-width: 1.7rem; margin-left: 0.25rem;
                       display: inline-flex !important; align-items: center; justify-content: center; vertical-align: middle; }
     /* Active / inactive status dot (own narrow column). */
@@ -1865,7 +1870,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.248-beta.2</span>
+        <span class="app-version">v0.33.248-beta.3</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4109,6 +4114,8 @@
     // MAIN TAB SWITCHER
     // ============================================================
     function switchMainTab(name) {
+      // Leaving Sequences stops an audio preview (v0.33.248-beta.3).
+      if (name !== 'sequences' && typeof closeSeqPreview === 'function') closeSeqPreview();
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === name);
       });
@@ -7273,14 +7280,13 @@
       }
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
-      // tbody.innerHTML wipes out any open preview row, so reset the
-      // tracker — without this, clicking the preview button on the same
-      // sequence again would close-then-not-reopen because we'd think
-      // it's still open.
-      _activePreviewId = null;
       r.data.forEach(seq => {
         tbody.appendChild(buildSequenceRow(seq));
       });
+      // A preview keeps playing across a list refresh; show it on the new row
+      // (or stop it if that sequence is gone).
+      if (_preview.id !== null && !r.data.some(s => s.id === _preview.id)) closeSeqPreview();
+      else paintSeqPreviewBtns();
       applySeqFilter();
       // Drop selection entries for sequences that no longer exist (deleted
       // out from under us) so the toolbar count reflects reality.
@@ -7384,6 +7390,7 @@
         lang: i('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>'),
         trash: i('<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5M10 11v5.5M14 11v5.5"/>'),
         filter: i('<path d="M3.5 5h17l-6.5 8v6l-4 1.5V13z"/>'),
+        stop: i('<rect x="6" y="6" width="12" height="12" rx="1.5"/>', true),
       };
     })();
 
@@ -7487,8 +7494,7 @@
         const ok = !seq || seqMatchesFilter(seq, q);
         tr.style.display = ok ? '' : 'none';
         if (ok) shown++;
-        const prev = tr.nextElementSibling;
-        if (prev && prev.classList.contains('seq-preview-row') && !ok) closeSeqPreview();
+        if (!ok && _preview.id === Number(tr.dataset.id)) closeSeqPreview();
       });
       const all = sequencesCache || [];
       const counts = {
@@ -7595,118 +7601,86 @@
       updateSeqField(id, 'cooldown_minutes', v);
     }
 
-    // ======= Audio preview =======
-    // Toggles an inline player row beneath the sequence. Only one preview
-    // can be open at a time — opening another closes the existing one.
-    // Shows whether audio came from local cache or FPP fallback so admins
-    // can verify the cache is doing its job.
-    let _activePreviewId = null;
+    // ======= Audio preview (v0.33.248-beta.3) =======
+    // No player bar: the ▶ button itself becomes "■ 0:42" (stop + elapsed
+    // time) while the audio plays in this browser, and a second click stops
+    // it. One preview at a time. Where the audio came from (ShowPilot's
+    // cache or the show player) is in the button's tooltip. The preview
+    // survives list refreshes and stops when you leave the Sequences page,
+    // hide that row with a filter, or the song ends.
+    const _preview = { audio: null, id: null, source: '' };
 
-    function toggleSeqPreview(seqId) {
-      // If clicking the same sequence's button, just close.
-      if (_activePreviewId === seqId) {
-        closeSeqPreview();
-        return;
-      }
-      // Close any other open preview first.
-      if (_activePreviewId !== null) {
-        closeSeqPreview();
-      }
-      openSeqPreview(seqId);
+    function fmtPreviewTime(sec) {
+      const s = Math.max(0, Math.floor(sec || 0));
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function paintSeqPreviewBtns() {
+      document.querySelectorAll('#sequencesBody .col-preview').forEach(btn => {
+        const id = Number(btn.closest('tr').dataset.id);
+        const on = _preview.audio && _preview.id === id;
+        btn.classList.toggle('seq-previewing', !!on);
+        if (on) {
+          btn.innerHTML = SEQ_ICONS.stop + '<span>' + fmtPreviewTime(_preview.audio.currentTime) + '</span>';
+          btn.title = 'Stop preview' + (_preview.source ? ' — ' + _preview.source : '');
+          btn.setAttribute('aria-label', 'Stop preview');
+        } else {
+          btn.innerHTML = SEQ_ICONS.play;
+          btn.title = 'Preview the audio for this sequence (plays in this browser, not on the show speakers)';
+          btn.setAttribute('aria-label', 'Preview');
+        }
+      });
     }
 
     function closeSeqPreview() {
-      const existing = document.querySelector('.seq-preview-row');
-      if (existing) {
-        // Stop any active audio before removing — otherwise it keeps
-        // playing in the background even though the controls disappeared.
-        const audio = existing.querySelector('audio');
-        if (audio) {
-          try { audio.pause(); } catch (e) {}
-          // Revoke any blob URL we created (none right now, but reserved
-          // for future if we switch to blob fetching).
-        }
-        existing.remove();
+      const a = _preview.audio;
+      _preview.audio = null; _preview.id = null; _preview.source = '';
+      if (a) {
+        // Detach first: clearing the source fires 'error' on the old element.
+        a.onended = a.onerror = a.ontimeupdate = null;
+        try { a.pause(); a.removeAttribute('src'); a.load(); } catch (e) {}
       }
-      _activePreviewId = null;
+      paintSeqPreviewBtns();
     }
 
-    function openSeqPreview(seqId) {
+    function toggleSeqPreview(seqId) {
+      const same = _preview.id === seqId;
+      closeSeqPreview();
+      if (same) return;
       const seq = (sequencesCache || []).find(s => s.id === seqId);
       if (!seq) return;
-      // Locate the row to insert the preview row beneath.
-      const tbody = document.getElementById('sequencesBody');
-      const targetRow = tbody.querySelector('tr[data-id="' + seqId + '"]');
-      if (!targetRow) return;
-      // Total column count needs to match the sequences table or the
-      // colspan won't fill the whole row visually.
-      const colCount = tbody.parentElement.querySelector('thead tr').children.length;
-      const previewRow = document.createElement('tr');
-      previewRow.className = 'seq-preview-row';
-      previewRow.dataset.previewFor = seqId;
-      previewRow.innerHTML =
-        '<td colspan="' + colCount + '" style="padding: 0.6rem 1rem; background: var(--bg-elevated, rgba(255,255,255,0.03));">' +
-          '<div class="row" style="align-items: center; gap: 0.75rem; flex-wrap: wrap;">' +
-            '<audio id="seqPreviewAudio_' + seqId + '" controls preload="auto" style="flex: 1; min-width: 280px; height: 36px;"></audio>' +
-            '<span id="seqPreviewSource_' + seqId + '" class="muted" style="font-size: 0.85rem; min-width: 130px;">Loading…</span>' +
-            '<button class="secondary" onclick="closeSeqPreview()" style="padding: 0.3rem 0.7rem;">Close</button>' +
-          '</div>' +
-          '<div id="seqPreviewError_' + seqId + '" style="display: none; color: var(--status-danger); font-size: 0.85rem; margin-top: 0.4rem;"></div>' +
-        '</td>';
-      targetRow.parentElement.insertBefore(previewRow, targetRow.nextSibling);
-      _activePreviewId = seqId;
-
-      // /api/audio-stream/:sequence is keyed on the FPP sequence name —
-      // same endpoint the viewers use. This means the preview tests the
-      // exact same code path real users hit.
-      //
-      // Append ?t=<now> to force the browser to fetch fresh bytes every
-      // time the admin opens a preview. Admin previews are one-off
-      // diagnostics — there's no benefit to leveraging the browser's
-      // HTTP cache, and it actively HURTS to do so when we're trying to
-      // verify a recent file change worked.
-      const audio = document.getElementById('seqPreviewAudio_' + seqId);
-      const sourceEl = document.getElementById('seqPreviewSource_' + seqId);
-      const errorEl = document.getElementById('seqPreviewError_' + seqId);
-      const streamUrl = '/api/audio-stream/' + encodeURIComponent(seq.name) + '?t=' + Date.now();
-
-      audio.src = streamUrl;
-      audio.addEventListener('error', function() {
-        // Audio element's error event fires when the network/decode fails.
-        // Codes are mostly unhelpful (4 = MEDIA_ERR_SRC_NOT_SUPPORTED) so
-        // we just say generic — admin can dig further if needed.
-        errorEl.style.display = '';
-        errorEl.textContent = 'Audio playback error. The file may not be cached yet, or the server returned an error.';
-        sourceEl.textContent = 'failed';
-        sourceEl.style.color = 'var(--status-danger)';
+      // Same endpoint the viewers use, so the preview tests the real path.
+      // ?t= skips the browser cache so a just-replaced file is what you hear.
+      const url = '/api/audio-stream/' + encodeURIComponent(seq.name) + '?t=' + Date.now();
+      const a = new Audio(url);
+      _preview.audio = a; _preview.id = seqId;
+      const mine = () => _preview.audio === a;
+      a.ontimeupdate = () => {
+        if (!mine()) return;
+        const btn = document.querySelector('#sequencesBody tr[data-id="' + seqId + '"] .col-preview span');
+        if (btn) btn.textContent = fmtPreviewTime(a.currentTime);
+      };
+      a.onended = () => { if (mine()) closeSeqPreview(); };
+      a.onerror = () => {
+        if (!mine()) return;
+        closeSeqPreview();
+        showAlert('Couldn\'t play the audio for "' + (seq.display_name || seq.name) + '". The file may not be cached yet, or the show player didn\'t return it.');
+      };
+      paintSeqPreviewBtns();
+      a.play().catch((e) => {
+        if (!mine() || e.name === 'AbortError') return;
+        closeSeqPreview();
+        showAlert('Couldn\'t start the preview: ' + e.message);
       });
-
-      // Probe the source via HEAD — this lets us read the X-Audio-Source
-      // header without forcing the full audio download just for the
-      // indicator. The audio element does its own GET in parallel.
-      fetch(streamUrl, { method: 'HEAD', credentials: 'include' })
-        .then(function(res) {
-          if (!res.ok) {
-            sourceEl.textContent = 'HTTP ' + res.status;
-            sourceEl.style.color = 'var(--status-danger)';
-            return;
-          }
-          const src = (res.headers.get('X-Audio-Source') || 'unknown').toLowerCase();
-          if (src === 'cache') {
-            sourceEl.textContent = '⚡ from cache';
-            sourceEl.style.color = 'var(--status-success, #4ade80)';
-          } else if (src === 'fpp') {
-            sourceEl.textContent = '↪ via show player';
-            sourceEl.style.color = 'var(--status-warning, #f59e0b)';
-          } else {
-            sourceEl.textContent = src;
-            sourceEl.style.color = 'var(--text-dim)';
-          }
-        })
-        .catch(function(err) {
-          sourceEl.textContent = 'probe failed';
-          sourceEl.style.color = 'var(--status-danger)';
-        });
+      // Where is it coming from? A HEAD request reads X-Audio-Source without
+      // downloading the file again.
+      fetch(url, { method: 'HEAD', credentials: 'include' }).then((res) => {
+        if (!mine() || !res.ok) return;
+        const src = (res.headers.get('X-Audio-Source') || '').toLowerCase();
+        _preview.source = src === 'cache' ? 'playing from ShowPilot\'s audio cache'
+          : src === 'fpp' ? 'playing via the show player (not cached yet)' : '';
+        paintSeqPreviewBtns();
+      }).catch(() => {});
     }
 
     async function promptImageUrl(id, current) {

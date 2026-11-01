@@ -81,6 +81,7 @@ it and reports back. The scenario then stays in the suite.
   the global CSS is "css"
   the global CSS is turned off | on
   the admin restores the previous global CSS
+  the viewer page is built from the Now Playing and Up Next blocks | the Settings designer   (saved like the admin does)
   phones must be within N miles to vote or request
   the setting "name" is on / off (any admin setting by its database name)
   the mode is Voting | Jukebox | Race | Listen only | Off   (set by the show player, like an FPP command)
@@ -126,7 +127,8 @@ it and reports back. The scenario then stays in the suite.
   on phone 1, "A" shows the badge "New" fully
   phone 1 shows the cover of "A" for Now Playing | Up Next
   phone 1 shows no cover for Up Next | Now Playing
-  phone 1 shows "Name" as the Now Playing artist | shows no Now Playing artist
+  phone 1 shows "Name" as the Now Playing | Up Next artist | shows no Now Playing | Up Next artist
+  the phone player is sent the cover of "A" with no audio   (Listen on Phone, for a song without an audio file)
   phone 1 is in Listen Only   (body class + notice)
   phone 1's page says the mode is "listen-only"   (data-showpilot-mode on <html> and <body>)
   the viewer page as first sent says the mode is "listen-only"   (before any script runs)

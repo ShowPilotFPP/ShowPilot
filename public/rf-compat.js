@@ -892,6 +892,14 @@
       });
     }
 
+    // --- NEXT_PLAYLIST_ARTIST (v0.33.249+) ---
+    if (data.nextScheduledArtist !== undefined) {
+      const artist = data.nextScheduled ? (data.nextScheduledArtist || '') : '';
+      document.querySelectorAll('[data-showpilot-next-artist]').forEach(el => {
+        if (el.textContent !== artist) el.textContent = artist;
+      });
+    }
+
     // --- Songs already in the request queue (v0.33.249+) ---
     if (data.queue) markQueued(data.queue);
 
@@ -4976,6 +4984,15 @@
           if (currentSource) stopAudio();
           titleEl.textContent = data.playing ? _pt('No audio for this sequence') : _pt('Show is not playing');
           artistEl.textContent = '';
+          // The playing song's own cover when it has one (sent since
+          // v0.33.249); otherwise none. Before, the last song's art stayed up
+          // or the image showed as broken.
+          const art = (data.playing && data.imageUrl) || '';
+          if (art) { if (coverEl.getAttribute('src') !== art) coverEl.src = art; coverEl.style.visibility = 'visible'; }
+          else { coverEl.removeAttribute('src'); coverEl.style.visibility = 'hidden'; }
+          // Song changes are noticed by name; forget the last one so a song
+          // with audio after this one loads normally.
+          if (data.playing && data.sequenceName) { currentSequence = null; }
           setupMarquee(titleEl, titleWrap);
           setupMarquee(artistEl, artistWrap);
           statusEl.textContent = '';

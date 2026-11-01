@@ -189,6 +189,15 @@ const STEPS = [
   { doc: 'the admin restores the previous global CSS',
     re: /^the admin restores the previous global CSS$/i,
     fn: async (ctx) => { await adminOk(ctx, 'POST', '/global-css/restore'); } },
+  { doc: 'the viewer page is built from the Now Playing and Up Next blocks | the Settings designer   (saved like the admin does)',
+    re: /^the viewer page is built (?:from the now playing and up next blocks|with the (settings) designer)$/i,
+    fn: async (ctx, settings) => {
+      const id = ctx.sp.db.prepare('SELECT id FROM viewer_page_templates WHERE is_active = 1').get().id;
+      const body = settings ? { mode: 'settings', settings: {} }
+        : { mode: 'blocks', settings: {}, blocks: [{ type: 'nowPlaying', props: {} }, { type: 'nextUp', props: {} }] };
+      await adminOk(ctx, 'POST', `/templates/${id}/draft`, body);
+      await adminOk(ctx, 'POST', `/templates/${id}/commit`);
+    } },
   { doc: 'phones must be within N miles to vote or request',
     re: /^phones must be within ([\d.]+) miles? to vote or request$/i,
     fn: async (ctx, mi) => { await adminOk(ctx, 'PUT', '/config', { check_viewer_present: 1, viewer_present_mode: 'GPS', show_latitude: SHOW.lat, show_longitude: SHOW.lng, check_radius_miles: Number(mi) }); } },
@@ -429,12 +438,22 @@ const STEPS = [
       const shown = await pageOf(ctx, 'phone ' + phone).$eval(sel, el => el.style.display !== 'none' && el.offsetWidth > 0);
       assert(!shown, `${which} cover is still showing`);
     }) },
-  { doc: 'phone 1 shows "Name" as the Now Playing artist | shows no Now Playing artist',
-    re: new RegExp(`^phone (\\w+) shows (?:${q} as the|no) now playing artist$`, 'i'),
-    fn: async (ctx, phone, artist) => eventually(async () => {
-      const t = await pageOf(ctx, 'phone ' + phone).$eval('[data-showpilot-now-artist]', el => el.textContent.trim());
-      assert(t === (artist || ''), `Now Playing artist is "${t}"`);
+  { doc: 'phone 1 shows "Name" as the Now Playing | Up Next artist | shows no Now Playing | Up Next artist',
+    re: new RegExp(`^phone (\\w+) shows (?:${q} as the|no) (now playing|up next) artist$`, 'i'),
+    fn: async (ctx, phone, artist, which) => eventually(async () => {
+      const sel = /next/i.test(which) ? '[data-showpilot-next-artist]' : '[data-showpilot-now-artist]';
+      const t = await pageOf(ctx, 'phone ' + phone).$eval(sel, el => el.textContent.trim());
+      assert(t === (artist || ''), `${which} artist is "${t}"`);
     }) },
+  { doc: 'the phone player is sent the cover of "A" with no audio   (Listen on Phone, for a song without an audio file)',
+    re: new RegExp(`^the phone player is sent the cover of ${q} with no audio$`, 'i'),
+    fn: async (ctx, name) => {
+      const r = await http(ctx, 'GET', '/api/now-playing-audio', { cookie: ctx.sp.viewerCookie('player') });
+      const want = ctx.sp.db.prepare('SELECT image_url FROM sequences WHERE name = ?').get(name).image_url;
+      assert(r.body.playing && r.body.hasAudio === false, `expected a playing song without audio, got ${JSON.stringify(r.body).slice(0, 150)}`);
+      assert(r.body.imageUrl && r.body.imageUrl.startsWith(want.split('#')[0]), `the player was sent cover ${JSON.stringify(r.body.imageUrl)}`);
+      assert(r.body.sequenceName === name, `the player was sent "${r.body.sequenceName}"`);
+    } },
   { doc: 'phone 1 is in Listen Only   (body class + notice)',
     re: /^phone (\w+) is (not )?in listen only$/i,
     fn: async (ctx, phone, not) => eventually(async () => {

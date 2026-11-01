@@ -1918,7 +1918,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.248</span>
+        <span class="app-version">v0.33.249-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2056,7 +2056,12 @@
 
 
         <div class="card">
-          <h2>Top Sequences (all time)</h2>
+          <div class="row" style="justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <h2 style="margin: 0;">Top Sequences (all time)</h2>
+            <label class="muted" style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
+              <input type="checkbox" id="topHidePsa" onchange="toggleTopHidePsa(this.checked)" /> Hide PSAs
+            </label>
+          </div>
           <table>
             <thead><tr><th>Sequence</th><th style="width: 80px;">Plays</th></tr></thead>
             <tbody id="topBody"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
@@ -2252,14 +2257,14 @@
             <h2 style="margin: 0;">Queue</h2>
             <div class="row" style="gap: 0.5rem; margin: 0;">
               <button class="secondary" onclick="loadQueueTab()">Refresh</button>
-              <button class="danger" onclick="clearAllQueue()">Clear All</button>
+              <button class="danger" onclick="clearAllQueue()" title="Remove every request that hasn't played yet. Recently played stays.">Clear Queue</button>
             </div>
           </div>
 
           <h3 style="font-size: 1rem; color: var(--text-muted); margin: 1rem 0 0.5rem;">Pending requests</h3>
           <div id="queuePending" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
 
-          <h3 style="font-size: 1rem; color: var(--text-muted); margin: 1.5rem 0 0.5rem;">Recently played (last 20)</h3>
+          <h3 id="queueRecentTitle" style="font-size: 1rem; color: var(--text-muted); margin: 1.5rem 0 0.5rem;">Recently played requests (last 20)</h3>
           <div id="queueRecent" style="display: flex; flex-direction: column; gap: 0.4rem; opacity: 0.85;"></div>
         </div>
       </div>
@@ -6961,20 +6966,36 @@
       }
 
       // Top sequences table
+      renderTopSequences(d);
+    }
+
+    // Top Sequences card (dashboard). "Hide PSAs" is remembered per browser.
+    let _topStats = null;
+    function topHidePsa() {
+      try { return localStorage.getItem('sp_top_hide_psa') === '1'; } catch (e) { return false; }
+    }
+    function toggleTopHidePsa(on) {
+      try { localStorage.setItem('sp_top_hide_psa', on ? '1' : '0'); } catch (e) {}
+      if (_topStats) renderTopSequences(_topStats);
+    }
+    function renderTopSequences(d) {
+      _topStats = d;
       const tbody = document.getElementById('topBody');
-      if (tbody) {
-        tbody.innerHTML = '';
-        const top = d.topSequences || [];
-        if (top.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
-        } else {
-          top.forEach(s => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
-            tbody.appendChild(tr);
-          });
-        }
+      if (!tbody) return;
+      const hide = topHidePsa();
+      const box = document.getElementById('topHidePsa');
+      if (box) box.checked = hide;
+      const top = (hide ? d.topSequencesNoPsa : d.topSequences) || d.topSequences || [];
+      tbody.innerHTML = '';
+      if (top.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
+        return;
       }
+      top.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
+        tbody.appendChild(tr);
+      });
     }
 
     // ============================================================
@@ -10058,18 +10079,7 @@
       document.getElementById('dashNextUp').textContent = nextDisplay;
 
       // Top sequences table
-      const tbody = document.getElementById('topBody');
-      tbody.innerHTML = '';
-      const top = d.topSequences || [];
-      if (top.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
-      } else {
-        top.forEach(s => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
-          tbody.appendChild(tr);
-        });
-      }
+      renderTopSequences(d);
 
       // Total sequences count (only after sequences are loaded)
       const seqCountEl = document.getElementById('sequenceCount');
@@ -10176,9 +10186,13 @@
     async function loadQueueTab() {
       const r = await api('/queue');
       if (!r.ok) return;
-      const { pending, recentlyPlayed } = r.data;
+      const { pending, recentlyPlayed, recentMode } = r.data;
       renderQueueList('queuePending', pending, true);
       renderQueueList('queueRecent', recentlyPlayed, false);
+      // Jukebox lists played requests; other modes list every song played.
+      const recentTitle = document.getElementById('queueRecentTitle');
+      if (recentTitle) recentTitle.textContent = recentMode === 'plays'
+        ? 'Recently played (last 20)' : 'Recently played requests (last 20)';
 
       // Start a poll loop that runs while the queue tab is the active tab.
       // Sockets should refresh us on real changes, but polling every 4s is a
@@ -10207,10 +10221,11 @@
         const cover = q.image_url
           ? `<img src="${escapeAttr(q.image_url)}" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0;" alt="" />`
           : `<div style="width: 36px; height: 36px; border-radius: 4px; background: var(--bg-tertiary); flex-shrink: 0;"></div>`;
+        const sourceLabel = { vote: 'vote winner', request: 'request', psa: 'PSA', schedule: 'show schedule' }[q.source] || '';
         const subtitle = isPlaying
           ? '<span style="color: var(--status-success); font-weight: 600;">▶ Playing now</span>'
           : (q.played_at
-              ? `played ${formatRelative(q.played_at)}`
+              ? `played ${formatRelative(q.played_at)}${sourceLabel ? ' · ' + sourceLabel : ''}`
               : `requested ${formatRelative(q.requested_at)}`);
         const removeBtn = (allowDelete && !isPlaying)
           ? `<button class="secondary" onclick="removeQueueEntry(${q.id})" style="font-size: 0.75rem; padding: 4px 10px;">Remove</button>`
@@ -10246,8 +10261,8 @@
     }
 
     async function clearAllQueue() {
-      if (!await showConfirm('Clear the entire queue?\nAll pending requests will be removed.\nThis cannot be undone.', { danger: true, okLabel: 'Clear' })) return;
-      const r = await api('/stats/reset/queue', { method: 'POST' });
+      if (!await showConfirm('Clear the queue?\nAll requests that haven\'t played yet will be removed. Recently played stays.\nThis cannot be undone.', { danger: true, okLabel: 'Clear' })) return;
+      const r = await api('/purge-queue', { method: 'POST' });
       if (r.ok) loadQueueTab();
     }
 

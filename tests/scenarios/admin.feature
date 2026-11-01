@@ -36,3 +36,12 @@ Scenario: A template script that never finishes can't lock you out of the admin
   And the admin clicks "Discard"
   Then the draft is gone
   And the preview is loaded
+
+Scenario: Opening the Viewer Page shows the preview (it's only paused after a real freeze)
+  Given the viewer page uses the test template
+  When the admin opens the Viewer Page page
+  And 2 seconds pass
+  Then the preview is loaded
+  # Reloading the admin straight away isn't mistaken for a freeze either.
+  When the admin opens the Viewer Page page
+  Then the preview is loaded

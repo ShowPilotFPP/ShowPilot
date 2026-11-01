@@ -77,6 +77,7 @@ class ShowPlayer {
   setMode(mode) { return this.call('POST', '/viewer-mode', { mode }); }
   clearQueue() { return this.call('POST', '/queue/clear', {}); }
   setCategory(name, enabled) { return this.call('POST', '/category', { name, enabled }); }
+  setViewerPage(name) { return this.call('POST', '/viewer-page', { name }); }
 }
 
 module.exports = { ShowPlayer };

@@ -1924,7 +1924,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.8</span>
+        <span class="app-version">v0.33.249-beta.9</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2457,6 +2457,7 @@
             <div class="sub-tab" data-subtab="viewer-effects" onclick="switchTab('viewer-effects')">Page Effects</div>
             <div class="sub-tab" data-subtab="viewer-phone" onclick="switchTab('viewer-phone')">Listen-on-Phone</div>
             <div class="sub-tab" data-subtab="viewer-schedule" onclick="switchTab('viewer-schedule')">Scheduled Switches</div>
+            <div class="sub-tab" data-subtab="viewer-globalcss" onclick="switchTab('viewer-globalcss')">Global CSS</div>
             <div class="sub-tab" data-subtab="viewer-translation" onclick="switchTab('viewer-translation')">Translation</div>
           </div>
         </div>
@@ -2525,6 +2526,8 @@
                 <button class="designer-tab active of-tpl-bypass-lock" data-designer-tab="settings" onclick="switchDesignerTab('settings')">⚙️ Settings</button>
                 <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="blocks" onclick="switchDesignerTab('blocks')">🧱 Blocks</button>
                 <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="code" onclick="switchDesignerTab('code')">⌨️ Code</button>
+                <button class="secondary" onclick="document.getElementById('tplUploadFile').click()" id="tplUploadBtn" title="Replace this page's code with an .html file from your computer (you still Save Changes to make it live)">📄 Load from file…</button>
+                <input type="file" id="tplUploadFile" accept=".html,.htm,.txt,text/html,text/plain" style="display:none;" onchange="loadTemplateFromFile(this)" />
                 <span style="flex: 1;"></span>
                 <button class="secondary" onclick="discardDraft()" id="tplDiscardBtn" style="display:none;">Discard Changes</button>
                 <button onclick="commitDraft()" id="tplCommitBtn" style="display:none;">Save Changes</button>
@@ -2639,6 +2642,33 @@
 
 
 
+        </div>
+
+        <div class="sub-tab-pane" data-subtab="viewer-globalcss">
+        <div class="card">
+          <h2>Global CSS</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            One stylesheet loaded on every viewer page, whichever template is active (and in the preview).
+            It loads before the template's own styles, so a template can still override anything here.
+            Handy for keeping a season's colors and fonts in one place across several templates.
+          </p>
+          <div class="row" style="margin-bottom: 0.5rem;">
+            <input type="checkbox" id="gcssEnabled" />
+            <label for="gcssEnabled" style="margin: 0;">Use the global CSS on viewer pages</label>
+          </div>
+          <textarea id="gcssText" spellcheck="false" placeholder="/* e.g. */&#10;:root { --show-accent: #ff7a00; }&#10;body { font-family: 'Creepster', cursive; }" style="width: 100%; min-height: 380px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; tab-size: 2;"></textarea>
+          <div class="row" style="gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <button onclick="saveGlobalCss()">Save</button>
+            <button class="secondary" onclick="document.getElementById('gcssFile').click()">📄 Load from file…</button>
+            <input type="file" id="gcssFile" accept=".css,.txt,text/css,text/plain" style="display:none;" onchange="loadGlobalCssFile(this)" />
+            <button class="secondary" id="gcssRestoreBtn" onclick="restoreGlobalCss()" title="Go back to what was saved before the last Save">↶ Restore previous</button>
+            <span id="gcssStatus" class="muted" style="font-size: 0.85rem;"></span>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin-bottom: 0;">
+            If a change breaks your pages, untick the box (pages go back to their own styles at once) or use Restore previous.
+            Saved in ShowPilot's database, so it survives updates and is included in backups.
+          </p>
+        </div>
         </div>
 
         <div class="sub-tab-pane" data-subtab="viewer-effects">
@@ -4263,6 +4293,10 @@
         // Only init Monaco if the user actually switches to Code mode;
         // saves time on initial visit.
         if (currentMode === 'code') initMonacoIfNeeded();
+        // The editor may have been built while this tab was hidden (template
+        // loaded at admin start), which leaves it drawn at zero size: blank
+        // until you left and came back (GitHub #35). Redraw it now.
+        if (monacoEditor) setTimeout(() => monacoEditor.layout(), 0);
         // Refresh preview iframe in case data changed (e.g. now playing)
         if (selectedTplId !== null) refreshPreview();
       }
@@ -6749,6 +6783,7 @@
       if (name === 'public-access') loadCloudflaredStatus();
       if (name === 'viewer-translation') loadTranslationSettings();
       if (name === 'viewer-schedule') loadSchedules();
+      if (name === 'viewer-globalcss') loadGlobalCss();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're
@@ -9323,6 +9358,12 @@
     let loadedContent = '';
 
     let _monacoInitPromise = null;
+    // The code the editor should show for the selected template. Kept here
+    // because the editor can be created after the template was loaded (when
+    // Monaco's loader wasn't ready yet), and it then has to start with this
+    // instead of empty (GitHub #35: blank code editor until you left the page
+    // and came back).
+    let _editorCode = '';
     function initMonacoIfNeeded() {
       if (monacoEditor) return Promise.resolve();
       // `monacoEditor` is only assigned once the async require() below
@@ -9335,11 +9376,11 @@
       // caller await the same single load.
       if (_monacoInitPromise) return _monacoInitPromise;
       _monacoInitPromise = new Promise((resolve) => {
-        if (typeof require === 'undefined') { _monacoInitPromise = null; return resolve(); }
+        if (typeof require === 'undefined' || typeof require.config !== 'function') { _monacoInitPromise = null; return resolve(); }
         require.config({ paths: { vs: '/vendor/monaco/vs' } });
         require(['vs/editor/editor.main'], () => {
           monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
-            value: '',
+            value: _editorCode,
             language: 'html',
             theme: (localStorage.getItem('showpilot_theme') === 'stage-light') ? 'vs' : 'vs-dark',
             automaticLayout: true,
@@ -9358,6 +9399,51 @@
         });
       });
     }
+
+    // ---- Global CSS (v0.33.249+, GitHub #36) ----
+    async function loadGlobalCss() {
+      const r = await api('/global-css');
+      if (!r.ok) return;
+      document.getElementById('gcssText').value = r.data.css || '';
+      document.getElementById('gcssEnabled').checked = !!r.data.enabled;
+      document.getElementById('gcssRestoreBtn').disabled = !r.data.hasPrevious;
+      document.getElementById('gcssStatus').textContent = '';
+    }
+    async function saveGlobalCss() {
+      const status = document.getElementById('gcssStatus');
+      const r = await api('/global-css', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ css: document.getElementById('gcssText').value, enabled: document.getElementById('gcssEnabled').checked }),
+      });
+      if (!r.ok) { showAlert(r.data?.error || 'Save failed'); return; }
+      document.getElementById('gcssRestoreBtn').disabled = !r.data.hasPrevious;
+      status.textContent = '✓ Saved. Open viewer pages pick it up on their next load.';
+      if (typeof refreshPreview === 'function') refreshPreview();
+    }
+    async function restoreGlobalCss() {
+      if (!await showConfirm('Go back to the global CSS saved before the last Save? (You can undo this with Restore previous again.)', { okLabel: 'Restore' })) return;
+      const r = await api('/global-css/restore', { method: 'POST' });
+      if (!r.ok) { showAlert(r.data?.error || 'Restore failed'); return; }
+      await loadGlobalCss();
+      document.getElementById('gcssStatus').textContent = '✓ Restored the previous version.';
+    }
+    async function loadGlobalCssFile(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      if (file.size > 512 * 1024) { showAlert('That file is over 512 KB, which is too big for the global CSS.'); return; }
+      try { document.getElementById('gcssText').value = await file.text(); } catch (e) { showAlert('Could not read that file.'); return; }
+      document.getElementById('gcssStatus').textContent = `Loaded "${file.name}". Click Save to use it.`;
+    }
+    // The checkbox saves straight away, so it works as a quick off switch.
+    document.addEventListener('change', async (e) => {
+      if (!e.target || e.target.id !== 'gcssEnabled') return;
+      const r = await api('/global-css', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: e.target.checked }),
+      });
+      document.getElementById('gcssStatus').textContent = r.ok ? (e.target.checked ? '✓ Global CSS on.' : '✓ Global CSS off.') : 'Could not save.';
+    });
 
     // ---- Scheduled template switches (v0.33.231+) ----
     let _schEditId = null, _schData = null;
@@ -9502,9 +9588,13 @@
       // they switch tabs. Monaco gets the latest html (draft if pending).
       loadSettingsForm(currentSettings);
       renderBlocksCanvas();
+      _editorCode = tpl.draft_html || tpl.html || '';
+      // A draft saved earlier (even in another browser) shows as unsaved,
+      // with Save Changes / Discard Changes, instead of "SAVED".
+      hasDraft = !!tpl.draft_html;
       await initMonacoIfNeeded();
       if (monacoEditor) {
-        const codeContent = tpl.draft_html || tpl.html || '';
+        const codeContent = _editorCode;
         if (monacoEditor.getValue() !== codeContent) {
           // Suppress the change handler so loading a template doesn't
           // immediately flip hasDraft to true. The dirty flag should only
@@ -9638,6 +9728,27 @@
     //   - Lock button reads "Unlock" with closed padlock
     //   - Monaco's read-only mode is enabled
     // When unlocked, all of those are reversed.
+    // "Load from file…" (v0.33.249+, GitHub #36): puts an .html file's text in
+    // the Code editor as an unsaved draft, the same as pasting it in. Nothing
+    // goes live until Save Changes.
+    async function loadTemplateFromFile(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file || selectedTplId === null) return;
+      if (_isLocked) { showAlert('This template is locked. Unlock it first.'); return; }
+      if (file.size > 2 * 1024 * 1024) { showAlert('That file is over 2 MB, which is too big for a viewer page.'); return; }
+      let text;
+      try { text = await file.text(); } catch (e) { showAlert('Could not read that file.'); return; }
+      if (text.indexOf('\u0000') !== -1) { showAlert("That doesn't look like an HTML file."); return; }
+      if (!await showConfirm(`Replace this template's code with "${file.name}"? It becomes an unsaved draft: check the preview, then Save Changes to make it live, or Discard Changes to undo.`, { okLabel: 'Replace' })) return;
+      switchDesignerTab('code');
+      await initMonacoIfNeeded();
+      if (!monacoEditor) { showAlert('The code editor did not load.'); return; }
+      // A real edit: marks the draft dirty and saves it like typing would.
+      monacoEditor.setValue(text);
+      setTimeout(() => monacoEditor.layout(), 0);
+    }
+
     function applyLockUI(locked) {
       _isLocked = !!locked;
       const banner = document.getElementById('tplLockedBanner');
@@ -10036,6 +10147,7 @@
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        if (typeof r.data?.html === 'string') _editorCode = r.data.html;
         // Mirror the generated HTML into Monaco so switching to Code tab
         // shows what Settings/Blocks produced. Skip if user is currently
         // typing in Code (to avoid clobbering their cursor position).
@@ -10060,6 +10172,18 @@
     //     If the page froze, the marker survives the reload and the preview
     //     is paused with options to discard the draft or load it anyway.
     const PREVIEW_GUARD_KEY = 'sp_preview_loading';
+    // Which page load set the marker: a marker from this same visit only
+    // means a preview is still loading (the preview is often reloaded twice
+    // in a row on opening), not that an earlier visit froze.
+    const PREVIEW_VISIT = Date.now() + '-' + Math.random().toString(36).slice(2);
+    // Leaving or reloading the admin normally clears this visit's marker. A
+    // frozen page never gets here, so its marker survives for the next visit.
+    window.addEventListener('pagehide', () => {
+      try {
+        const m = JSON.parse(localStorage.getItem(PREVIEW_GUARD_KEY) || 'null');
+        if (m && m.visit === PREVIEW_VISIT) localStorage.removeItem(PREVIEW_GUARD_KEY);
+      } catch (e) {}
+    });
     function previewPaneOpen() {
       const pane = document.querySelector('.tab-pane[data-pane="viewer"]');
       return !!(pane && pane.classList.contains('active'));
@@ -10072,13 +10196,13 @@
       const paused = document.getElementById('previewPaused');
       let stuck = null;
       try { stuck = JSON.parse(localStorage.getItem(PREVIEW_GUARD_KEY) || 'null'); } catch (e) {}
-      if (force !== true && stuck && stuck.id === selectedTplId) {
+      if (force !== true && stuck && stuck.id === selectedTplId && stuck.visit !== PREVIEW_VISIT) {
         iframe.src = 'about:blank';
         if (paused) paused.style.display = '';
         return;
       }
       if (paused) paused.style.display = 'none';
-      try { localStorage.setItem(PREVIEW_GUARD_KEY, JSON.stringify({ id: selectedTplId, at: Date.now() })); } catch (e) {}
+      try { localStorage.setItem(PREVIEW_GUARD_KEY, JSON.stringify({ id: selectedTplId, at: Date.now(), visit: PREVIEW_VISIT })); } catch (e) {}
       const tok = Date.now();
       iframe.onload = () => setTimeout(() => {
         // Only the latest load clears the marker.

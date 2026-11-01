@@ -1470,6 +1470,45 @@ router.post('/templates/:id/toggle-lock', requireAdmin, (req, res) => {
   res.json({ ok: true, locked: newLocked });
 });
 
+// ---- Global CSS (v0.33.249+, GitHub #36) ----
+// PUT takes { css?, enabled? }. Saving new css keeps the old one as the
+// "previous" version; restore swaps the two, so a restore can be undone.
+const GLOBAL_CSS_MAX = 512 * 1024;
+function globalCssInfo() {
+  const c = getConfig();
+  return { css: c.viewer_global_css || '', enabled: c.viewer_global_css_enabled === 0 ? 0 : 1, hasPrevious: !!(c.viewer_global_css_prev || '') };
+}
+router.get('/global-css', requireAdmin, (req, res) => res.json(globalCssInfo()));
+router.put('/global-css', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const c = getConfig();
+  const updates = {};
+  if ('css' in b) {
+    if (typeof b.css !== 'string') return res.status(400).json({ error: 'css must be text' });
+    if (Buffer.byteLength(b.css) > GLOBAL_CSS_MAX) return res.status(400).json({ error: 'The global CSS is over 512 KB' });
+    if (b.css !== (c.viewer_global_css || '')) {
+      updates.viewer_global_css = b.css;
+      updates.viewer_global_css_prev = c.viewer_global_css || '';
+    }
+  }
+  if ('enabled' in b) updates.viewer_global_css_enabled = b.enabled ? 1 : 0;
+  if (Object.keys(updates).length) {
+    updates.viewer_global_css_rev = (Number(c.viewer_global_css_rev) || 0) + 1;
+    updateConfig(updates);
+  }
+  res.json({ ok: true, ...globalCssInfo() });
+});
+router.post('/global-css/restore', requireAdmin, (req, res) => {
+  const c = getConfig();
+  if (!(c.viewer_global_css_prev || '')) return res.status(400).json({ error: 'There is no previous version to restore' });
+  updateConfig({
+    viewer_global_css: c.viewer_global_css_prev,
+    viewer_global_css_prev: c.viewer_global_css || '',
+    viewer_global_css_rev: (Number(c.viewer_global_css_rev) || 0) + 1,
+  });
+  res.json({ ok: true, ...globalCssInfo() });
+});
+
 router.post('/templates/:id/activate', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare(`SELECT id FROM viewer_page_templates WHERE id = ?`).get(id);

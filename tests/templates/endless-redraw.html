@@ -1,0 +1,25 @@
+<!-- A template script with a common mistake (GitHub #35): a MutationObserver
+     that reacts to its own changes. classList.add() rewrites the class
+     attribute even when the class is already there, so every run triggers
+     the next one in a microtask, and the page never gets to draw again. -->
+<div class="wb">
+  <div {jukebox-dynamic-container}>
+    <div class="songs">{PLAYLISTS}</div>
+  </div>
+  <div {playlist-voting-dynamic-container}>
+    <div class="songs">{PLAYLISTS}</div>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.querySelector('.wb');
+  let pending = false;
+  function refresh() {
+    pending = false;
+    root.querySelectorAll('[data-badge]').forEach(card => card.classList.add('seen'));
+  }
+  new MutationObserver(() => { if (pending) return; pending = true; queueMicrotask(refresh); })
+    .observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  refresh();
+})();
+</script>

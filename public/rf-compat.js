@@ -1023,6 +1023,7 @@
       setVisible(el, shownMode === 'VOTING');
     });
     if (data.viewerControlMode) setListenOnly(data.viewerControlMode === 'LISTEN');
+    if (data.viewerControlMode) setModeAttr(data.viewerControlMode);
     // After-hours: visible when viewer control is OFF. Mirror of the server-side
     // logic in viewer-renderer.js, so flipping the admin "Off" toggle propagates
     // to viewers within one poll without requiring a reload.
@@ -1582,6 +1583,16 @@
       else if (el.hasAttribute('data-queue-position')) el.removeAttribute('data-queue-position');
     });
     _lastQueued = queue;
+  }
+
+  // data-showpilot-mode on <html> and <body> for template CSS (the server
+  // sets it on load; this keeps it current when the mode changes).
+  const MODE_SLUGS = { VOTING: 'voting', JUKEBOX: 'jukebox', RACE: 'race', LISTEN: 'listen-only', OFF: 'off' };
+  function setModeAttr(raw) {
+    const slug = MODE_SLUGS[raw] || 'off';
+    [document.documentElement, document.body].forEach(el => {
+      if (el && el.getAttribute('data-showpilot-mode') !== slug) el.setAttribute('data-showpilot-mode', slug);
+    });
   }
 
   // Listen Only: body class plus one notice above the song list.

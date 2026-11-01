@@ -315,7 +315,7 @@
       '</div>' +
       '<div class="spn-row">' +
         '<section class="spn-panel" aria-labelledby="spnLiveT"><div class="spn-head"><h2 id="spnLiveT">Live vote</h2><span class="spn-muted" id="spnLiveS"></span></div><div id="spnLive"></div></section>' +
-        '<section class="spn-panel" aria-labelledby="spnTopT"><div class="spn-head"><h2 id="spnTopT">Top sequences</h2><span class="spn-muted">all time</span></div><ol class="spn-top-list" id="spnTop"></ol></section>' +
+        '<section class="spn-panel" aria-labelledby="spnTopT"><div class="spn-head"><h2 id="spnTopT">Top sequences</h2><span class="spn-muted">all time</span><label class="spn-muted" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="spnTopHidePsa"> Hide PSAs</label></div><ol class="spn-top-list" id="spnTop"></ol></section>' +
       '</div>' +
       '</div>'), pane.firstChild);
 
@@ -356,9 +356,19 @@
     else { $('spnS2L').textContent = 'Votes this round'; $('spnS2').textContent = dashStats.totalVotes ?? 0; $('spnS2H').textContent = 'for the next song'; }
     $('spnS3').textContent = dashStats.totalPlays ?? 0;
     $('spnS4').textContent = ((dashState && dashState.sequences) || []).length;
-    const top = dashStats.topSequences || [];
+    // "Hide PSAs" — same saved choice as the classic layout's box (sp_top_hide_psa).
+    let hidePsa = false;
+    try { hidePsa = localStorage.getItem('sp_top_hide_psa') === '1'; } catch (e) {}
+    const hideBox = $('spnTopHidePsa');
+    hideBox.checked = hidePsa;
+    hideBox.onchange = () => {
+      try { localStorage.setItem('sp_top_hide_psa', hideBox.checked ? '1' : '0'); } catch (e) {}
+      if (typeof window.toggleTopHidePsa === 'function') window.toggleTopHidePsa(hideBox.checked);
+      renderDash();
+    };
+    const top = (hidePsa ? dashStats.topSequencesNoPsa : dashStats.topSequences) || [];
     $('spnTop').innerHTML = top.length ? top.slice(0, 6).map((s, i) => '<li><span class="n">' + (i + 1) + '</span><span>' + esc(seqInfo(s.sequence_name).title) + '</span><span class="p">' + s.plays + '</span></li>').join('')
-      : '<li class="spn-muted">No songs played by viewers yet.</li>';
+      : '<li class="spn-muted">' + (hidePsa ? 'No songs other than PSAs played by viewers yet.' : 'No songs played by viewers yet.') + '</li>';
 
     const live = $('spnLive');
     const bars = (rows) => {

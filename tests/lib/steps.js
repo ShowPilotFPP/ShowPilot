@@ -224,6 +224,9 @@ const STEPS = [
   { doc: 'the show player checks the mode [with peek]   (the plugin\'s once-a-minute check; without peek it ignores everything but the mode)',
     re: /^the show player checks the mode( with peek)?$/i,
     fn: async (ctx, peek) => { await ctx.player.checkMode({ peek: !!peek }); } },
+  { doc: 'the mode check tells the show player requests come one at a time   (peek: true; plugin 0.14.21+ relies on it)',
+    re: /^the mode check tells the show player requests come one at a time$/i,
+    fn: async (ctx) => { assert(ctx.player.lastModeCheck && ctx.player.lastModeCheck.peek === true, `the mode check answered ${JSON.stringify(ctx.player.lastModeCheck)}`); } },
   { doc: 'nothing has been handed to the show player',
     re: /^nothing has been handed to the show player$/i,
     fn: async (ctx) => {

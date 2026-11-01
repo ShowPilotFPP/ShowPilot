@@ -75,6 +75,7 @@ Scenario: A mode check with peek hands nothing out
   When phone 1 requests "Abracadabra"
   And the show player checks the mode with peek
   Then nothing has been handed to the show player
+  And the mode check tells the show player requests come one at a time
   And "Abracadabra" plays next as a request
 
 Scenario: A handed-over request that's one song late still plays

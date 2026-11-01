@@ -195,7 +195,14 @@
     document.body.appendChild(backdrop);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(true); });
     const count = document.getElementById('headerViewerCount');
-    if (count) { const chip = el('<span class="spn-chip"></span>'); chip.appendChild(count); top.appendChild(chip); }
+    if (count) {
+      const chip = el('<span class="spn-chip"></span>');
+      chip.appendChild(count);
+      // Phones listening (ShowPilot only; Lite has no phone audio).
+      const listening = document.getElementById('headerListenerWrap');
+      if (listening) chip.appendChild(listening);
+      top.appendChild(chip);
+    }
     const show = document.querySelector('.app-header .header-show-btn[href]');
     if (show) top.appendChild(show);
     const theme = document.getElementById('themeSelect');
@@ -300,7 +307,7 @@
           '<div class="spn-next"><span class="spn-muted">Up next</span><b id="spnNext">—</b><span class="spn-pill" id="spnNextSrc" hidden></span></div>' +
         '</section>' +
         '<section class="spn-stats" aria-label="Show numbers">' +
-          '<div class="spn-stat"><span class="spn-muted">Watching now</span><span class="v" id="spnS1">0</span><small>on the viewer page</small></div>' +
+          '<div class="spn-stat"><span class="spn-muted">Watching now</span><span class="v" id="spnS1">0</span><small id="spnS1H">on the viewer page</small></div>' +
           '<div class="spn-stat"><span class="spn-muted" id="spnS2L">Votes this round</span><span class="v" id="spnS2">0</span><small id="spnS2H">for the next song</small></div>' +
           '<div class="spn-stat"><span class="spn-muted">Played by viewers</span><span class="v" id="spnS3">0</span><small>votes and requests, all time</small></div>' +
           '<div class="spn-stat"><span class="spn-muted">Sequences</span><span class="v" id="spnS4">0</span><small>on the viewer page</small></div>' +
@@ -315,7 +322,7 @@
     document.getElementById('spnVc').addEventListener('click', () => window.toggleViewerControl());
   }
 
-  const MODES = [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race']];
+  const MODES = [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race'], ['LISTEN', 'Listen only']];
   function renderDash() {
     const $ = (id) => document.getElementById(id);
     if (!$('spnDash')) return;
@@ -344,6 +351,7 @@
     paintProgress();
 
     $('spnS1').textContent = dashStats.activeViewers ?? 0;
+    $('spnS1H').textContent = 'on the viewer page' + (dashStats.listenersNow ? ' · ' + dashStats.listenersNow + ' listening on phones' : '');
     if (mode === 'JUKEBOX') { $('spnS2L').textContent = 'Requests waiting'; $('spnS2').textContent = dashStats.queueLength ?? 0; $('spnS2H').textContent = 'in the jukebox queue'; }
     else { $('spnS2L').textContent = 'Votes this round'; $('spnS2').textContent = dashStats.totalVotes ?? 0; $('spnS2H').textContent = 'for the next song'; }
     $('spnS3').textContent = dashStats.totalPlays ?? 0;

@@ -8,7 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, getSequenceLabel, castTiebreakVote, logVote, logVoteChange, getNextUp,
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, getSequenceLabel, listDisplayMode, castTiebreakVote, logVote, logVoteChange, getNextUp,
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext , updateConfig } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
@@ -141,6 +141,10 @@ function viewerPresenceCheck(req, cfg) {
 
 function runSafeguards(req, res, requiredMode) {
   const cfg = getConfig();
+  if (cfg.viewer_control_mode === 'LISTEN') {
+    res.status(400).json({ error: 'Requests and voting are closed for now. You can still listen along!', listenOnly: true });
+    return null;
+  }
   if (cfg.viewer_control_mode !== requiredMode) {
     res.status(400).json({ error: `${requiredMode.toLowerCase()} is not currently enabled` });
     return null;
@@ -185,7 +189,7 @@ router.get('/state', (req, res) => {
   const activeViewers = getActiveViewerCount();
 
   const allSequences = db.prepare(`
-    SELECT id, name, display_name, artist, category, image_url,
+    SELECT id, name, display_name, artist, category, image_url, badge,
            duration_seconds, votable, jukeboxable,
            last_played_at, plays_since_hidden, cooldown_minutes
     FROM sequences
@@ -268,8 +272,12 @@ router.get('/state', (req, res) => {
   res.json({
     showName: cfg.show_name,
     viewerControlMode: cfg.viewer_control_mode,
+    // Song list layout to show: the mode itself, or in Listen Only the last
+    // active mode's layout (v0.33.249+).
+    listDisplayMode: listDisplayMode(cfg),
     nowPlaying: nowPlaying.sequence_name || null,
     nowPlayingDisplayName: npLabel.displayName,
+    nowPlayingArtist: nowPlaying.sequence_name ? (npLabel.artist || '') : '',
     nowPlayingImageUrl: npLabel.imageUrl ? bustCoverUrl(npLabel.imageUrl) : null,
     nextScheduledDisplayName: nextLabel.displayName,
     nowPlayingStartedAtIso,
@@ -918,6 +926,13 @@ router.get('/now-playing-audio', (req, res) => {
     return res.json({ playing: false, audioDisabled: true });
   }
 
+  // Listener count (v0.33.249+): a phone with its player open polls here
+  // about once a second, so each poll counts it as listening (lib/listeners).
+  {
+    const tok = req.cookies[config.sessionCookieName + '_viewer'];
+    if (tok && !require('../lib/admin-viewers').isAdminViewerToken(tok)) require('../lib/listeners').touch(tok);
+  }
+
   // Audio distance gating — used for copyright compliance to prevent listeners
   // who aren't actually present at the show from streaming the audio.
   // Viewer page passes ?lat=&lng= when geolocation is available. If the gate
@@ -1406,8 +1421,9 @@ function applyModeEffects(io, mode, opts = {}) {
 function setViewerMode(io, mode, opts = {}) {
   const cfg = getConfig();
   const updates = { viewer_control_mode: mode };
-  if (mode !== 'OFF') updates.last_active_mode = mode;
-  else if (cfg.viewer_control_mode && cfg.viewer_control_mode !== 'OFF') updates.last_active_mode = cfg.viewer_control_mode;
+  const { RESTORABLE_MODES } = require('../lib/db');
+  if (RESTORABLE_MODES.includes(mode)) updates.last_active_mode = mode;
+  else if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) updates.last_active_mode = cfg.viewer_control_mode;
   updateConfig(updates);
   applyModeEffects(io, mode, opts);
 }

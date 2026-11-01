@@ -280,6 +280,7 @@ router.get('/state', (req, res) => {
     nowPlayingArtist: nowPlaying.sequence_name ? (npLabel.artist || '') : '',
     nowPlayingImageUrl: npLabel.imageUrl ? bustCoverUrl(npLabel.imageUrl) : null,
     nextScheduledDisplayName: nextLabel.displayName,
+    nextScheduledImageUrl: nextLabel.imageUrl ? bustCoverUrl(nextLabel.imageUrl) : null,
     nowPlayingStartedAtIso,
     nowPlayingDurationSeconds,
     // v0.33.206: server clock (for the viewer page's clock-offset estimate,

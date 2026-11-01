@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scenario test template</title>
+  <!-- A plain Remote Falcon style page used by the scenario tests. It uses
+       every placeholder, both mode containers and every message box, with a
+       tile layout like many real templates (cover in its own column). -->
+  <style>
+    body { margin: 0; padding: 12px; font-family: sans-serif; background: #4b3a72; color: #fff; }
+    .box { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 10px; margin-bottom: 10px; text-align: center; }
+    .jukebox_table, .voting_table { display: flex; flex-direction: column; gap: 8px; }
+    .voting_table { display: grid; grid-template-columns: 1fr 60px; }
+    .sequence-item { background: #fff; color: #222; border-radius: 12px; padding: 10px; overflow: hidden; cursor: pointer; }
+    .sequence-item > div { display: grid; grid-template-columns: 56px 1fr; column-gap: 10px; align-items: center; }
+    .sequence-item .sequence-image { width: 56px; height: 56px; grid-row: 1 / 4; }
+    .sequence-name { font-weight: 700; }
+    .cell-vote { background: #fff; color: #222; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+    .toast { display: none; position: fixed; top: 10px; left: 10px; right: 10px; padding: 12px; border-radius: 10px; background: #111; color: #fff; z-index: 50; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div>Now Playing: {NOW_PLAYING} <em id="np-artist">{NOW_PLAYING_ARTIST}</em></div>
+    <div>{NOW_PLAYING_IMAGE}</div>
+    <div>Up Next: {NEXT_PLAYLIST}</div>
+    <div>{NEXT_PLAYLIST_IMAGE}</div>
+    <div>{NOW_PLAYING_TIMER}</div>
+  </div>
+  <div class="box" {after-hours-message}>The show is resting. Come back tonight!</div>
+  <div {jukebox-dynamic-container}>
+    <div class="box">Queue ({QUEUE_SIZE}): {JUKEBOX_QUEUE}</div>
+    <div class="jukebox_table">{PLAYLISTS}</div>
+  </div>
+  <div {playlist-voting-dynamic-container}>
+    <div class="voting_table">{PLAYLISTS}</div>
+  </div>
+  <div id="requestSuccessful" class="toast">Added to the queue!</div>
+  <div id="voteSuccessful" class="toast">Vote counted!</div>
+  <div id="requestFailed" class="toast">Couldn't do that.</div>
+  <div id="invalidLocation" class="toast">You need to be at the show.</div>
+  <div id="invalidLocationCode" class="toast">Wrong code.</div>
+  <div id="alreadyVoted" class="toast">You already voted.</div>
+  <div id="requestPlaying" class="toast">Already requested.</div>
+  <div id="queueFull" class="toast">The queue is full.</div>
+  <div id="songPlaying" class="toast">That song is playing right now.</div>
+  <div id="songNextUp" class="toast">That song is already up next.</div>
+</body>
+</html>

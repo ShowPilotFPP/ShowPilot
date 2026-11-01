@@ -353,6 +353,17 @@ app.get('/admin-manifest.json', (req, res) => {
   });
 });
 
+// Global CSS for viewer pages (v0.33.249+, GitHub #36). Linked by the
+// renderer with ?v=<rev>, so it can be cached for a long time.
+app.get('/viewer-global.css', (req, res) => {
+  const cfg = require('./lib/db').getConfig();
+  res.type('text/css');
+  res.set('X-Content-Type-Options', 'nosniff');
+  if (cfg.viewer_global_css_enabled === 0) { res.set('Cache-Control', 'no-store'); return res.send(''); }
+  res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache');
+  res.send(cfg.viewer_global_css || '');
+});
+
 app.get('/viewer-manifest.json', (req, res) => {
   const { getConfig } = require('./lib/db');
   const cfg = getConfig();

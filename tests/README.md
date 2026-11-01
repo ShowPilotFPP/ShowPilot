@@ -75,6 +75,12 @@ it and reports back. The scenario then stays in the suite.
   "A" has a cooldown of N minutes
   the category "Kids" has "A" and "B"
   the viewer page uses the test template (Remote Falcon style)
+  there is also a viewer page "Name"   (a copy of the test template with that name in its title)
+  the template's draft is the file "name.html"   (from tests/templates)
+  the live viewer page is the file "name.html"   (from tests/templates)
+  the global CSS is "css"
+  the global CSS is turned off | on
+  the admin restores the previous global CSS
   phones must be within N miles to vote or request
   the setting "name" is on / off (any admin setting by its database name)
   the mode is Voting | Jukebox | Race | Listen only | Off   (set by the show player, like an FPP command)
@@ -82,6 +88,7 @@ it and reports back. The scenario then stays in the suite.
   the show player plays "A"
   the song ends   (the show player plays whatever ShowPilot asks for, else the next song)
   the show player clears the queue   (the "Clear Queue" FPP command)
+  the show player sets the viewer page to "Name"   (the "Set Viewer Page" command)
   the show player switches the category "Kids" off | on
   phone 1 is at the show | is N miles away [with a rough location]
   phone 1 votes for "A"
@@ -114,12 +121,24 @@ it and reports back. The scenario then stays in the suite.
   phone 1 shows no cover for Up Next | Now Playing
   phone 1 shows "Name" as the Now Playing artist | shows no Now Playing artist
   phone 1 is in Listen Only   (body class + notice)
+  phone 1's page says the mode is "listen-only"   (data-showpilot-mode on <html> and <body>)
+  the viewer page as first sent says the mode is "listen-only"   (before any script runs)
+  on phone 1, the "color" of "selector" is [not] "rgb(1, 2, 3)"
+  phone 1's page still responds
+  phone 1's page is frozen
+  the live viewer page is "Name"
+  it fails with "text"   (the last show player command)
   the admin sees "text"
   the admin does not see "text" in Top sequences
   the admin page still responds
   the preview is paused
   the admin's preview froze earlier   (simulates a freeze on the last visit)
   the admin clicks "Button text"
+  the admin loads the file "name.html" into the template   (Load from file…, from tests/templates)
+  the draft contains "text"
+  the admin's code editor shows "text"
+  the admin switches the editor to Code
+  the admin goes to the Dashboard and back to the Viewer Page   (without reloading)
   the draft is gone
   N seconds pass
 ```
@@ -139,7 +158,10 @@ it and reports back. The scenario then stays in the suite.
   as on a real night.
 - `tests/lib/steps.js` is the list of sentences and what each one does.
 - `tests/templates/rf-test.html` is a plain Remote Falcon style viewer page
-  with every placeholder, used by the browser scenarios.
+  with every placeholder, used by the browser scenarios. The other files there
+  are pages for specific scenarios (an uploaded file, a script that freezes).
+- To use a Chromium that's already installed instead of Playwright's own
+  download, set `SP_TEST_CHROMIUM=/path/to/chrome` before `npm test`.
 - `tests/run.js` reads the scenarios, runs them one by one and writes the
   report (`tests/lib/report.js`).
 

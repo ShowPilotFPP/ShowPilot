@@ -1246,6 +1246,37 @@ router.get('/categories', (req, res) => {
 });
 
 // ============================================================
+// Viewer page switch by command (v0.33.249+, GitHub #36)
+// GET  /api/plugin/viewer-pages        -> { pages: [{ name, active }] }
+// POST /api/plugin/viewer-page {name}  -> makes that page live
+// Used by the "ShowPilot - Set Viewer Page" command in the FPP plugin and
+// other show players. Same effect as Activate in the admin: open viewer
+// pages switch live. Names match without regard to capitals.
+// ============================================================
+router.get('/viewer-pages', (req, res) => {
+  const rows = db.prepare('SELECT name, is_active FROM viewer_page_templates ORDER BY name COLLATE NOCASE').all();
+  res.json({ pages: rows.map((r) => ({ name: r.name, active: r.is_active ? 1 : 0 })) });
+});
+
+router.post('/viewer-page', (req, res) => {
+  const clean = String((req.body && req.body.name) || '').trim();
+  if (!clean) return res.status(400).json({ error: 'name is required' });
+  const rows = db.prepare('SELECT id, name, is_active FROM viewer_page_templates').all();
+  const hit = rows.find((r) => r.name === clean) || rows.find((r) => r.name.toLowerCase() === clean.toLowerCase());
+  if (!hit) return res.status(404).json({ error: `No viewer page named "${clean}"`, pages: rows.map((r) => r.name) });
+  if (!hit.is_active) {
+    db.transaction(() => {
+      db.prepare('UPDATE viewer_page_templates SET is_active = 0').run();
+      db.prepare('UPDATE viewer_page_templates SET is_active = 1 WHERE id = ?').run(hit.id);
+    })();
+    const io = req.app.get('io');
+    if (io) io.emit('viewerTemplateChanged', { templateId: hit.id });
+    console.log(`[viewer-page] switched to "${hit.name}" by the show player`);
+  }
+  res.json({ ok: true, name: hit.name, changed: !hit.is_active });
+});
+
+// ============================================================
 // GET /api/plugin/health
 // ============================================================
 router.get('/health', (req, res) => {

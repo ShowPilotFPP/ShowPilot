@@ -5,6 +5,7 @@
 //   npm test                      run every scenario
 //   npm test -- listen            only scenarios whose file or title contains "listen"
 //   npm test -- --steps           list every sentence scenarios can use
+//   SP_TEST_CHROMIUM=/path/to/chrome npm test   use an already installed Chromium
 //
 // Scenarios are plain-English files in tests/scenarios/*.feature (see
 // tests/README.md). Each one runs against its own throwaway ShowPilot with a
@@ -89,7 +90,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   let browser = null;
   const getBrowser = async () => {
-    if (!browser) { const { chromium } = require('playwright'); browser = await chromium.launch(); }
+    if (!browser) { const { chromium } = require('playwright'); browser = await chromium.launch(process.env.SP_TEST_CHROMIUM ? { executablePath: process.env.SP_TEST_CHROMIUM } : {}); }
     return browser;
   };
 

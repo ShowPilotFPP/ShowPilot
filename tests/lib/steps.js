@@ -79,9 +79,11 @@ async function openPhone(ctx, phone, how = '') {
   await c.addCookies([{ name: ctx.sp.cookieName + '_viewer', value: 'phone-' + phone, url: ctx.sp.base }]);
   const page = await c.newPage();
   page.on('pageerror', e => ctx.pageErrors.push(`phone ${phone}: ${e.message}`));
-  await page.goto(ctx.sp.base + '/');
-  await page.waitForLoadState('networkidle').catch(() => {});
   ctx.pages.set('phone ' + phone, page);
+  // A page whose script hangs never finishes loading; later steps say
+  // whether that was expected ("... is frozen") or not ("... responds").
+  await page.goto(ctx.sp.base + '/', { timeout: 15000 }).catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   return page;
 }
 function pageOf(ctx, who) {
@@ -160,6 +162,33 @@ const STEPS = [
       db.prepare("INSERT INTO viewer_page_templates (name, html, is_active) VALUES ('Scenario test template', ?, 0)").run(html);
       db.prepare("UPDATE viewer_page_templates SET is_active = (name = 'Scenario test template')").run();
     } },
+  { doc: 'there is also a viewer page "Name"   (a copy of the test template with that name in its title)',
+    re: new RegExp(`^there is (?:also )?a viewer page ${q}$`, 'i'),
+    fn: async (ctx, name) => {
+      const html = fs.readFileSync(path.join(__dirname, '..', 'templates', 'rf-test.html'), 'utf8').replace(/<body[^>]*>/i, (b) => `${b}<h1 class="page-name">${name}</h1>`);
+      ctx.sp.db.prepare('INSERT INTO viewer_page_templates (name, html, is_active) VALUES (?, ?, 0)').run(name, html);
+    } },
+  { doc: 'the template\'s draft is the file "name.html"   (from tests/templates)',
+    re: new RegExp(`^the template's draft is the file ${q}$`, 'i'),
+    fn: async (ctx, file) => {
+      const html = fs.readFileSync(path.join(__dirname, '..', 'templates', file), 'utf8');
+      ctx.sp.db.prepare("UPDATE viewer_page_templates SET draft_html = ?, mode = 'code' WHERE is_active = 1").run(html);
+    } },
+  { doc: 'the live viewer page is the file "name.html"   (from tests/templates)',
+    re: new RegExp(`^the live viewer page is the file ${q}$`, 'i'),
+    fn: async (ctx, file) => {
+      const html = fs.readFileSync(path.join(__dirname, '..', 'templates', file), 'utf8');
+      ctx.sp.db.prepare('UPDATE viewer_page_templates SET html = ? WHERE is_active = 1').run(html);
+    } },
+  { doc: 'the global CSS is "css"',
+    re: new RegExp(`^the global CSS is ${q}$`, 'i'),
+    fn: async (ctx, css) => { await adminOk(ctx, 'PUT', '/global-css', { css, enabled: true }); } },
+  { doc: 'the global CSS is turned off | on',
+    re: /^the global CSS is turned (off|on)$/i,
+    fn: async (ctx, onoff) => { await adminOk(ctx, 'PUT', '/global-css', { enabled: onoff.toLowerCase() === 'on' }); } },
+  { doc: 'the admin restores the previous global CSS',
+    re: /^the admin restores the previous global CSS$/i,
+    fn: async (ctx) => { await adminOk(ctx, 'POST', '/global-css/restore'); } },
   { doc: 'phones must be within N miles to vote or request',
     re: /^phones must be within ([\d.]+) miles? to vote or request$/i,
     fn: async (ctx, mi) => { await adminOk(ctx, 'PUT', '/config', { check_viewer_present: 1, viewer_present_mode: 'GPS', show_latitude: SHOW.lat, show_longitude: SHOW.lng, check_radius_miles: Number(mi) }); } },
@@ -183,6 +212,12 @@ const STEPS = [
   { doc: 'the show player clears the queue   (the "Clear Queue" FPP command)',
     re: /^the show player clears the queue$/i,
     fn: async (ctx) => { ctx.last.cleared = await ctx.player.clearQueue(); } },
+  { doc: 'the show player sets the viewer page to "Name"   (the "Set Viewer Page" command)',
+    re: new RegExp(`^the show player sets the viewer page to ${q}$`, 'i'),
+    fn: async (ctx, name) => {
+      try { ctx.last.result = { ok: true, body: await ctx.player.setViewerPage(name) }; }
+      catch (e) { ctx.last.result = { ok: false, error: e.message }; }
+    } },
   { doc: 'the show player switches the category "Kids" off | on',
     re: new RegExp(`^the show player switches the category ${q} (off|on)$`, 'i'),
     fn: async (ctx, name, onoff) => { await ctx.player.setCategory(name, onoff.toLowerCase() === 'on'); } },
@@ -373,6 +408,56 @@ const STEPS = [
       assert(not ? !on : on, not ? 'phone is still in Listen Only' : 'phone is not in Listen Only');
     }) },
 
+  { doc: 'phone 1\'s page says the mode is "listen-only"   (data-showpilot-mode on <html> and <body>)',
+    re: new RegExp(`^phone (\\w+)'s page says the mode is ${q}$`, 'i'),
+    fn: async (ctx, phone, want) => eventually(async () => {
+      const r = await pageOf(ctx, 'phone ' + phone).evaluate(() => [document.documentElement.getAttribute('data-showpilot-mode'), document.body.getAttribute('data-showpilot-mode')]);
+      assert(r[0] === want && r[1] === want, `<html> says "${r[0]}", <body> says "${r[1]}", expected "${want}"`);
+    }) },
+  { doc: 'the viewer page as first sent says the mode is "listen-only"   (before any script runs)',
+    re: new RegExp(`^the viewer page as first sent says the mode is ${q}$`, 'i'),
+    fn: async (ctx, want) => {
+      const html = await (await fetch(ctx.sp.base + '/')).text();
+      const h = /<html\b[^>]*>/i.exec(html), b = /<body\b[^>]*>/i.exec(html);
+      const attr = (t) => t && (/data-showpilot-mode="([^"]*)"/.exec(t[0]) || [])[1];
+      assert(attr(h) === want && attr(b) === want, `sent <html> says "${attr(h)}", <body> says "${attr(b)}", expected "${want}"`);
+      if (want === 'listen-only') assert(/showpilot-listen-only/.test(b[0]), 'sent <body> has no showpilot-listen-only class');
+    } },
+  { doc: 'on phone 1, the "color" of "selector" is [not] "rgb(1, 2, 3)"',
+    re: new RegExp(`^on phone (\\w+), the ${q} of ${q} is (not )?${q}$`, 'i'),
+    fn: async (ctx, phone, prop, sel, not, want) => eventually(async () => {
+      const v = await pageOf(ctx, 'phone ' + phone).evaluate(([sel, prop]) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).getPropertyValue(prop) : null; }, [sel, prop]);
+      assert(v !== null, `nothing on the page matches "${sel}"`);
+      if (not) assert(v.trim() !== want, `${prop} of ${sel} is still "${want}"`);
+      else assert(v.trim() === want, `${prop} of ${sel} is "${v}", expected "${want}"`);
+    }) },
+  { doc: 'phone 1\'s page still responds',
+    re: /^phone (\w+)'s page (?:still )?responds$/i,
+    fn: async (ctx, phone) => {
+      const ok = await Promise.race([pageOf(ctx, 'phone ' + phone).evaluate(() => 1).then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
+      assert(ok, `phone ${phone}'s page is frozen`);
+    } },
+  { doc: 'phone 1\'s page is frozen',
+    re: /^phone (\w+)'s page is frozen$/i,
+    fn: async (ctx, phone) => {
+      const ok = await Promise.race([pageOf(ctx, 'phone ' + phone).evaluate(() => 1).then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
+      assert(!ok, `phone ${phone}'s page still responds`);
+      ctx.pages.delete('phone ' + phone); // no screenshots of a frozen page
+    } },
+  { doc: 'the live viewer page is "Name"',
+    re: new RegExp(`^the live viewer page is ${q}$`, 'i'),
+    fn: async (ctx, name) => {
+      const r = ctx.sp.db.prepare('SELECT name FROM viewer_page_templates WHERE is_active = 1').get();
+      assert(r && r.name === name, `the live viewer page is "${r && r.name}", expected "${name}"`);
+    } },
+  { doc: 'it fails with "text"   (the last show player command)',
+    re: new RegExp(`^it fails with ${q}$`, 'i'),
+    fn: async (ctx, text) => {
+      const r = ctx.last.result;
+      assert(r && !r.ok, 'the command did not fail');
+      assert(r.error.includes(text), `it failed with "${r.error}", expected "${text}"`);
+    } },
+
   // ===== Checks: admin in a browser =====
   { doc: 'the admin sees "text"',
     re: new RegExp(`^the admin sees ${q}$`, 'i'),
@@ -413,6 +498,37 @@ const STEPS = [
       const p = pageOf(ctx, 'admin');
       const ok = await p.evaluate((label) => { const b = [...document.querySelectorAll('button')].filter(x => x.offsetParent && x.textContent.trim() === label); if (!b.length) return false; b[b.length - 1].click(); return true; }, label);
       assert(ok, `no visible "${label}" button`);
+      await p.waitForTimeout(800);
+    } },
+  { doc: 'the admin loads the file "name.html" into the template   (Load from file…, from tests/templates)',
+    re: new RegExp(`^the admin loads the file ${q} into the template$`, 'i'),
+    fn: async (ctx, file) => {
+      const p = pageOf(ctx, 'admin');
+      await p.setInputFiles('#tplUploadFile', path.join(__dirname, '..', 'templates', file));
+      await p.waitForTimeout(500);
+    } },
+  { doc: 'the draft contains "text"',
+    re: new RegExp(`^the draft contains ${q}$`, 'i'),
+    fn: async (ctx, text) => eventually(async () => {
+      const r = ctx.sp.db.prepare('SELECT draft_html FROM viewer_page_templates WHERE is_active = 1').get();
+      assert(r.draft_html && r.draft_html.includes(text), "the draft doesn't contain " + JSON.stringify(text));
+    }) },
+  { doc: 'the admin\'s code editor shows "text"',
+    re: new RegExp(`^the admin's code editor shows ${q}$`, 'i'),
+    fn: async (ctx, text) => eventually(async () => {
+      const t = await pageOf(ctx, 'admin').evaluate(() => { const v = document.querySelector('#monacoContainer .view-lines'); return v && v.offsetHeight > 50 ? v.innerText : ''; });
+      assert(t.replace(/ /g, ' ').includes(text), `the code editor shows ${JSON.stringify(t.slice(0, 120))}`);
+    }) },
+  { doc: 'the admin switches the editor to Code',
+    re: /^the admin switches the editor to code$/i,
+    fn: async (ctx) => { const p = pageOf(ctx, 'admin'); await p.click('[data-designer-tab="code"]'); await p.waitForTimeout(800); } },
+  { doc: 'the admin goes to the Dashboard and back to the Viewer Page   (without reloading)',
+    re: /^the admin goes to the dashboard and back to the viewer page$/i,
+    fn: async (ctx) => {
+      const p = pageOf(ctx, 'admin');
+      await p.evaluate(() => { switchMainTab('dashboard'); });
+      await p.waitForTimeout(300);
+      await p.evaluate(() => { switchMainTab('viewer'); });
       await p.waitForTimeout(800);
     } },
   { doc: 'the draft is gone',

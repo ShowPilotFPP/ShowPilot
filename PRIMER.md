@@ -151,76 +151,28 @@ The maintainer runs **three** ShowPilot environments. Don't conflate them.
 
 ## Deployment workflow
 
-Standard release process:
+**Since 2026-11-01 releases are pushed straight to GitHub by Claude** (as the ShowPilotFPP account); ShipPilot tarballs are only used when there's a specific reason. Several issues handed over together ship in one version.
 
-```powershell
-# On the dev machine (Windows, PowerShell)
-cd C:\dev\ShowPilot
-git pull origin main
-tar -xzf "$env:USERPROFILE\Downloads\showpilot-vX.Y.Z.tar.gz" --strip-components=1
-git add -A
-git commit -m "vX.Y.Z — description"
-git push origin main
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
+- **Beta:** commit the work on a `claude/*` branch, then put that tree on `beta` as one commit (`v0.33.X-beta.N — summary`, changelog in the body) and push. The in-app updater's Beta channel follows `beta`. No tag.
+- **Stable:** put the tree on `main` as one commit (`v0.33.X — summary`), tag `v0.33.X`, push both, and create the GitHub Release (title = commit title, notes = changelog) with `gh api repos/ShowPilotFPP/ShowPilot/releases`. The in-app updater looks for these.
+- **Before any push:** `npm test` (scenario tests, below) must pass, plus `node --check` on changed files and the admin's inline scripts. Primer row as always.
+- **After a stable release:** mirror non-audio changes to Lite (same direct flow, Lite's own version/cache-buster rules); remind the maintainer to press **Deploy now** on the demo's ShipPilot environment (the demo only auto-deploys on ShipPilot releases); close the source issue/PR with a comment.
+- `package.json` `version` and the admin `app-version` label must match; `.release.json` is no longer needed.
 
-```bash
-# Deploy to prod LXC
-ssh root@<prod-lxc-ip>
-cd /opt/showpilot && git pull origin main
-pm2 restart showpilot
-pm2 logs showpilot
-```
+Docker: the `docker-publish.yml` workflow builds images on pushes as before.
 
-For Docker test, watchtower auto-pulls. To force a fresh test:
+## Scenario tests (from v0.33.249-beta.8)
 
-```powershell
-docker stop sp-beta
-Remove-Item -Recurse -Force C:\Users\<user>\sp-beta-data
-docker pull ghcr.io/showpilotfpp/showpilot:latest
-New-Item -ItemType Directory -Path C:\Users\<user>\sp-beta-data | Out-Null
-docker run -d --name sp-beta -p 3101:3100 -v C:\Users\<user>\sp-beta-data:/app/data --restart unless-stopped ghcr.io/showpilotfpp/showpilot:latest
-```
+Plain-English tests in `tests/scenarios/*.feature` ("Given the show has songs … When 2 phones vote for "Charlie" … Then "Charlie" plays next as a vote"), run with `npm test` (`npm test -- <words>` for a subset, `npm test -- --steps` lists every sentence). Full guide: `tests/README.md`.
 
-When you ship code, package it as a tarball at `/mnt/user-data/outputs/showpilot-vX.Y.Z.tar.gz`. The maintainer downloads, extracts over the dev clone, commits, pushes.
-
-### Standard tarball packaging commands (CRITICAL — never exclude .github)
-
-```bash
-# ShowPilot main
-tar --exclude='showpilot/.git' \
-    --exclude='showpilot/node_modules' \
-    --exclude='showpilot/config.js' \
-    --exclude='showpilot/data' \
-    --exclude='showpilot/*.tar.gz' \
-    -czf /mnt/user-data/outputs/showpilot-vX.Y.Z.tar.gz showpilot/
-
-# ShowPilot plugin
-tar --exclude='showpilot-plugin/.git' \
-    -czf /mnt/user-data/outputs/showpilot-plugin-vX.Y.Z.tar.gz showpilot-plugin/
-```
-
-Always syntax-check before packaging:
-```bash
-cd /home/claude/showpilot && node --check server.js && echo "OK"
-node --check /home/claude/showpilot-plugin/showpilot_audio.js && echo "Daemon OK"
-```
-
-### ShipPilot
-
-The maintainer uses ShipPilot (an in-house tool, separate LXC) to push releases to GitHub. Each release needs a `.release.json` in the repo root:
-
-```json
-{
-  "repo": "showpilot",
-  "version": "0.33.148",
-  "commit_message": "v0.33.148 — description",
-  "tag": "v0.33.148"
-}
-```
-
-**Important:** `.release.json` is in `.gitignore` and is NOT committed to the repo. A fresh `git clone` won't have one. Claude must create it with `create_file` each session before packaging the tarball.
+- Each scenario runs against its own throwaway copy of ShowPilot (temp folder, linked `node_modules`, free port, fresh `data/`, fixed secrets; `tests/lib/harness.js`), driven by a **fake show player** (`tests/lib/showplayer.js`) that speaks the plugin API like FPP or any show player: sync, `GET /state` to ask what's next, `POST /playing`, `/next`. It never labels a song as vote/request/PSA itself, so ShowPilot's own handoff logic is what's tested.
+- Browser steps use Playwright Chromium (dev dependency only; installs use `--omit=dev`, Docker ignores `tests/`): phones at 390 px (iPhone / Facebook in-app UA, geolocation granted, denied or rough), admin at 1400 px. Browser scenarios use `tests/templates/rf-test.html`, a Remote Falcon style page with every placeholder and message box.
+- Sentences are defined in `tests/lib/steps.js` (regex + function + `doc` line); unknown sentences stop the run before anything starts, with the closest known ones suggested. "Then" checks retry for up to ~8 s.
+- Output: `tests/out/report.html` (each step ✓/✗, the reason, a screenshot of the page each step involved, server log tail on failure), `results.json`, `summary.md`.
+- CI: `.github/workflows/scenarios.yml` runs on pushes to `main`, `beta`, `claude/**` and on PRs, on the maintainer's self-hosted Mac runner (labels `self-hosted, linux, arm64, showpilot`; repo variable `SPP_RUNNER=github` falls back to GitHub-hosted; PRs from forks always run on GitHub's runners). Summary on the run page, report as the `scenario-report` artifact (14 days).
+- The maintainer can ask for a test in plain words; Claude writes the scenario (adding sentences when needed) and it stays in the suite. Every new feature ships with scenarios.
+- Not covered: the PHP plugin inside a real FPP, and real phones' audio — testers on real shows cover those.
+- Gotcha that shaped the scenarios: while a song plays, the next playlist song is "up next" and votes/requests for it are refused (`block_request_next_up` / `block_vote_next_up`, both on by default); in Voting, once a song leads, **the leader** is "up next", so with `block_vote_next_up` on it can't gain more votes.
 
 ### Testing on LXC only (no GitHub)
 
@@ -646,6 +598,7 @@ Settings → Cloudflare Tunnel shows "Installed: X · Latest: Y" whenever cloudf
 | 0.33.249-beta.5 | **Cover art for Now Playing and Up Next.** New placeholder `{NEXT_PLAYLIST_IMAGE}` → `<img class="sequence-image next-playlist-image" data-showpilot-next-img>` (same rules as `{NOW_PLAYING_IMAGE}`: list `image_url` first, else `nextScheduledLabel.imageUrl` busted; hidden when no next song or no cover). `/api/state` adds `nextScheduledImageUrl`; rf-compat updates `[data-showpilot-next-img]` live. Page designer: the Now Playing and Up Next blocks get `showCoverArt` (checkbox "Show Cover Art", default off so saved pages don't change) — the cover sits above the name (140 px / 100 px, rounded, shadow) via `coverArtHtml()` in `lib/visual-designer.js`. Admin template help and README list the placeholder. Cache-buster `rf-compat.js?v=113`. Built-in Default page unchanged. | `node --check` on changed files; designer blocks without the option render no image, with it both placeholders; browser test on a designer page: covers shown at 140/100 px, Up Next follows the queue head, a next song without a cover hides the image live, both update live on song/queue changes, no page errors. |
 | 0.33.249-beta.6 | **Badge position and colors.** A tester's template puts the cover in a narrow grid column; the `.sequence-badge` span (after `.sequence-name` inside `.sequence-item > div`) landed in that column, under the cover, cut off. Badges now default to the tile's **top-right corner**: `.sequence-item.showpilot-badge { position: relative }` + `.sequence-item .sequence-badge { position: absolute; top: 6px; right: 8px; … }`, which works whatever layout a template gives the tile. New settings `viewer_badge_position` ('corner' default / 'inline' = after the name, the beta.3 look), `viewer_badge_bg` and `viewer_badge_color` (#rgb/#rrggbb only — admin PUT rejects anything else since they go into CSS; renderer falls back to defaults too). CSS built by `badgeCss(cfg)` in `lib/viewer-renderer.js`, still injected at the top of `<head>` so template rules win. Sequences → Song labels: position dropdown, two color pickers and a live preview chip. No markup or rf-compat change (no cache-buster bump). | `node --check`; browser test on a template like the tester's (70 px cover column, overflow hidden): corner badge fully inside the tile's top-right with its whole text; inline + custom colors applied; a CSS-injection color value and an unknown position are refused (400); admin loads/saves the position and the preview moves between corner and inline; no page errors. |
 | 0.33.249-beta.7 | **A template script that hangs can no longer lock you out of the admin (issue #35, @kevinsaucier); Sequences Badge column fixed.** (1) The live preview iframe (`#designerPreview`, `sandbox="allow-same-origin allow-scripts"`) runs the template's scripts on the admin page's thread, and `loadTemplates()` → `selectTemplate()` → `refreshPreview()` loaded it on **every admin start**, even with the Viewer Page section closed. A draft with a hanging script (auto-saved 500 ms after typing) therefore froze the admin on every load, in every browser, before "Discard Changes" could be reached; the only way out was restoring the database. Reproduced: an endless-loop draft froze the old admin on the Dashboard alone. Now `refreshPreview()` only loads while the Viewer Page pane is active (opening it calls `refreshPreview`), and a marker `sp_preview_loading` (localStorage, {id, at}) is set before each load and cleared 5 s after the iframe's `load` event. If the page froze, the marker survives the reload and the preview shows a **Preview paused** panel (iframe `about:blank`) with "Discard unsaved changes" and "Load preview anyway" (`refreshPreview(true)`; the ↻ button also forces). Discarding clears the marker. The live viewer page was never affected (it serves saved `html`, not `draft_html`). (2) Sequences table: the Badge column had no width share, so the text columns (percentage shares + `max-width: 0`) left it the leftovers and its dropdown showed two letters. Shares now Display 23 / Sequence 19 / Artist 17 / Category 19 / Badge 14, badge select `width: 100%` with ellipsis and empty label "—"; table `min-width` 860 → 1400 px so narrower screens scroll the table sideways instead of crushing the text columns to ~50 px. | Admin in a browser with an endless-loop draft: Dashboard usable and preview not loaded at start; opening Viewer Page still freezes (expected, it's the template's script); after a reload the admin works and Viewer Page shows Preview paused instead of loading; Discard removes the draft, the preview loads normally and the marker clears after a good load; no page errors. Old admin confirmed frozen on the Dashboard with the same draft. Column widths measured at 1900/1300/1000 px: at 1900 every text column ≥ 160 px and the badge dropdown 113 px, below 1400 px the table scrolls inside its card (no page scroll). `node --check` on every inline admin script. |
+| 0.33.249-beta.8 | **Scenario tests.** New `tests/` (see "Scenario tests" above and `tests/README.md`): plain-English `.feature` scenarios, a step library, a throwaway-ShowPilot harness, a fake show player speaking the plugin API, Playwright phones/admin, an HTML report with screenshots. 24 starter scenarios: voting (most votes, vote blocking, one vote per phone, PSA mid-round), jukebox (order, Clear Queue from the show player and the admin, cooldown, up-next/playing blocks), Listen Only (queued songs still play, votes/requests refused, Off/On restores, no PSAs, phones' Listen Only UI), categories from the show player, viewer page (queued marks live, badges in full, artist and covers), location help (iPhone denied, Facebook browser, rough fix, in/out of range), admin (listener count up and down, Hide PSAs, preview freeze guard). `npm test` script; Playwright 1.63 as a dev dependency; `.github/workflows/scenarios.yml` on the self-hosted Mac runner. `tests/` kept out of the Docker image, `tests/out/` out of git. Release process changed to direct pushes (see "Deployment workflow"). No app code changes. | All 24 scenarios pass locally (~2 min). To prove they catch bugs: with the beta.1 PSA fix temporarily removed, "A PSA in the middle of a voting round keeps the votes" fails with "Charlie has 0 votes, expected 2". `node --check` on every test file; workflow YAML parsed. |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -659,7 +612,7 @@ Settings → Cloudflare Tunnel shows "Installed: X · Latest: Y" whenever cloudf
 | 0.13.64 | `set_mode_race.php` scheduler command. Calls `POST /api/plugin/viewer-mode` with `{ mode: "RACE" }` so FPP scheduler events can activate race mode at a specific playlist position. |
 
 **Current versions (as of October 2026):**
-- ShowPilot: v0.33.248 (beta: v0.33.249-beta.7)
+- ShowPilot: v0.33.248 (beta: v0.33.249-beta.8)
 - FPP Plugin / Audio Daemon: see the plugin repo's primer
 - rf-compat.js cache buster: v=113
 

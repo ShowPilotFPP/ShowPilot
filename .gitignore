@@ -35,3 +35,6 @@ build/
 # Environment
 .env
 .env.local
+
+# Scenario test output (report, screenshots)
+tests/out/

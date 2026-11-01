@@ -190,3 +190,7 @@ footer {
   font-size: 0.9rem;
   z-index: 1000;
 }
+
+/* Song badges and songs already in the request queue (v0.33.249+). */
+.sequence-badge { display: inline-block; margin-left: 0.4em; padding: 0.05em 0.5em; border-radius: 999px; font-size: 0.7em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; background: #dc2626; color: #fff; }
+.sequence-list button.queued { opacity: 0.6; }

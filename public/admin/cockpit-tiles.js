@@ -29,7 +29,7 @@
       get: (c) => (c.cfg.viewer_control_mode || 'OFF') !== 'OFF',
       set: (c, on) => SP.put('/config', { viewer_control_mode: on ? (c.cfg.last_active_mode && c.cfg.last_active_mode !== 'OFF' ? c.cfg.last_active_mode : 'VOTING') : 'OFF' }) },
     { id: 'mode', group: 'Show control', label: 'Mode', kind: 'seg', size: 2, hint: 'Off, Voting, Jukebox or Race',
-      options: [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race']],
+      options: [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race'], ['LISTEN', 'Listen only']],
       get: (c) => c.cfg.viewer_control_mode || 'OFF',
       set: (c, v) => SP.put('/config', { viewer_control_mode: v }) },
     { id: 'liveBoard', group: 'Show control', label: 'Live standings', kind: 'board', board: 'live', size: 2, hint: 'Vote counts, queue or race taps' },

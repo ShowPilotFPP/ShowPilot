@@ -417,6 +417,7 @@
     .mode-pill.jukebox { background: var(--rgb-blue); color: #fff; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
     .mode-pill.race { background: #f59e0b; color: #000; box-shadow: 0 0 12px rgba(245,158,11,0.4); }
     .mode-pill.off { background: var(--status-neutral); color: #fff; }
+    .mode-pill.listen { background: #0d9488; color: #fff; box-shadow: 0 0 12px rgba(13,148,136,0.35); }
     .header-spacer { margin-left: auto; }
     /* "Show" link in admin header — opens the viewer in a new tab.
        Styled like the user button (subtle outline on dark background)
@@ -1394,7 +1395,7 @@
     table.seq-compact .col-display .editable:focus, table.seq-compact .col-artist .editable:focus { white-space: normal; overflow: visible; }
     /* Column chooser: hidden columns keep their settings, they're just not shown. */
     #sequencesTable.hide-art .col-art, #sequencesTable.hide-seqname .col-seqname, #sequencesTable.hide-artist .col-artist,
-    #sequencesTable.hide-category .col-category, #sequencesTable.hide-visible .col-visible, #sequencesTable.hide-vote .col-vote,
+    #sequencesTable.hide-category .col-category, #sequencesTable.hide-badge .col-badge, #sequencesTable.hide-visible .col-visible, #sequencesTable.hide-vote .col-vote,
     #sequencesTable.hide-jukebox .col-jukebox, #sequencesTable.hide-psa .col-psa, #sequencesTable.hide-cooldown .col-cooldown,
     #sequencesTable.hide-preview .col-preview, #sequencesTable.hide-search .col-search, #sequencesTable.hide-lang .col-lang,
     #sequencesTable.hide-status .col-status, #sequencesTable.hide-index .col-index { display: none !important; }
@@ -1918,12 +1919,13 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.2</span>
+        <span class="app-version">v0.33.249-beta.3</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
         <span id="headerViewerCount"><strong>0</strong> viewers</span>
+        <span id="headerListenerWrap" title="Phones playing the show audio right now"> · <span id="headerListenerCount"><strong>0</strong> listening</span></span>
         <span>·</span>
         <span><span id="headerPluginDot" class="plugin-dot offline"></span> <span id="headerPluginText">plugin</span></span>
       </span>
@@ -2009,6 +2011,11 @@
             <div class="stat-label">Active viewers</div>
             <div class="stat-value" id="statActiveViewers">0</div>
           </div>
+          <div class="stat s-green" title="Phones playing the show audio right now (Listen on Phone)">
+            <div class="stat-label">Listening on phones</div>
+            <div class="stat-value" id="statListeners">0</div>
+            <div class="muted" id="statListenersSub" style="font-size: 0.75rem;"></div>
+          </div>
           <div class="stat s-red">
             <div class="stat-label">Votes (round)</div>
             <div class="stat-value" id="statVotes">0</div>
@@ -2047,6 +2054,7 @@
               <option value="VOTING">Voting</option>
               <option value="JUKEBOX">Jukebox</option>
               <option value="RACE">Race</option>
+              <option value="LISTEN" title="Viewers can see what's playing and listen on their phones, but can't vote or request">Listen only</option>
             </select>
             <button class="secondary" onclick="resetVotes()">Reset Votes</button>
             <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
@@ -2149,6 +2157,7 @@
             <button class="secondary" onclick="bulkSetField('visible', 1)">Show</button>
             <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
             <select id="seqBulkCategory" onchange="bulkSetCategory(this)" title="Set the category of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
+            <select id="seqBulkBadge" onchange="bulkSetBadge(this)" title="Set or clear the badge of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
             <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
             <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
             <button class="secondary" onclick="clearSeqSelection()">Clear</button>
@@ -2170,6 +2179,7 @@
                   <th class="col-tight col-index" title="Position in your show player's playlist, from the last sync. If the wrong song plays, check this matches the playlist (and sync again).">Playlist #</th>
                   <th class="col-artist">Artist</th>
                   <th class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
+                  <th class="col-badge" title="A short label shown after the song's name on the viewer page, like New or Fan Favorite.">Badge</th>
                   <th class="col-tight col-visible">Visible</th>
                   <th class="col-tight col-vote">Vote</th>
                   <th class="col-tight col-jukebox">Jukebox</th>
@@ -2217,6 +2227,22 @@
           <p class="muted" style="font-size: 0.8rem;">
             With headings off, categories still control visibility but the viewer list keeps its normal order.
             Templates can restyle headings with the <code>.sequence-category-header</code> CSS class.
+          </p>
+          <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem;">Song labels on the viewer page</h3>
+          <div class="row" style="gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <input type="checkbox" id="cfgViewerShowBadges" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
+              Show badges after song names (set them in the Badge column)
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <input type="checkbox" id="cfgViewerDimQueued" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
+              Dim songs that are already in the request queue
+            </label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem;">
+            For template authors: a song tile with a badge has <code>data-badge</code>, the class <code>showpilot-badge-&lt;name&gt;</code>
+            (for example <code>showpilot-badge-fan-favorite</code>) and a <code>.sequence-badge</code> label. A song in the request queue has
+            the class <code>showpilot-queued</code> and <code>data-queue-position</code> (1 = next). Both update live.
           </p>
         </div>
 
@@ -2350,6 +2376,21 @@
             </p>
           </div>
 
+          <!-- Phone listeners (v0.33.249+): same From/To range. -->
+          <div style="border-top: 1px solid var(--border); padding-top: 1rem; margin: 0.5rem 0 1rem;">
+            <h3 style="margin: 0 0 0.5rem; font-size: 1.05rem;">Phone Listeners</h3>
+            <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;" id="listenerStatsToday"></p>
+            <div style="overflow-x: auto;">
+              <table class="seq-table" style="width: 100%; max-width: 520px; border-collapse: collapse;">
+                <thead><tr><th style="text-align: left;">Day</th><th style="text-align: right;" title="Most phones listening at the same time">Most at once</th><th style="text-align: right;" title="Different phones that listened that day">Phones</th></tr></thead>
+                <tbody id="listenerStatsBody"></tbody>
+              </table>
+            </div>
+            <p class="muted" style="font-size: 0.75rem; margin: 0.5rem 0 0;">
+              Counts phones with Listen on Phone playing. A phone whose screen is locked may drop out of the live count for a while. Kept for 90 days.
+            </p>
+          </div>
+
           <div style="overflow-x: auto;">
             <table id="statsTable" class="seq-table" style="width: 100%; border-collapse: collapse;">
               <thead>
@@ -2407,7 +2448,7 @@
             </div>
           </div>
           <p class="muted" style="margin-bottom: 0.75rem;">
-            Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>.
+            Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>. ShowPilot adds <code>{NOW_PLAYING_ARTIST}</code>, <code>{NOW_PLAYING_IMAGE}</code>, <code>{NOW_PLAYING_TIMER}</code> and <code>{NOW_PLAYING_PROGRESS}</code>.
             <a href="/" target="_blank" style="color: var(--accent);">Open viewer page →</a>
           </p>
 
@@ -2933,7 +2974,7 @@
               <label for="sch_snapshot" style="margin: 0;">Also restore</label>
               <select id="sch_snapshot"><option value="">No snapshot</option></select>
               <label for="sch_mode" style="margin: 0;">and set the mode to</label>
-              <select id="sch_mode"><option value="">(don't change)</option><option value="VOTING">Voting</option><option value="JUKEBOX">Jukebox</option><option value="RACE">Race</option><option value="OFF">Off</option></select>
+              <select id="sch_mode"><option value="">(don't change)</option><option value="VOTING">Voting</option><option value="JUKEBOX">Jukebox</option><option value="RACE">Race</option><option value="LISTEN">Listen only</option><option value="OFF">Off</option></select>
             </div>
             <div class="row" style="gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
               <input type="checkbox" id="sch_enabled" checked />
@@ -6879,7 +6920,7 @@
           badge.className = 'pill pill-danger';
           setVcToggle(btn, false);
         } else {
-          badge.textContent = 'ON · ' + mode;
+          badge.textContent = 'ON · ' + modeText(mode);
           badge.className = 'pill pill-success';
           setVcToggle(btn, true);
         }
@@ -6891,7 +6932,7 @@
       const pill = document.getElementById('modePill');
       if (pill) {
         pill.className = 'mode-pill ' + (mode || 'off').toLowerCase();
-        pill.textContent = mode || 'OFF';
+        pill.textContent = modeText(mode);
       }
     }
 
@@ -6922,6 +6963,17 @@
         await updateMode(restored);
       }
       await loadConfig();
+    }
+
+    // Phones playing the show audio (v0.33.249+): header, Dashboard card.
+    function showListenerCounts(d) {
+      const n = d.listenersNow ?? 0;
+      const h = document.getElementById('headerListenerCount');
+      if (h) h.innerHTML = '<strong>' + n + '</strong> listening';
+      const c = document.getElementById('statListeners');
+      if (c) c.textContent = n;
+      const sub = document.getElementById('statListenersSub');
+      if (sub) sub.textContent = (d.listenersToday ?? 0) ? 'Today: ' + d.listenersToday + ' phone' + (d.listenersToday === 1 ? '' : 's') + ', ' + (d.listenersPeakToday ?? 0) + ' at once at most' : '';
     }
 
     async function loadStats() {
@@ -7113,7 +7165,27 @@
     }
 
     // Uses the same From/To range as the per-sequence table (empty = all time).
+    async function loadListenerStats() {
+      const from = document.getElementById('statsFrom')?.value || '';
+      const to = document.getElementById('statsTo')?.value || '';
+      const params = new URLSearchParams();
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      const r = await api('/stats/listeners' + (params.toString() ? '?' + params : ''));
+      if (!r.ok) return;
+      const t = r.data.today || {};
+      const today = document.getElementById('listenerStatsToday');
+      if (today) today.textContent = 'Now: ' + (t.now || 0) + ' · Today: ' + (t.uniqueToday || 0) + ' phone' + (t.uniqueToday === 1 ? '' : 's') + ', at most ' + (t.peakToday || 0) + ' at once.';
+      const body = document.getElementById('listenerStatsBody');
+      if (!body) return;
+      const days = r.data.days || [];
+      body.innerHTML = days.length
+        ? days.map(d => '<tr><td>' + escapeHtml(d.day) + '</td><td style="text-align:right;">' + d.peak + '</td><td style="text-align:right;">' + d.unique + '</td></tr>').join('')
+        : '<tr><td colspan="3" class="muted">No phone listeners in this range yet.</td></tr>';
+    }
+
     async function loadVisitorStats() {
+      loadListenerStats();
       const from = document.getElementById('statsFrom')?.value || '';
       const to = document.getElementById('statsTo')?.value || '';
       const params = new URLSearchParams();
@@ -7417,6 +7489,49 @@
       loadSequences(); // refresh counts + pick up canonical spelling / new category
     }
 
+    // ======= Song badges (v0.33.249+) =======
+    // A short label shown after the song's name on the viewer page. The list
+    // offers common ones plus any already in use; "Custom…" asks for text.
+    const BADGE_PRESETS = ['New', 'Fan Favorite', 'Classic', 'Kids\' Pick', 'Pretty', 'Funny', 'Spooky'];
+    const BADGE_CUSTOM = '__custom__';
+    const BADGE_CLEAR = '__clear__';
+    function fillBadgeSelect(sel, current, noneLabel, bulk) {
+      sel.innerHTML = '';
+      const add = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; sel.appendChild(o); return o; };
+      add('', noneLabel);
+      if (bulk) add(BADGE_CLEAR, 'No badge');
+      const names = BADGE_PRESETS.slice();
+      (sequencesCache || []).forEach(x => { const b = String(x.badge || '').trim(); if (b && !names.some(n => n.toLowerCase() === b.toLowerCase())) names.push(b); });
+      const cur = String(current || '').trim().toLowerCase();
+      names.forEach(n => { const o = add(n, n); if (cur && n.toLowerCase() === cur) o.selected = true; });
+      add(BADGE_CUSTOM, 'Custom…');
+    }
+    async function resolveBadgeChoice(sel) {
+      if (sel.value === BADGE_CLEAR) return '';
+      if (sel.value !== BADGE_CUSTOM) return sel.value;
+      const v = await showPrompt('Badge text (up to 24 characters), e.g. "New for 2026"', '', { title: 'Custom badge' });
+      if (v === null || v === undefined || !String(v).trim()) return undefined;
+      return String(v).trim().slice(0, 24);
+    }
+    async function onSeqBadgeChange(id, sel) {
+      const value = await resolveBadgeChoice(sel);
+      if (value === undefined) { loadSequences(); return; }
+      await updateSeqField(id, 'badge', value);
+      loadSequences();
+    }
+    async function bulkSetBadge(sel) {
+      if (_seqSelection.size === 0 || sel.value === '') { sel.value = ''; return; }
+      const value = await resolveBadgeChoice(sel);
+      if (value === undefined) { sel.value = ''; return; }
+      await api('/sequences/bulk-badge', { method: 'POST', body: JSON.stringify({ ids: Array.from(_seqSelection), badge: value }) });
+      clearSeqSelection();
+      loadSequences();
+    }
+    function refreshBulkBadgeSelect() {
+      const sel = document.getElementById('seqBulkBadge');
+      if (sel) fillBadgeSelect(sel, '', 'Set badge…', true);
+    }
+
     async function bulkSetCategory(sel) {
       if (_seqSelection.size === 0) { sel.value = ''; return; }
       const value = await resolveCategoryChoice(sel);
@@ -7433,6 +7548,10 @@
       const lbl = document.getElementById('cfgUncategorizedLabel');
       if (cb) cb.checked = r.data.viewer_show_categories !== 0;
       if (lbl) lbl.value = r.data.uncategorized_label || 'Other';
+      const sb = document.getElementById('cfgViewerShowBadges');
+      const dq = document.getElementById('cfgViewerDimQueued');
+      if (sb) sb.checked = r.data.viewer_show_badges !== 0;
+      if (dq) dq.checked = r.data.viewer_dim_queued === 1;
     }
 
     async function saveCategoryDisplayOptions() {
@@ -7440,6 +7559,8 @@
       await api('/config', { method: 'PUT', body: JSON.stringify({
         viewer_show_categories: document.getElementById('cfgViewerShowCategories').checked ? 1 : 0,
         uncategorized_label: label,
+        viewer_show_badges: document.getElementById('cfgViewerShowBadges').checked ? 1 : 0,
+        viewer_dim_queued: document.getElementById('cfgViewerDimQueued').checked ? 1 : 0,
       }) });
     }
 
@@ -7468,6 +7589,7 @@
       else paintSeqPreviewBtns();
       applySeqFilter();
       renderSeqDuplicatesNote();
+      refreshBulkBadgeSelect();
       // Drop selection entries for sequences that no longer exist (deleted
       // out from under us) so the toolbar count reflects reality.
       const liveIds = new Set(r.data.map(s => s.id));
@@ -7528,6 +7650,7 @@
         <td class="col-artist"><span class="editable" contenteditable="true" title="${escapeAttr(seq.artist || '')}"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
         <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
+        <td class="col-badge"><select class="seq-badge-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.badge || '')}"></select></td>
         <td class="col-tight col-visible"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-vote"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-jukebox"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -7546,6 +7669,11 @@
       if (catSel) {
         fillCategorySelect(catSel, seq.category || '', '— none —');
         catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
+      }
+      const badgeSel = tr.querySelector('.seq-badge-select');
+      if (badgeSel) {
+        fillBadgeSelect(badgeSel, seq.badge || '', '— none —');
+        badgeSel.addEventListener('change', () => onSeqBadgeChange(seq.id, badgeSel));
       }
       orderSeqCells(tr);
       const catFilterBtn = tr.querySelector('.seq-cat-filter');
@@ -7655,6 +7783,7 @@
       { key: 'index', label: 'Playlist # (position in the playlist)', defaultHidden: true },
       { key: 'artist', label: 'Artist' },
       { key: 'category', label: 'Category' },
+      { key: 'badge', label: 'Badge (New, Fan Favorite...)' },
       { key: 'visible', label: 'Visible' },
       { key: 'vote', label: 'Vote' },
       { key: 'jukebox', label: 'Jukebox' },
@@ -9105,6 +9234,7 @@
             if (queuePane && queuePane.classList.contains('active')) loadQueueTab();
           });
           socket.on('nowPlaying', () => loadStats());
+          socket.on('listenersChanged', () => loadStats());
 
           // Plugin status
           socket.on('pluginStatus', () => loadPluginStatus());
@@ -10005,10 +10135,11 @@
     // STATUS STRIP / DASHBOARD live values
     // Hook into existing loadStats + loadConfig pathways
     // ============================================================
+    function modeText(mode) { return mode === 'LISTEN' ? 'LISTEN ONLY' : (mode || 'OFF'); }
     function updateModePill(mode) {
       const pill = document.getElementById('modePill');
       pill.className = 'mode-pill ' + (mode || 'off').toLowerCase();
-      pill.textContent = mode || 'OFF';
+      pill.textContent = modeText(mode);
     }
 
     // Override updateViewerControlBadge to use the new pill classes
@@ -10021,7 +10152,7 @@
         badge.className = 'pill pill-danger';
         setVcToggle(btn, false);
       } else {
-        badge.textContent = 'ON · ' + mode;
+        badge.textContent = 'ON · ' + modeText(mode);
         badge.className = 'pill pill-success';
         setVcToggle(btn, true);
       }
@@ -10045,7 +10176,7 @@
           setVcToggle(btn, false);
         } else {
           badge.className = 'pill pill-success';
-          badge.textContent = 'ON · ' + mode;
+          badge.textContent = 'ON · ' + modeText(mode);
           setVcToggle(btn, true);
         }
         // Show Reset Race button only in RACE mode
@@ -10078,6 +10209,7 @@
 
       // Header count
       document.getElementById('headerViewerCount').innerHTML = '<strong>' + (d.activeViewers ?? 0) + '</strong> viewers';
+      showListenerCounts(d);
 
       // Status strip
       document.getElementById('stripVoteCount').textContent = d.totalVotes ?? 0;

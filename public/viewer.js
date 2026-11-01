@@ -71,12 +71,21 @@
       state.lastKnownRoundId = data.currentVotingRound;
     }
 
-    el('modeVoting').classList.toggle('hidden', data.viewerControlMode !== 'VOTING');
-    el('modeJukebox').classList.toggle('hidden', data.viewerControlMode !== 'JUKEBOX');
+    // Listen Only (v0.33.249+): keep showing the last active mode's list,
+    // with every button disabled.
+    const shown = data.listDisplayMode || data.viewerControlMode;
+    el('modeVoting').classList.toggle('hidden', shown !== 'VOTING');
+    el('modeJukebox').classList.toggle('hidden', shown !== 'JUKEBOX');
     el('modeOff').classList.toggle('hidden', data.viewerControlMode !== 'OFF');
 
-    if (data.viewerControlMode === 'VOTING') renderVoteList();
-    if (data.viewerControlMode === 'JUKEBOX') renderJukeboxList();
+    if (shown === 'VOTING') renderVoteList();
+    if (shown === 'JUKEBOX') renderJukeboxList();
+    if (data.viewerControlMode === 'LISTEN') {
+      document.querySelectorAll('#voteList button, #jukeboxList button').forEach(b => {
+        b.disabled = true;
+        b.title = 'Requests and voting are closed for now. You can still listen along!';
+      });
+    }
   }
 
   // Category headings. /api/state delivers sequences pre-grouped by
@@ -100,6 +109,12 @@
     };
   }
 
+  // Song badge (New, Fan Favorite, ...) set on the Sequences page (v0.33.249+).
+  function badgeHtml(seq) {
+    const b = seq.badge ? String(seq.badge).trim() : '';
+    return b ? ' <span class="sequence-badge">' + escapeHtml(b) + '</span>' : '';
+  }
+
   function renderVoteList() {
     const list = el('voteList');
     list.innerHTML = '';
@@ -117,7 +132,7 @@
       btn.disabled = state.hasVoted && !state.allowVoteChange;
       if (state.votedFor === seq.name) btn.classList.add('voted');
       btn.innerHTML = `
-        <span>${escapeHtml(seq.display_name)}${seq.artist ? ' — ' + escapeHtml(seq.artist) : ''}</span>
+        <span>${escapeHtml(seq.display_name)}${badgeHtml(seq)}${seq.artist ? ' — ' + escapeHtml(seq.artist) : ''}</span>
         <span class="vote-count">${count}</span>
       `;
       btn.onclick = () => vote(seq.name);
@@ -132,12 +147,16 @@
     // Sequences in cooldown are filtered out server-side (in /state) so
     // we don't need to render them as disabled — they simply aren't here.
     const jukeboxSeqs = state.sequences.filter(s => s.jukeboxable);
+    const queuedPos = {};
+    state.queue.forEach((q, i) => { if (!queuedPos[q.sequence_name]) queuedPos[q.sequence_name] = i + 1; });
     const emitJukeboxHeader = categoryHeaderEmitter(list, jukeboxSeqs);
     jukeboxSeqs.forEach(seq => {
       emitJukeboxHeader(seq);
       const li = document.createElement('li');
       const btn = document.createElement('button');
-      btn.innerHTML = `<span>${escapeHtml(seq.display_name)}${seq.artist ? ' — ' + escapeHtml(seq.artist) : ''}</span><span>+</span>`;
+      btn.innerHTML = `<span>${escapeHtml(seq.display_name)}${badgeHtml(seq)}${seq.artist ? ' — ' + escapeHtml(seq.artist) : ''}</span><span>${queuedPos[seq.name] ? 'Queued' : '+'}</span>`;
+      // Already in the request queue (v0.33.249+).
+      if (queuedPos[seq.name]) { btn.classList.add('queued'); li.classList.add('showpilot-queued'); }
       btn.onclick = () => addToQueue(seq.name);
       li.appendChild(btn);
       list.appendChild(li);
@@ -169,9 +188,14 @@
           resolve(cachedLocation);
         },
         (err) => {
-          let msg = 'Could not get your location.';
-          if (err.code === 1) msg = 'Location access was denied. Please enable location to vote/request.';
-          if (err.code === 3) msg = 'Location request timed out.';
+          const ua = navigator.userAgent || '';
+          const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+          let msg = 'Could not get your location. Make sure Location is on, then try again.';
+          if (/FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger/i.test(ua)) msg = 'This app\'s built-in browser won\'t share your location. Open this page in ' + (ios ? 'Safari' : 'Chrome') + ' and try again.';
+          else if (err.code === 1) msg = ios
+            ? 'Your iPhone blocked location for this page. Open Settings → Privacy & Security → Location Services, tap Safari Websites, choose "While Using the App", then reload this page.'
+            : 'Location access was denied. Allow location for this site in your browser settings, then reload the page.';
+          else if (err.code === 3) msg = 'Location request timed out. Try again.';
           reject(new Error(msg));
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }

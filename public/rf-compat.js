@@ -162,6 +162,7 @@
     // Server explicitly flags code failures (v0.33.24+) — use the dedicated toast.
     if (data && data.invalidLocationCode) return MSG_IDS.invalidLocationCode;
     const msg = (error || '').toLowerCase();
+    if (msg.includes('miles of the show')) return MSG_IDS.invalidLocation;
     if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
     if (msg.includes('location')) return MSG_IDS.invalidLocation;
     if (msg.includes('already voted')) return MSG_IDS.alreadyVoted;
@@ -376,18 +377,47 @@
   }
 
   // ======= GPS =======
+  // Plain-language help when the phone won't give a location (v0.33.249+).
+  // iPhones have a second switch most people never see: Settings → Privacy &
+  // Security → Location Services → Safari Websites. When that is "Never",
+  // Safari doesn't even ask, it just refuses. In-app browsers (Facebook,
+  // Messenger, Instagram) often refuse too.
+  const UA = navigator.userAgent || '';
+  const IS_IOS = /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+  const IN_APP = /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger|Line\/|Snapchat|TikTok/i.test(UA);
+  function locationHelpText(code) {
+    if (IN_APP) return 'This app\'s built-in browser won\'t share your location. Open this page in ' + (IS_IOS ? 'Safari' : 'Chrome') + ' (use the menu, then "Open in browser") and try again.';
+    if (code === 1) {
+      return IS_IOS
+        ? 'Your iPhone blocked location for this page. Open Settings → Privacy & Security → Location Services, make sure it is on, tap Safari Websites and choose "While Using the App", then reload this page and allow location.'
+        : 'Location is blocked for this page. Allow location for this site in your browser settings (the icon next to the address), then reload the page.';
+    }
+    if (code === 3) return 'Finding your location took too long. Make sure Location is on for your phone, then try again.';
+    return IS_IOS
+      ? 'Your iPhone couldn\'t find your location. Make sure Location Services is on (Settings → Privacy & Security), then try again.'
+      : 'Your phone couldn\'t find your location. Make sure Location is on, then try again.';
+  }
+  // A reading this rough (meters) can put someone at the show "miles away":
+  // on iPhone it usually means Precise Location is off for Safari.
+  const ROUGH_FIX_M = 1500;
+  function roughLocationHint() {
+    if (!cachedLocation || !(cachedLocation.accuracy > ROUGH_FIX_M)) return '';
+    return IS_IOS
+      ? ' Your iPhone only shared an approximate location. Turn on Precise Location: Settings → Privacy & Security → Location Services → Safari Websites → Precise Location.'
+      : ' Your phone only shared an approximate location. Turn on precise location for your browser and try again.';
+  }
   async function getLocation() {
     if (cachedLocation) return cachedLocation;
     if (!navigator.geolocation) {
-      throw new Error('Location not supported');
+      throw Object.assign(new Error('Location not supported'), { help: 'This browser can\'t share your location. Try Safari or Chrome.' });
     }
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          cachedLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          cachedLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
           resolve(cachedLocation);
         },
-        () => reject(new Error('Location required but denied')),
+        (err) => reject(Object.assign(new Error('Location required but denied'), { help: locationHelpText(err && err.code) })),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
       );
     });
@@ -407,16 +437,13 @@
       }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
           cachedLocation = loc; // update cache for follow-up requests
           resolve(loc);
         },
         (err) => {
-          // Translate browser error codes to friendly messages
-          let msg = 'Location required to listen';
-          if (err.code === 1) msg = 'Location permission denied. Audio is restricted to listeners present at the show.';
-          else if (err.code === 2) msg = 'Could not determine your location.';
-          else if (err.code === 3) msg = 'Location lookup timed out.';
+          // Friendly, device-specific help (see locationHelpText).
+          const msg = 'Listening is only for people at the show, so your location is needed. ' + locationHelpText(err && err.code);
           reject(new Error(msg));
         },
         // maximumAge: 0 forces a brand-new GPS reading every tap.
@@ -475,7 +502,7 @@
         body.viewerLat = loc.lat;
         body.viewerLng = loc.lng;
       } catch (e) {
-        showMessage(MSG_IDS.invalidLocation);
+        showMessage(MSG_IDS.invalidLocation, 9000, e && e.help, e && e.help);
         throw e;
       }
     }
@@ -504,6 +531,7 @@
 
   // Globals exposed to template onclick handlers
   window.ShowPilotVote = async function (sequenceName) {
+    if (listenOnlyBlocked()) return;
     // If a tiebreak is in progress, route through the tiebreak path
     // instead. Voting for a candidate goes via /api/tiebreak-vote;
     // voting for a non-candidate is rejected with a clear message.
@@ -562,11 +590,34 @@
       // ShowPilotRequest's behavior, which has always done this.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
+      showFailure(result.data);
     }
   };
 
+  // Shows a failed vote/request. A "too far away" answer gets the server's
+  // wording plus, when the phone only gave a rough fix, how to turn on
+  // precise location (v0.33.249+).
+  function showFailure(data) {
+    const err = data && data.error;
+    const id = mapErrorToId(err, data);
+    if (id === MSG_IDS.invalidLocation && /miles of the show/i.test(err || '')) {
+      const hint = roughLocationHint();
+      showMessage(id, hint ? 9000 : undefined, hint ? err + hint : undefined, err + hint);
+      return;
+    }
+    showMessage(id, undefined, undefined, err);
+  }
+  // Listen Only (v0.33.249+): picking is closed, the page and audio stay up.
+  const LISTEN_MSG = 'Requests and voting are closed for now. You can still listen along!';
+  let listenOnly = !!boot.listenOnly;
+  function listenOnlyBlocked() {
+    if (!listenOnly) return false;
+    showMessage(MSG_IDS.failed, 4000, LISTEN_MSG, LISTEN_MSG);
+    return true;
+  }
+
   window.ShowPilotRequest = async function (sequenceName) {
+    if (listenOnlyBlocked()) return;
     let body;
     try { body = await buildBody({ sequenceName }); }
     catch { return; }
@@ -576,7 +627,7 @@
       showMessage(MSG_IDS.success);
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
+      showFailure(result.data);
     }
   };
 
@@ -817,6 +868,17 @@
       });
     }
 
+    // --- NOW_PLAYING_ARTIST (v0.33.249+) ---
+    if (data.nowPlayingArtist !== undefined) {
+      const artist = data.nowPlaying ? (data.nowPlayingArtist || '') : '';
+      document.querySelectorAll('[data-showpilot-now-artist]').forEach(el => {
+        if (el.textContent !== artist) el.textContent = artist;
+      });
+    }
+
+    // --- Songs already in the request queue (v0.33.249+) ---
+    if (data.queue) markQueued(data.queue);
+
     // --- NOW_PLAYING_IMAGE (v0.32.13+) ---
     // Updates any <img data-showpilot-now-img> elements when the playing
     // song changes. Hides the image when no song is playing, or when the
@@ -936,12 +998,15 @@
     if (data.viewerControlMode && (data.viewerControlMode === 'RACE') !== _pageIsRace && !_swapInFlight) {
       _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
     }
+    // Listen Only shows the last active mode's list (listDisplayMode).
+    const shownMode = data.listDisplayMode || data.viewerControlMode;
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
-      setVisible(el, data.viewerControlMode === 'JUKEBOX');
+      setVisible(el, shownMode === 'JUKEBOX');
     });
     document.querySelectorAll('[data-showpilot-container="voting"], [data-openfalcon-container="voting"]').forEach(el => {
-      setVisible(el, data.viewerControlMode === 'VOTING');
+      setVisible(el, shownMode === 'VOTING');
     });
+    if (data.viewerControlMode) setListenOnly(data.viewerControlMode === 'LISTEN');
     // After-hours: visible when viewer control is OFF. Mirror of the server-side
     // logic in viewer-renderer.js, so flipping the admin "Off" toggle propagates
     // to viewers within one poll without requiring a reload.
@@ -1395,7 +1460,7 @@
       // the tiebreakVoteUpdate socket event.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
+      showFailure(result.data);
     }
   };
 
@@ -1443,7 +1508,8 @@
         (s.display_name || '') + '|' +
         (s.artist || '') + '|' +
         (s.image_url || '') + '|' +
-        (s.category || '')
+        (s.category || '') + '|' +
+        (s.badge || '')
         // vote counts excluded — managed by the direct DOM update in applyStateUpdate
       );
     }
@@ -1481,6 +1547,46 @@
     return out;
   }
 
+  // Mirror of lib/viewer-renderer.js#badgeSlug.
+  function badgeSlug(b) {
+    return String(b).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'badge';
+  }
+
+  // Songs already in the request queue get the showpilot-queued class and
+  // data-queue-position (1 = next), the same as the server renders, so a
+  // template (or the "Dim songs already in the queue" setting) can style them.
+  let _lastQueued = null;
+  function markQueued(queue) {
+    const pos = {};
+    queue.forEach((q, i) => { if (!pos[q.sequence_name]) pos[q.sequence_name] = i + 1; });
+    document.querySelectorAll('.sequence-item[data-seq]').forEach(el => {
+      const p = pos[el.getAttribute('data-seq')];
+      el.classList.toggle('showpilot-queued', !!p);
+      if (p) { if (el.getAttribute('data-queue-position') !== String(p)) el.setAttribute('data-queue-position', String(p)); }
+      else if (el.hasAttribute('data-queue-position')) el.removeAttribute('data-queue-position');
+    });
+    _lastQueued = queue;
+  }
+
+  // Listen Only: body class plus one notice above the song list.
+  function setListenOnly(on) {
+    listenOnly = on;
+    if (!document.body) return;
+    document.body.classList.toggle('showpilot-listen-only', on);
+    let note = document.getElementById('showpilot-listen-notice');
+    if (!on) { if (note) note.remove(); return; }
+    if (note) return;
+    const wrappers = findPlaylistWrappers().filter(w => w.offsetParent !== null);
+    const at = wrappers[0];
+    if (!at || !at.parentElement) return;
+    note = document.createElement('div');
+    note.id = 'showpilot-listen-notice';
+    note.className = 'showpilot-listen-notice';
+    note.setAttribute('role', 'status');
+    note.textContent = LISTEN_MSG;
+    at.parentElement.insertBefore(note, at);
+  }
+
   function renderRowsForMode(sequences, voteCountsByName, mode, catOpts) {
     return withCategoryHeaders(sequences, catOpts, seq => {
       const safeNameJs = escapeJsString(seq.name);
@@ -1495,10 +1601,15 @@
       const artImg = seq.image_url
         ? `<img class="sequence-image" data-seq-name="${safeNameAttr}" src="${escapeHtml(seq.image_url)}" alt="" width="40" loading="lazy" />`
         : '';
+      // Badge: same markup as the server (queued state is applied after by markQueued).
+      const badge = seq.badge ? String(seq.badge).trim() : '';
+      const extraCls = badge ? ` showpilot-badge showpilot-badge-${badgeSlug(badge)}` : '';
+      const extraAttr = badge ? ` data-badge="${escapeHtml(badge)}"` : '';
+      const badgeEl = badge ? `<span class="sequence-badge">${escapeHtml(badge)}</span>` : '';
       if (mode === 'VOTING') {
-        return `<div class="cell-vote-playlist sequence-item" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
+        return `<div class="cell-vote-playlist sequence-item${extraCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
       } else {
-        return `<div class="jukebox-list sequence-item" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
+        return `<div class="jukebox-list sequence-item${extraCls}" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
       }
     }).join('');
   }
@@ -1523,7 +1634,7 @@
 
   function rebuildPlaylistGridIfNeeded(data) {
     const sequences = data.sequences || [];
-    const mode = data.viewerControlMode || 'OFF';
+    const mode = data.listDisplayMode || data.viewerControlMode || 'OFF';
     // Only meaningful in JUKEBOX or VOTING; in OFF the mode containers
     // are hidden, so rebuilding their stale contents wastes work but
     // doesn't hurt. Skip to keep churn low.
@@ -1559,6 +1670,7 @@
 
       wrapper.innerHTML = renderRowsForMode(sequences, voteCountsByName, targetMode, catOpts);
       _gridSigCache.set(wrapper, desiredSig);
+      if (_lastQueued) markQueued(_lastQueued);
     }
   }
 

@@ -159,7 +159,9 @@ router.get('/state', (req, res) => {
   // mode regardless of trigger mode or threshold. The counters keep
   // incrementing in the background so when viewer mode is re-enabled,
   // PSAs can fire normally without a hard reset.
-  if (cfg.viewer_control_mode !== 'OFF' && cfg.play_psa_enabled && cfg.psa_frequency > 0) {
+  // Listen Only (LISTEN) is hands-off for PSAs too: nobody can vote or
+  // request, so there is nothing to prompt.
+  if (cfg.viewer_control_mode !== 'OFF' && cfg.viewer_control_mode !== 'LISTEN' && cfg.play_psa_enabled && cfg.psa_frequency > 0) {
     const mode = cfg.psa_trigger_mode === 'sequences' ? 'sequences' : 'interactions';
     const counter = mode === 'sequences'
       ? (cfg.sequences_since_last_psa || 0)
@@ -379,7 +381,12 @@ router.get('/state', (req, res) => {
       }
     }
     // Round advances when the new song starts playing — handled in /playing.
-  } else if (cfg.viewer_control_mode === 'JUKEBOX') {
+  } else if (cfg.viewer_control_mode === 'JUKEBOX' || cfg.viewer_control_mode === 'LISTEN') {
+    // Listen Only (v0.33.249+): no new requests come in, but the ones already
+    // queued still play, so nobody loses a song they asked for. The plugin
+    // only acts on nextRequest in JUKEBOX mode, so report that while a
+    // queued request is being handed over.
+    if (cfg.viewer_control_mode === 'LISTEN') response.viewerMode = 'LISTEN';
     const next = popNextQueuedRequest();
     if (next) {
       response.nextRequest = {
@@ -388,6 +395,7 @@ router.get('/state', (req, res) => {
         queuedAt: next.requested_at,
       };
       rememberHandoff(next.sequence_name, 'request');
+      if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
     } else {
@@ -411,6 +419,7 @@ router.get('/state', (req, res) => {
            WHERE sequence_name = ? AND played = 0 AND handed_off_at IS NOT NULL`
         ).run(pending.sequence_name);
         rememberHandoff(pending.sequence_name, 'request');
+        if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
         response.nextRequest = {
           sequence: pending.sequence_name,
           playlistIndex: pending.sort_order,
@@ -604,7 +613,7 @@ router.post('/playing', (req, res) => {
     // exact song started, so one missed return pinned "Up Next" to it for
     // good. Jukebox additionally waits for its queue to drain.
     if (isSequenceChange && source === 'schedule') {
-      const queueEmpty = cfgForRound.viewer_control_mode !== 'JUKEBOX' || db.prepare(
+      const queueEmpty = !['JUKEBOX', 'LISTEN'].includes(cfgForRound.viewer_control_mode) || db.prepare(
         `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`
       ).get().n === 0;
       if (queueEmpty) {
@@ -1149,30 +1158,32 @@ router.post('/sync-sequences', (req, res) => {
 // ============================================================
 router.post('/viewer-mode', (req, res) => {
   const { mode: requested } = req.body || {};
-  const allowed = ['VOTING', 'JUKEBOX', 'RACE', 'OFF', 'ON'];
+  const allowed = ['VOTING', 'JUKEBOX', 'RACE', 'LISTEN', 'OFF', 'ON'];
 
   if (!requested || !allowed.includes(requested)) {
     return res.status(400).json({
-      error: 'mode must be VOTING, JUKEBOX, RACE, OFF, or ON',
+      error: 'mode must be VOTING, JUKEBOX, RACE, LISTEN, OFF, or ON',
     });
   }
 
-  const { updateConfig } = require('../lib/db');
+  const { updateConfig, RESTORABLE_MODES } = require('../lib/db');
   const cfg = getConfig();
   let newMode;
 
   if (requested === 'ON') {
     // Restore the last active mode (defaults to VOTING)
-    newMode = cfg.last_active_mode || 'VOTING';
+    newMode = RESTORABLE_MODES.includes(cfg.last_active_mode) ? cfg.last_active_mode : 'VOTING';
     updateConfig({ viewer_control_mode: newMode });
-  } else if (requested === 'OFF') {
-    // Stash the current mode (if it's active) before turning off
-    const updates = { viewer_control_mode: 'OFF' };
-    if (cfg.viewer_control_mode && cfg.viewer_control_mode !== 'OFF') {
+  } else if (requested === 'OFF' || requested === 'LISTEN') {
+    // Stash the current mode (if it's an active one) before switching.
+    // LISTEN (Listen Only, v0.33.249+): the page stays up and phone audio
+    // works, but votes and requests are closed.
+    const updates = { viewer_control_mode: requested };
+    if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) {
       updates.last_active_mode = cfg.viewer_control_mode;
     }
     updateConfig(updates);
-    newMode = 'OFF';
+    newMode = requested;
   } else {
     // Explicit VOTING, JUKEBOX, or RACE — also update last_active_mode
     updateConfig({ viewer_control_mode: requested, last_active_mode: requested });
@@ -1183,6 +1194,21 @@ router.post('/viewer-mode', (req, res) => {
   if (io) io.emit('viewerModeChanged', { mode: newMode });
 
   res.json({ ok: true, mode: newMode, requested });
+});
+
+// ============================================================
+// POST /api/plugin/queue/clear   (v0.33.249+)
+// Empties the request queue, exactly like Clear Queue on the admin's Queue
+// page (the recently played list is kept). Used by the "ShowPilot - Clear
+// Queue" FPP command, e.g. right before turning viewer control on or off.
+// Auth: same Bearer token as other plugin endpoints.
+// ============================================================
+router.post('/queue/clear', (req, res) => {
+  const r = db.prepare(`DELETE FROM jukebox_queue WHERE played = 0`).run();
+  console.log(`[queue] cleared by FPP command (${r.changes} request${r.changes === 1 ? '' : 's'})`);
+  const io = req.app.get('io');
+  if (io) io.emit('queueUpdated');
+  res.json({ ok: true, cleared: r.changes });
 });
 
 // ============================================================

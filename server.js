@@ -33,6 +33,8 @@ const io = new Server(server, {
 // added this setting yet — they default to the secure choice.
 app.set('trust proxy', config.trustProxy ?? false);
 app.set('io', io);
+// Phone listener count (v0.33.249+): tell admin pages when it changes.
+require('./lib/listeners').start((count) => io.emit('listenersChanged', { count }));
 
 // ============================================================
 // Security headers via helmet
@@ -424,7 +426,7 @@ app.get('/', async (req, res) => {
     const nowPlaying = getNowPlaying();
 
     const sequences = db.prepare(`
-      SELECT id, name, display_name, artist, category, image_url,
+      SELECT id, name, display_name, artist, category, image_url, badge,
              duration_seconds, votable, jukeboxable,
              last_played_at, plays_since_hidden
       FROM sequences

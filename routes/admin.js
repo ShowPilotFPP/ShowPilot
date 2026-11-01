@@ -279,6 +279,8 @@ router.put('/config', requireAdmin, (req, res) => {
     // Sequence categories — display options only. The category list itself
     // (config.sequence_categories) is managed via /api/admin/categories.
     'viewer_show_categories',
+    'viewer_dim_queued',
+    'viewer_show_badges',
     'uncategorized_label',
     'viewer_progress_bar',
     'viewer_progress_bar_position',
@@ -343,18 +345,19 @@ router.put('/config', requireAdmin, (req, res) => {
     updates.psa_trigger_mode = 'interactions';
   }
 
-  // When admin sets viewer_control_mode to something other than OFF, remember it
-  // so the FPP "Turn On" command (and admin's Turn On toggle) can restore it later.
-  if (updates.viewer_control_mode && updates.viewer_control_mode !== 'OFF') {
-    updates.last_active_mode = updates.viewer_control_mode;
+  if ('viewer_control_mode' in updates && !['VOTING', 'JUKEBOX', 'RACE', 'LISTEN', 'OFF'].includes(updates.viewer_control_mode)) {
+    return res.status(400).json({ error: 'Unknown viewer mode' });
   }
-
-  // When admin sets mode to OFF, stash the CURRENT (pre-change) mode so we can restore it
-  if (updates.viewer_control_mode === 'OFF') {
+  // When admin sets Voting, Jukebox or Race, remember it so the FPP "Turn On"
+  // command (and admin's Turn On toggle) can restore it later. OFF and LISTEN
+  // (Listen Only) are never remembered: switching to them keeps the last
+  // active mode, which Listen Only also uses for its song list layout.
+  const { RESTORABLE_MODES } = require('../lib/db');
+  if (RESTORABLE_MODES.includes(updates.viewer_control_mode)) {
+    updates.last_active_mode = updates.viewer_control_mode;
+  } else if (updates.viewer_control_mode) {
     const cfg = getConfig();
-    if (cfg.viewer_control_mode && cfg.viewer_control_mode !== 'OFF') {
-      updates.last_active_mode = cfg.viewer_control_mode;
-    }
+    if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) updates.last_active_mode = cfg.viewer_control_mode;
   }
 
   updateConfig(updates);
@@ -538,12 +541,13 @@ function updateSequence(req, res) {
   const id = Number(req.params.id);
   const fields = ['display_name', 'artist', 'category', 'image_url',
                   'duration_seconds', 'visible', 'votable', 'jukeboxable',
-                  'is_psa', 'display_order', 'cooldown_minutes'];
+                  'is_psa', 'display_order', 'cooldown_minutes', 'badge'];
   const updates = {};
   for (const k of fields) {
     if (k in req.body) updates[k] = req.body[k];
   }
   if (Object.keys(updates).length === 0) return res.json({ ok: true });
+  if ('badge' in updates) updates.badge = cleanBadge(updates.badge);
   if ('category' in updates) {
     // Empty → uncategorized. Otherwise register + canonicalize spelling.
     updates.category = updates.category
@@ -595,6 +599,26 @@ router.post('/categories/delete', requireAdmin, (req, res) => {
 router.post('/categories/reorder', requireAdmin, (req, res) => {
   categoryResult(req, res, require('../lib/categories').reorderCategories((req.body || {}).names));
 });
+// Song badge (v0.33.249+): short label for the viewer page, or null.
+function cleanBadge(v) {
+  const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, 24);
+  return s || null;
+}
+
+// POST { ids: [..], badge: "New" | "" } — set or clear the badge on several
+// sequences at once (the Sequences page's selection toolbar).
+router.post('/sequences/bulk-badge', requireAdmin, (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (!ids.length) return res.status(400).json({ error: 'No sequences selected' });
+  const badge = cleanBadge(req.body.badge);
+  const upd = db.prepare(`UPDATE sequences SET badge = ? WHERE id = ?`);
+  let n = 0;
+  db.transaction(() => { for (const id of ids) n += upd.run(badge, id).changes; })();
+  const io = req.app.get('io');
+  if (io) io.emit('sequencesReordered');
+  res.json({ ok: true, updated: n });
+});
+
 router.post('/sequences/bulk-category', requireAdmin, (req, res) => {
   const { ids, category } = req.body || {};
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
@@ -730,6 +754,8 @@ router.get('/stats', requireAdmin, (req, res) => {
     WHERE last_seen > datetime('now', '-${config.viewer.activeWindowSeconds} seconds')
   `).get().n;
   const totalVotes = db.prepare(`SELECT COUNT(*) AS n FROM votes WHERE round_id = ?`).get(cfg.current_voting_round).n;
+  // Phones playing the show audio right now, and today's numbers (v0.33.249+).
+  const listeners = require('../lib/listeners').todayStats();
   // queueLength excludes the in-flight (handed-off, currently-playing) entry —
   // those are tracked with handed_off_at IS NOT NULL.
   const queueLength = db.prepare(`
@@ -786,7 +812,17 @@ router.get('/stats', requireAdmin, (req, res) => {
     nowPlaying: nowPlayingName,
     nextUp,
     nextUpSource,
+    listenersNow: listeners.now,
+    listenersPeakToday: listeners.peakToday,
+    listenersToday: listeners.uniqueToday,
   });
+});
+
+// Phone listeners per day for the Stats page (v0.33.249+): most at once and
+// how many different phones. ?from=&to= are YYYY-MM-DD (show time zone).
+router.get('/stats/listeners', requireAdmin, (req, res) => {
+  const L = require('../lib/listeners');
+  res.json({ today: L.todayStats(), days: L.byDay(req.query.from ? String(req.query.from) : '', req.query.to ? String(req.query.to) : '') });
 });
 
 router.get('/history', requireAdmin, (req, res) => {
@@ -1779,11 +1815,12 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
       missingNames: missing.slice(0, 8).map((r) => r.name) });
   }
   const categories = require('../lib/categories');
-  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes'];
+  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes', 'badge'];
   const pick = (r) => {
     const u = {};
     for (const k of FIELDS) if (k in r) u[k] = r[k];
     if ('category' in u) u.category = categories.ensureCategory(u.category);
+    if ('badge' in u) u.badge = cleanBadge(u.badge);
     return u;
   };
   let updated = 0, added = 0;
@@ -1797,15 +1834,15 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
     if (addMissing) {
       let order = (db.prepare(`SELECT MAX(display_order) AS m FROM sequences`).get().m || 0);
       const ins = db.prepare(`
-        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, active, sort_order, display_order)
-        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, 0, 0, @display_order)`);
+        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, badge, active, sort_order, display_order)
+        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, @badge, 0, 0, @display_order)`);
       for (const r of missing) {
         const u = pick(r);
         added += ins.run({
           name: r.name, display_name: u.display_name || r.name, artist: u.artist || null,
           image_url: u.image_url || null, category: u.category || null,
           visible: u.visible ?? 1, votable: u.votable ?? 1, jukeboxable: u.jukeboxable ?? 1,
-          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, display_order: ++order,
+          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, badge: u.badge || null, display_order: ++order,
         }).changes;
       }
     }

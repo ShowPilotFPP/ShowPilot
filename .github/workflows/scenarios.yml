@@ -26,9 +26,12 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --no-audit --no-fund
-      # Chromium for the headless phones and admin; kept between runs on the
-      # self-hosted machine, so after the first run this is quick.
-      - run: npx playwright install --with-deps chromium
+      # Chromium's headless shell for the phones and admin (all tests run
+      # headless); kept between runs on the self-hosted machine, so after the
+      # first run this is quick. Playwright is pinned to 1.58.2 in
+      # package.json: later versions download Chrome for Testing, which has
+      # no Linux ARM build, so the install fails on the Mac runner.
+      - run: npx playwright install --with-deps --only-shell chromium
       - name: Run scenarios
         run: npm test
       - name: Summary on the run page

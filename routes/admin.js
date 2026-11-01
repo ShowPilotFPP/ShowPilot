@@ -751,6 +751,18 @@ router.get('/stats', requireAdmin, (req, res) => {
     ORDER BY plays DESC
     LIMIT 10
   `).all();
+  // Same list without PSAs, for the "Hide PSAs" box on the Top Sequences card.
+  // A play counts as a PSA if it was handed out as one or the sequence is
+  // currently flagged as a PSA.
+  const topSequencesNoPsa = db.prepare(`
+    SELECT ph.sequence_name, COUNT(*) AS plays
+    FROM play_history ph
+    LEFT JOIN sequences s ON s.name = ph.sequence_name
+    WHERE ph.source IN ('vote', 'request') AND COALESCE(s.is_psa, 0) = 0
+    GROUP BY ph.sequence_name
+    ORDER BY plays DESC
+    LIMIT 10
+  `).all();
 
   // Now playing + next up — bundled into stats so admin only needs one poll
   const nowPlaying = db.prepare(`SELECT * FROM now_playing WHERE id = 1`).get() || {};
@@ -769,6 +781,7 @@ router.get('/stats', requireAdmin, (req, res) => {
     queueLength,
     totalPlays,
     topSequences,
+    topSequencesNoPsa,
     currentRound: cfg.current_voting_round,
     nowPlaying: nowPlayingName,
     nextUp,
@@ -828,8 +841,12 @@ router.post('/race/reset', requireAdmin, (req, res) => {
 });
 
 // Purge jukebox queue
+// Only requests that haven't played yet; the played ones stay so the Queue
+// page's "Recently played requests" list survives a purge.
 router.post('/purge-queue', requireAdmin, (req, res) => {
   db.prepare(`DELETE FROM jukebox_queue WHERE played = 0`).run();
+  const io = req.app.get('io');
+  if (io) io.emit('queueUpdated');
   res.json({ ok: true });
 });
 
@@ -2072,7 +2089,11 @@ router.get('/queue', requireAdmin, (req, res) => {
     ORDER BY q.requested_at ASC
   `).all();
 
-  const recentlyPlayed = db.prepare(`
+  // Jukebox mode lists the last played REQUESTS. Other modes have no
+  // requests, so they list the last songs played from the play history
+  // (vote winners, PSAs and the show's own schedule), each with its source.
+  const recentMode = getConfig().viewer_control_mode === 'JUKEBOX' ? 'requests' : 'plays';
+  const recentlyPlayed = recentMode === 'requests' ? db.prepare(`
     SELECT q.id, q.sequence_name, q.requested_at, q.played_at,
            s.display_name, s.artist, s.image_url
     FROM jukebox_queue q
@@ -2080,9 +2101,16 @@ router.get('/queue', requireAdmin, (req, res) => {
     WHERE q.played = 1
     ORDER BY q.played_at DESC
     LIMIT 20
+  `).all() : db.prepare(`
+    SELECT ph.id, ph.sequence_name, ph.played_at, ph.source,
+           s.display_name, s.artist, s.image_url
+    FROM play_history ph
+    LEFT JOIN sequences s ON s.name = ph.sequence_name
+    ORDER BY ph.played_at DESC, ph.id DESC
+    LIMIT 20
   `).all();
 
-  res.json({ pending, recentlyPlayed });
+  res.json({ pending, recentlyPlayed, recentMode });
 });
 
 router.delete('/queue/:id', requireAdmin, (req, res) => {

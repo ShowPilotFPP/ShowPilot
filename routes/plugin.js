@@ -618,7 +618,16 @@ router.post('/playing', (req, res) => {
     }
 
     const isVoting = cfgForRound.viewer_control_mode === 'VOTING';
-    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round) {
+    // A PSA starting doesn't end the voting round: the votes cast so far
+    // carry over and the winner plays after the PSA. Before, the PSA counted
+    // as the round's song, so the votes were cleared and the winner never
+    // played.
+    const psaStarting = source === 'psa' ||
+      !!(db.prepare(`SELECT is_psa FROM sequences WHERE name = ?`).get(name) || {}).is_psa;
+    if (isVoting && isSequenceChange && psaStarting) {
+      console.log(`[playing] PSA "${name}" started; voting round ${cfgForRound.current_voting_round} stays open`);
+    }
+    if (isVoting && isSequenceChange && !psaStarting && cfgForRound.reset_votes_after_round) {
       // Determine if this song change is a tiebreak resolution.
       // Tiebreak rules:
       //   - If the winning sequence (by handoff) is a tiebreak candidate

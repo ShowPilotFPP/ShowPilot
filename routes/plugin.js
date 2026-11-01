@@ -132,6 +132,20 @@ const pluginStatus = (() => {
 router.get('/state', (req, res) => {
   const cfg = getConfig();
 
+  // ?peek=1 (v0.33.249+): just the mode, nothing handed out. For a show
+  // player that only wants to know the mode (the FPP plugin checks it once a
+  // minute); answering those calls with a request used to hand that request
+  // out to a caller that never queued it (GitHub #37).
+  if (req.query.peek === '1' || req.query.peek === 'true') {
+    return res.json({
+      mode: cfg.viewer_control_mode === 'LISTEN' ? 'JUKEBOX' : cfg.viewer_control_mode,
+      ...(cfg.viewer_control_mode === 'LISTEN' ? { viewerMode: 'LISTEN' } : {}),
+      interruptSchedule: cfg.interrupt_schedule === 1,
+      managedPsa: cfg.managed_psa_enabled === 1,
+      winningVote: null, nextRequest: null, psa: null, peek: true,
+    });
+  }
+
   const response = {
     mode: cfg.viewer_control_mode,
     interruptSchedule: cfg.interrupt_schedule === 1,
@@ -395,8 +409,30 @@ router.get('/state', (req, res) => {
     // asking, they still expire after 5 minutes.
     db.prepare(`UPDATE jukebox_queue SET handed_off_at = CURRENT_TIMESTAMP
                 WHERE played = 0 AND handed_off_at IS NOT NULL`).run();
-    const next = popNextQueuedRequest();
-    if (next) {
+    // One request in flight at a time (v0.33.249+, GitHub #37): while a
+    // handed-over request hasn't started, every ask gets that same request
+    // again (the plugin ignores repeats), and the next one is handed out only
+    // once it plays. Before, each ask handed out the next request, so a call
+    // that didn't queue the answer (the plugin's once-a-minute mode check)
+    // silently used up a request: it was marked handed over, the plugin never
+    // had it, and FPP skipped it.
+    const inFlight = db.prepare(`
+      SELECT q.sequence_name, q.requested_at, s.sort_order
+      FROM jukebox_queue q
+      LEFT JOIN sequences s ON s.name = q.sequence_name COLLATE NOCASE
+      WHERE q.played = 0 AND q.handed_off_at IS NOT NULL
+      ORDER BY q.handoff_order ASC, q.requested_at ASC, q.id ASC LIMIT 1
+    `).get();
+    const next = inFlight ? null : popNextQueuedRequest();
+    if (inFlight) {
+      rememberHandoff(inFlight.sequence_name, 'request');
+      if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
+      response.nextRequest = {
+        sequence: inFlight.sequence_name,
+        playlistIndex: inFlight.sort_order,
+        queuedAt: inFlight.requested_at,
+      };
+    } else if (next) {
       response.nextRequest = {
         sequence: next.sequence_name,
         playlistIndex: next.sort_order,
@@ -407,34 +443,6 @@ router.get('/state', (req, res) => {
       if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
-    } else {
-      // No fresh entry to hand off. In non-interrupt mode FPP polls many
-      // times between the handoff and when the current song actually ends;
-      // if we return nothing on those polls FPP drops the queued song and
-      // resumes its main playlist. Re-return the already-handed-off but
-      // not-yet-confirmed-played entry so FPP keeps it queued.
-      // Also refresh handed_off_at so cleanupStaleHandoffs doesn't expire
-      // it while a long song is still playing.
-      const pending = db.prepare(`
-        SELECT q.sequence_name, q.requested_at, s.sort_order
-        FROM jukebox_queue q
-        LEFT JOIN sequences s ON s.name = q.sequence_name COLLATE NOCASE
-        WHERE q.played = 0 AND q.handed_off_at IS NOT NULL
-        ORDER BY q.requested_at ASC, q.id ASC LIMIT 1
-      `).get();
-      if (pending) {
-        db.prepare(
-          `UPDATE jukebox_queue SET handed_off_at = CURRENT_TIMESTAMP
-           WHERE sequence_name = ? AND played = 0 AND handed_off_at IS NOT NULL`
-        ).run(pending.sequence_name);
-        rememberHandoff(pending.sequence_name, 'request');
-        if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
-        response.nextRequest = {
-          sequence: pending.sequence_name,
-          playlistIndex: pending.sort_order,
-          queuedAt: pending.requested_at,
-        };
-      }
     }
   } else if (cfg.viewer_control_mode === 'RACE') {
     // Race mode: plugin v0.13.58+ handles RACE natively via the raceWinner
@@ -602,6 +610,23 @@ router.post('/playing', (req, res) => {
       markQueueEntryPlayed(name);
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
+    } else if (isSequenceChange && source !== 'psa') {
+      // Another song started while a request was handed over and waiting
+      // (one at a time, so it should have been next). Allow one such pass
+      // (the request can land one song late), then drop it so a song the
+      // show player can't play doesn't hold up everyone else's requests.
+      const waiting = db.prepare(`SELECT id, sequence_name, skip_count FROM jukebox_queue
+        WHERE played = 0 AND handed_off_at IS NOT NULL`).all();
+      for (const w of waiting) {
+        if ((w.skip_count || 0) + 1 >= 2) {
+          db.prepare(`UPDATE jukebox_queue SET played = 1, played_at = CURRENT_TIMESTAMP, skip_count = skip_count + 1 WHERE id = ?`).run(w.id);
+          console.warn(`[queue] "${w.sequence_name}" was handed to the show player but other songs played instead; dropping it from the queue. Check that the show player can play "${w.sequence_name}".`);
+        } else {
+          db.prepare(`UPDATE jukebox_queue SET skip_count = skip_count + 1 WHERE id = ?`).run(w.id);
+          console.warn(`[queue] "${name}" started while "${w.sequence_name}" was handed to the show player and waiting; it gets one more song to start`);
+        }
+      }
+      if (waiting.length) { const io = req.app.get('io'); if (io) io.emit('queueUpdated'); }
     }
 
     // ---- Voting round close (v0.23.10+) ----
@@ -857,6 +882,23 @@ router.post('/position', (req, res) => {
     SET last_updated = CURRENT_TIMESTAMP
     WHERE id = 1 AND sequence_name = ?
   `).run(name);
+
+  // The same sequence started over (a sequence on repeat, or FPP restarted
+  // it): the plugin only reports /playing when the NAME changes, so
+  // started_at still points at the first run and the progress bar sat full
+  // (GitHub #37). A jump back of more than 3 s re-anchors it; normal jitter
+  // is far smaller, so the stable anchor rule in setNowPlaying still holds.
+  const np = db.prepare(`SELECT started_at FROM now_playing WHERE id = 1 AND sequence_name = ?`).get(name);
+  if (np && np.started_at) {
+    const startedMs = new Date(np.started_at.replace(' ', 'T') + 'Z').getTime();
+    const elapsed = (Date.now() - startedMs) / 1000;
+    if (isFinite(elapsed) && pos + 3 < elapsed) {
+      const startedAt = new Date(Date.now() - Math.round(pos * 1000)).toISOString().replace('T', ' ').replace('Z', '');
+      db.prepare(`UPDATE now_playing SET started_at = ? WHERE id = 1 AND sequence_name = ?`).run(startedAt, name);
+      const io0 = req.app.get('io');
+      if (io0) io0.emit('nowPlaying', { sequenceName: name });
+    }
+  }
 
   // Emit to all connected viewers. They'll use this as the freshest
   // anchor for sync — replaces extrapolating from a stale started_at.

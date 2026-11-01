@@ -88,6 +88,11 @@ it and reports back. The scenario then stays in the suite.
   the show player plays "A"
   the song ends   (the show player plays whatever ShowPilot asks for, else the next song)
   the show player takes every waiting request   (into its own queue, like the FPP plugin near the end of a song)
+  the show player checks the mode [with peek]   (the plugin's once-a-minute check; without peek it ignores everything but the mode)
+  nothing has been handed to the show player
+  "A" has been playing for N seconds   (moves its start time back)
+  the show player reports "A" at N seconds   (its playback position)
+  the song shows N seconds played   (within 2 s, from the viewer state)
   the show player's own queue is "A" and "B"
   the show player clears the queue   (the "Clear Queue" FPP command)
   the show player sets the viewer page to "Name"   (the "Set Viewer Page" command)

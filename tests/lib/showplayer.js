@@ -99,6 +99,16 @@ class ShowPlayer {
     return { name, why: a.why };
   }
 
+  // The FPP plugin's once-a-minute mode check: it asks for the full state and
+  // only reads the mode (plugins up to 0.14.19), or asks with ?peek=1.
+  async checkMode({ peek = false } = {}) {
+    const st = await this.call('GET', '/state' + (peek ? '?peek=1' : ''));
+    return st.mode;
+  }
+
+  // Report the playback position (the plugin does this about once a second).
+  reportPosition(name, seconds) { return this.call('POST', '/position', { sequence: name, position: seconds }); }
+
   // FPP command equivalents.
   setMode(mode) { return this.call('POST', '/viewer-mode', { mode }); }
   clearQueue() { return this.call('POST', '/queue/clear', {}); }

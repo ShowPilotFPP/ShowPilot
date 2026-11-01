@@ -281,6 +281,9 @@ router.put('/config', requireAdmin, (req, res) => {
     'viewer_show_categories',
     'viewer_dim_queued',
     'viewer_show_badges',
+    'viewer_badge_position',
+    'viewer_badge_bg',
+    'viewer_badge_color',
     'uncategorized_label',
     'viewer_progress_bar',
     'viewer_progress_bar_position',
@@ -345,6 +348,16 @@ router.put('/config', requireAdmin, (req, res) => {
     updates.psa_trigger_mode = 'interactions';
   }
 
+  // Badge look: these go into the viewer page's CSS, so only plain colors and
+  // the two known positions are accepted.
+  if ('viewer_badge_position' in updates && !['corner', 'inline'].includes(updates.viewer_badge_position)) {
+    return res.status(400).json({ error: 'Badge position must be corner or inline' });
+  }
+  for (const k of ['viewer_badge_bg', 'viewer_badge_color']) {
+    if (k in updates && !/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(updates[k]))) {
+      return res.status(400).json({ error: 'Badge colors must be like #dc2626' });
+    }
+  }
   if ('viewer_control_mode' in updates && !['VOTING', 'JUKEBOX', 'RACE', 'LISTEN', 'OFF'].includes(updates.viewer_control_mode)) {
     return res.status(400).json({ error: 'Unknown viewer mode' });
   }

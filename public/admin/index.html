@@ -1919,7 +1919,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.5</span>
+        <span class="app-version">v0.33.249-beta.6</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2232,12 +2232,32 @@
           <div class="row" style="gap: 1.5rem; align-items: center; flex-wrap: wrap;">
             <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
               <input type="checkbox" id="cfgViewerShowBadges" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
-              Show badges after song names (set them in the Badge column)
+              Show badges on the viewer page (set them in the Badge column)
             </label>
             <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
               <input type="checkbox" id="cfgViewerDimQueued" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
               Dim songs that are already in the request queue
             </label>
+          </div>
+          <div class="row" style="gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 0.6rem;">
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Badge position
+              <select id="cfgBadgePosition" onchange="saveCategoryDisplayOptions()" style="width:auto;">
+                <option value="corner">Top corner of the song</option>
+                <option value="inline">Next to the song name</option>
+              </select>
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Badge color <input type="color" id="cfgBadgeBg" value="#dc2626" onchange="saveCategoryDisplayOptions()" style="width:44px; height:30px; padding:0;" />
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Text color <input type="color" id="cfgBadgeColor" value="#ffffff" onchange="saveCategoryDisplayOptions()" style="width:44px; height:30px; padding:0;" />
+            </label>
+          </div>
+          <div id="badgePreview" aria-label="Badge preview" style="position: relative; max-width: 340px; margin: 0.75rem 0 0.25rem; padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-input);">
+            <span id="badgePreviewChip" style="padding: 0.15em 0.55em; border-radius: 999px; font-size: 0.7rem; font-weight: 700; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;">Fan Favorite</span>
+            <div id="badgePreviewName" style="font-weight: 700;">Song title</div>
+            <div class="muted" style="font-size: 0.85rem;">Artist</div>
           </div>
           <p class="muted" style="font-size: 0.8rem;">
             For template authors: a song tile with a badge has <code>data-badge</code>, the class <code>showpilot-badge-&lt;name&gt;</code>
@@ -7552,14 +7572,44 @@
       const dq = document.getElementById('cfgViewerDimQueued');
       if (sb) sb.checked = r.data.viewer_show_badges !== 0;
       if (dq) dq.checked = r.data.viewer_dim_queued === 1;
+      const bp = document.getElementById('cfgBadgePosition');
+      if (bp) bp.value = r.data.viewer_badge_position === 'inline' ? 'inline' : 'corner';
+      const bb = document.getElementById('cfgBadgeBg');
+      if (bb && /^#[0-9a-f]{6}$/i.test(r.data.viewer_badge_bg || '')) bb.value = r.data.viewer_badge_bg;
+      const bc = document.getElementById('cfgBadgeColor');
+      if (bc && /^#[0-9a-f]{6}$/i.test(r.data.viewer_badge_color || '')) bc.value = r.data.viewer_badge_color;
+      paintBadgePreview();
+    }
+
+    // Badge preview (v0.33.249+): mirrors the viewer page's badge look.
+    function paintBadgePreview() {
+      const chip = document.getElementById('badgePreviewChip');
+      const name = document.getElementById('badgePreviewName');
+      if (!chip || !name) return;
+      const show = document.getElementById('cfgViewerShowBadges').checked;
+      const corner = document.getElementById('cfgBadgePosition').value !== 'inline';
+      chip.style.background = document.getElementById('cfgBadgeBg').value;
+      chip.style.color = document.getElementById('cfgBadgeColor').value;
+      chip.style.display = show ? 'inline-block' : 'none';
+      chip.style.position = corner ? 'absolute' : 'static';
+      chip.style.top = corner ? '6px' : '';
+      chip.style.right = corner ? '8px' : '';
+      chip.style.marginLeft = corner ? '0' : '0.4em';
+      chip.style.verticalAlign = 'middle';
+      if (corner) document.getElementById('badgePreview').insertBefore(chip, name);
+      else name.appendChild(chip);
     }
 
     async function saveCategoryDisplayOptions() {
+      paintBadgePreview();
       const label = document.getElementById('cfgUncategorizedLabel').value.trim() || 'Other';
       await api('/config', { method: 'PUT', body: JSON.stringify({
         viewer_show_categories: document.getElementById('cfgViewerShowCategories').checked ? 1 : 0,
         uncategorized_label: label,
         viewer_show_badges: document.getElementById('cfgViewerShowBadges').checked ? 1 : 0,
+        viewer_badge_position: document.getElementById('cfgBadgePosition').value,
+        viewer_badge_bg: document.getElementById('cfgBadgeBg').value,
+        viewer_badge_color: document.getElementById('cfgBadgeColor').value,
         viewer_dim_queued: document.getElementById('cfgViewerDimQueued').checked ? 1 : 0,
       }) });
     }

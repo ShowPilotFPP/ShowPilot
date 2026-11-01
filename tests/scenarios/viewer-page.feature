@@ -81,3 +81,16 @@ Scenario: The built-in Default page shows each song's artist
   And phone 1 shows "Eartha" as the Up Next artist
   When the show player plays "Bravo"
   Then phone 1 shows "Eartha" as the Now Playing artist
+
+Scenario: Listen on Phone shows the song and its cover when the song has no audio
+  Given the show has songs "Halloween Lights", "Alpha" and "Bravo"
+  And "Alpha" has the artist "Sir Mix"
+  And "Alpha" has a cover
+  And the setting "audio_gate_enabled" is off
+  And the mode is Jukebox
+  And the show player plays "Alpha"
+  When phone 1 opens the viewer page
+  And phone 1 opens Listen on Phone
+  Then phone 1's player shows "Alpha" with the cover of "Alpha"
+  When the show player plays "Halloween Lights"
+  Then phone 1's player shows "Halloween Lights" with the no-cover picture

@@ -105,6 +105,8 @@ it and reports back. The scenario then stays in the suite.
   phone 1 requests "A"
   N phones are listening   (Listen on Phone open)
   phone 1 opens the viewer page [as an iPhone | in Facebook's browser]
+  phone 1 opens Listen on Phone   (taps the headphones button)
+  phone 1's player shows "Title" with the cover of "A" | with the no-cover picture
   phone 1 taps "A"
   the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats page
   the admin ticks "Hide PSAs"

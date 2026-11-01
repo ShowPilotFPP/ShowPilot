@@ -859,6 +859,7 @@ router.get('/plugin-status', requireAdmin, (req, res) => {
     lastSyncAt: pluginStatus.lastSyncAt,
     lastSyncPlaylist: pluginStatus.lastSyncPlaylist,
     lastSyncCount: pluginStatus.lastSyncCount,
+    lastSyncDuplicates: pluginStatus.lastSyncDuplicates || [],
   });
 });
 

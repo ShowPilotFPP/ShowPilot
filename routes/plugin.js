@@ -121,6 +121,7 @@ const pluginStatus = (() => {
     lastSyncAt: cfg.plugin_last_sync_at || null,
     lastSyncPlaylist: cfg.plugin_last_sync_playlist || null,
     lastSyncCount: cfg.plugin_last_sync_count || 0,
+    lastSyncDuplicates: (() => { try { return JSON.parse(cfg.plugin_last_sync_duplicates || '[]'); } catch (e) { return []; } })(),
     fppHost: cfg.plugin_fpp_host || null,
   };
 })();
@@ -1014,11 +1015,26 @@ router.post('/sync-sequences', (req, res) => {
       .replace(/\s+/g, ' ')             // collapse whitespace
       .trim();
 
+  // A song listed more than once in the playlist (v0.33.249+) is still one
+  // sequence (votes, cooldowns, categories and the viewer list are per name).
+  // Its FIRST position is kept, which is also the copy the plugin falls back
+  // to when it looks the song up by name; later copies used to overwrite it.
+  // The duplicates are reported on the Sequences page.
   let inserted = 0;
+  const firstAt = new Map();      // name -> index into duplicates or -1
+  const duplicates = [];          // [{ name, positions: [first, ...later] }]
   const tx = db.transaction((items) => {
     items.forEach((seq, index) => {
       const name = String(seq.name || '').trim();
       if (!name) return;
+      const position = Number.isFinite(seq.playlistIndex) ? seq.playlistIndex : (index + 1);
+      if (firstAt.has(name)) {
+        const d = firstAt.get(name);
+        if (d.dup === null) { d.dup = duplicates.length; duplicates.push({ name, positions: [d.position] }); }
+        duplicates[d.dup].positions.push(position);
+        return;
+      }
+      firstAt.set(name, { position, dup: null });
       upsert.run({
         name,
         display_name: String(seq.displayName || toDisplayName(name)).trim(),
@@ -1026,7 +1042,7 @@ router.post('/sync-sequences', (req, res) => {
         image_url: String(seq.imageUrl || '').trim() || null,
         media_name: String(seq.mediaName || '').trim() || null,
         duration_seconds: Number.isFinite(seq.durationSeconds) ? seq.durationSeconds : null,
-        sort_order: Number.isFinite(seq.playlistIndex) ? seq.playlistIndex : (index + 1),
+        sort_order: position,
       });
       inserted++;
     });
@@ -1063,7 +1079,12 @@ router.post('/sync-sequences', (req, res) => {
   pluginStatus.lastSyncAt = new Date().toISOString();
   pluginStatus.lastSyncPlaylist = playlistName || null;
   pluginStatus.lastSyncCount = inserted;
+  pluginStatus.lastSyncDuplicates = duplicates;
+  if (duplicates.length) {
+    console.log(`[sync] listed more than once (first position kept): ${duplicates.map((d) => `${d.name} @ ${d.positions.join(', ')}`).join('; ')}`);
+  }
   updateConfig({
+    plugin_last_sync_duplicates: JSON.stringify(duplicates),
     plugin_last_sync_at: pluginStatus.lastSyncAt,
     plugin_last_sync_playlist: pluginStatus.lastSyncPlaylist,
     plugin_last_sync_count: pluginStatus.lastSyncCount,
@@ -1162,6 +1183,40 @@ router.post('/viewer-mode', (req, res) => {
   if (io) io.emit('viewerModeChanged', { mode: newMode });
 
   res.json({ ok: true, mode: newMode, requested });
+});
+
+// ============================================================
+// POST /api/plugin/category   (v0.33.249+)
+// Body: { name: "Kids Songs", enabled: true | false }
+// Switches a category on or off, exactly like the toggle in the admin's
+// Categories list (a schedule, if set, still applies while it's on). Used by
+// the "ShowPilot - Enable Category" / "Disable Category" FPP commands so a
+// show schedule can open or close a category. Name match ignores case.
+// GET /api/plugin/categories lists the names (for the plugin's command help).
+// Auth: same Bearer token as other plugin endpoints.
+// ============================================================
+router.post('/category', (req, res) => {
+  const { name, enabled } = req.body || {};
+  const clean = String(name || '').trim();
+  if (!clean) return res.status(400).json({ error: 'name is required' });
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be true or false' });
+  const cats = require('../lib/categories');
+  const result = cats.setCategoryEnabled(clean, enabled);
+  if (result.error) {
+    const known = cats.listCategories(getConfig()).map((c) => c.name);
+    return res.status(404).json({ error: `No category named "${clean}"`, categories: known });
+  }
+  const hit = cats.listCategories(getConfig()).find((c) => c.name.toLowerCase() === clean.toLowerCase());
+  const canonical = hit ? hit.name : clean;
+  console.log(`[category] "${canonical}" switched ${enabled ? 'on' : 'off'} by the show player`);
+  const io = req.app.get('io');
+  if (io) io.emit('sequencesReordered');
+  res.json({ ok: true, name: canonical, enabled });
+});
+
+router.get('/categories', (req, res) => {
+  const cats = require('../lib/categories');
+  res.json({ categories: cats.listCategories(getConfig()).map((c) => ({ name: c.name, enabled: c.enabled ? 1 : 0 })) });
 });
 
 // ============================================================

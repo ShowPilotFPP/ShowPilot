@@ -50,41 +50,67 @@ Scenario: The song that's already up next can't be requested
   When phone 2 requests "Alpha"
   Then it is refused with "playing right now"
 
-# GitHub #37: three quick requests, the show player takes them all, then
-# can't start the first one and plays the second instead.
-Scenario: A request the show player passes over goes back in line and still plays
+# GitHub #37. From the logs: the plugin's once-a-minute mode check asked for
+# the full state while three requests were waiting, ShowPilot handed it
+# Abracadabra, and the plugin threw the answer away. FPP never had the song.
+Scenario: The plugin's mode check can't use up a request (the skipped first request)
   Given the show has songs "Regular", "Filler", "Abracadabra", "Bodies", "Houdini" and "Toxic"
   And the mode is Jukebox
   And the show player plays "Regular"
   When phone 1 requests "Abracadabra"
   And phone 2 requests "Bodies"
   And phone 3 requests "Houdini"
+  And the show player checks the mode
   And the show player takes every waiting request
-  Then the show player's own queue is "Abracadabra", "Bodies" and "Houdini"
-  And the queue is "Abracadabra", "Bodies" and "Houdini"
-  When the show player plays "Bodies"
-  Then the queue is "Abracadabra" and "Houdini"
-  And the server log says "played first; putting"
-  When the song ends
   Then the show player's own queue is "Abracadabra"
-  And the queue is "Abracadabra"
   And "Abracadabra" plays next as a request
+  And "Bodies" plays next as a request
+  And "Houdini" plays next as a request
   And the queue is empty
 
-Scenario: A request passed over twice is dropped so it can't block the queue
-  Given the show has songs "Regular", "Filler", "Abracadabra", "Bodies", "Houdini" and "Toxic"
+Scenario: A mode check with peek hands nothing out
+  Given the show has songs "Regular", "Filler" and "Abracadabra"
+  And the mode is Jukebox
+  And the show player plays "Regular"
+  When phone 1 requests "Abracadabra"
+  And the show player checks the mode with peek
+  Then nothing has been handed to the show player
+  And "Abracadabra" plays next as a request
+
+Scenario: A handed-over request that's one song late still plays
+  Given the show has songs "Regular", "Filler", "Abracadabra", "Bodies" and "Toxic"
   And the mode is Jukebox
   And the show player plays "Regular"
   When phone 1 requests "Abracadabra"
   And phone 2 requests "Bodies"
   And the show player takes every waiting request
-  And the show player plays "Bodies"
-  And phone 3 requests "Houdini"
+  And the show player plays "Filler"
+  Then the server log says "it gets one more song to start"
+  And the queue is "Abracadabra" and "Bodies"
+  And "Abracadabra" plays next as a request
+  And "Bodies" plays next as a request
+
+Scenario: A request the show player never starts is dropped so it can't block the queue
+  Given the show has songs "Regular", "Filler", "Abracadabra", "Bodies" and "Toxic"
+  And the mode is Jukebox
+  And the show player plays "Regular"
+  When phone 1 requests "Abracadabra"
+  And phone 2 requests "Bodies"
   And the show player takes every waiting request
-  Then the show player's own queue is "Abracadabra" and "Houdini"
-  When the show player plays "Houdini"
-  Then the queue is empty
-  And the server log says "dropping it from the queue"
+  And the show player plays "Filler"
+  And the show player plays "Toxic"
+  Then the server log says "dropping it from the queue"
+  And the queue is "Bodies"
+
+Scenario: A sequence on repeat restarts its progress bar each time
+  Given the show has songs "Show Starts Soon" and "Regular"
+  And the mode is Jukebox
+  And the show player plays "Show Starts Soon"
+  And "Show Starts Soon" has been playing for 200 seconds
+  When the show player reports "Show Starts Soon" at 2 seconds
+  Then the song shows 2 seconds played
+  When the show player reports "Show Starts Soon" at 3.5 seconds
+  Then the song shows 3 seconds played
 
 Scenario: The admin lists requests already handed to the show player, and none says Playing now
   Given the show has songs "Regular", "Filler", "Abracadabra", "Bodies" and "Houdini"

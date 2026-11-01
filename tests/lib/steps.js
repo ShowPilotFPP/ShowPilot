@@ -212,6 +212,31 @@ const STEPS = [
   { doc: 'the show player takes every waiting request   (into its own queue, like the FPP plugin near the end of a song)',
     re: /^the show player takes every waiting request$/i,
     fn: async (ctx) => { ctx.last.taken = await ctx.player.takeAll(); } },
+  { doc: 'the show player checks the mode [with peek]   (the plugin\'s once-a-minute check; without peek it ignores everything but the mode)',
+    re: /^the show player checks the mode( with peek)?$/i,
+    fn: async (ctx, peek) => { await ctx.player.checkMode({ peek: !!peek }); } },
+  { doc: 'nothing has been handed to the show player',
+    re: /^nothing has been handed to the show player$/i,
+    fn: async (ctx) => {
+      const n = ctx.sp.db.prepare('SELECT COUNT(*) AS n FROM jukebox_queue WHERE handed_off_at IS NOT NULL').get().n;
+      assert(n === 0, `${n} request(s) were handed to the show player`);
+    } },
+  { doc: '"A" has been playing for N seconds   (moves its start time back)',
+    re: new RegExp(`^${q} has been playing for (\\d+) seconds$`, 'i'),
+    fn: async (ctx, name, n) => {
+      const at = new Date(Date.now() - Number(n) * 1000).toISOString().replace('T', ' ').replace('Z', '');
+      ctx.sp.db.prepare('UPDATE now_playing SET started_at = ? WHERE id = 1 AND sequence_name = ?').run(at, name);
+    } },
+  { doc: 'the show player reports "A" at N seconds   (its playback position)',
+    re: new RegExp(`^the show player reports ${q} at ([\\d.]+) seconds$`, 'i'),
+    fn: async (ctx, name, s) => { await ctx.player.reportPosition(name, Number(s)); } },
+  { doc: 'the song shows N seconds played   (within 2 s, from the viewer state)',
+    re: /^the song shows (\d+) seconds played$/i,
+    fn: async (ctx, n) => eventually(async () => {
+      const st = await state(ctx);
+      const el = (Date.now() - Date.parse(st.nowPlayingStartedAtIso)) / 1000;
+      assert(Math.abs(el - Number(n)) <= 2, `the song shows ${el.toFixed(1)} s played, expected about ${n}`);
+    }) },
   { doc: 'the show player\'s own queue is "A" and "B"',
     re: new RegExp(`^the show player's own queue is ${LIST}$`, 'i'),
     fn: async (ctx, list) => {

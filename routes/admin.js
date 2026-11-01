@@ -580,6 +580,11 @@ router.post('/categories/enabled', requireAdmin, (req, res) => {
   const { name, enabled } = req.body || {};
   categoryResult(req, res, require('../lib/categories').setCategoryEnabled(name, !!enabled));
 });
+// Time-slot schedule (v0.33.248-beta.6): { name, schedule: { days, from, to } | null }
+router.post('/categories/schedule', requireAdmin, (req, res) => {
+  const { name, schedule } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').setCategorySchedule(name, schedule || null));
+});
 router.post('/categories/rename', requireAdmin, (req, res) => {
   const { name, new_name } = req.body || {};
   categoryResult(req, res, require('../lib/categories').renameCategory(name, new_name));
@@ -663,18 +668,21 @@ router.post('/sequences/sort-alphabetically', requireAdmin, (req, res) => {
   res.json({ ok: true, sorted: rows.length });
 });
 
-// Delete inactive sequences (not visible, not votable, not jukeboxable, not PSA).
+// Delete inactive sequences: those no longer in the show player's playlist
+// (active = 0, v0.33.247+) plus those switched off everywhere (not visible,
+// not votable, not jukeboxable, not PSA — the pre-v0.33.247 meaning).
+const INACTIVE_WHERE = `(active = 0 OR (visible = 0 AND votable = 0 AND jukeboxable = 0 AND is_psa = 0))`;
 router.post('/sequences/delete-inactive', requireAdmin, (req, res) => {
   // Capture media_names of about-to-delete rows so cache cleanup can
   // follow. Same pattern as the single-delete endpoint.
   const doomed = db.prepare(`
     SELECT media_name FROM sequences
-    WHERE visible = 0 AND votable = 0 AND jukeboxable = 0 AND is_psa = 0
+    WHERE ${INACTIVE_WHERE}
       AND media_name IS NOT NULL
   `).all();
   const result = db.prepare(`
     DELETE FROM sequences
-    WHERE visible = 0 AND votable = 0 AND jukeboxable = 0 AND is_psa = 0
+    WHERE ${INACTIVE_WHERE}
   `).run();
   for (const row of doomed) {
     detachCacheForMediaName(row.media_name);
@@ -1689,6 +1697,104 @@ router.post('/sequences/:id/cover', requireAdmin, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Upload a cover image from the admin's computer (v0.33.247+). Raw image
+// bytes in the body; saved like downloaded covers (data/covers/<id>.jpg —
+// browsers render PNG/GIF/WebP fine under that name).
+router.post('/sequences/:id/cover-upload', requireAdmin,
+  express.raw({ type: () => true, limit: '10mb' }),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const seq = db.prepare(`SELECT id FROM sequences WHERE id = ?`).get(id);
+    if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+    const buf = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buf || buf.length < 100) return res.status(400).json({ error: 'No image received' });
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isPng = buf.slice(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const isGif = buf.slice(0, 4).toString('ascii') === 'GIF8';
+    const isWebp = buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP';
+    if (!isJpeg && !isPng && !isGif && !isWebp) {
+      return res.status(400).json({ error: 'That file is not a JPEG, PNG, GIF or WebP image.' });
+    }
+    const fs = require('fs');
+    const path = require('path');
+    const { coverDir, bustCoverUrl } = require('../lib/cover-art');
+    const localPath = `/covers/${id}.jpg`;
+    fs.writeFileSync(path.join(coverDir(), `${id}.jpg`), buf);
+    db.prepare(`UPDATE sequences SET image_url = ? WHERE id = ?`).run(localPath, id);
+    const io = req.app.get('io');
+    if (io) io.emit('sequencesReordered');
+    res.json({ ok: true, image_url: bustCoverUrl(localPath) });
+  });
+
+// ---- Sequence list CSV export / import (v0.33.247+, lib/sequence-csv.js) ----
+// GET ?format=showpilot (all fields) | rf (Remote Falcon's six columns)
+router.get('/sequences/export', requireAdmin, (req, res) => {
+  const { buildCsv } = require('../lib/sequence-csv');
+  const format = req.query.format === 'rf' ? 'rf' : 'showpilot';
+  const rows = db.prepare(`SELECT * FROM sequences ORDER BY display_order, display_name`).all();
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  const csv = buildCsv(rows, format, (p) => (host ? `${proto}://${host}${p}` : p));
+  const stamp = new Date().toISOString().slice(0, 10);
+  const fname = format === 'rf' ? `sequences-remote-falcon-${stamp}.csv` : `sequences-showpilot-${stamp}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+  res.send('\uFEFF' + csv);
+});
+
+// POST { csv, dryRun, addMissing }. Rows match sequences by name
+// (case-insensitive). Blank cells never overwrite. With addMissing, names
+// ShowPilot doesn't have yet are added as inactive; the next playlist sync
+// that lists them makes them active and keeps the imported details.
+router.post('/sequences/import', requireAdmin, (req, res) => {
+  const { readRecords } = require('../lib/sequence-csv');
+  const { csv, dryRun, addMissing } = req.body || {};
+  let records;
+  try { records = readRecords(csv); } catch (e) { return res.status(400).json({ error: e.message }); }
+  const existing = new Map(db.prepare(`SELECT id, name FROM sequences`).all().map((r) => [r.name.toLowerCase(), r]));
+  const matched = records.filter((r) => existing.has(r.name.toLowerCase()));
+  const missing = records.filter((r) => !existing.has(r.name.toLowerCase()));
+  if (dryRun) {
+    return res.json({ ok: true, total: records.length, matched: matched.length, missing: missing.length,
+      missingNames: missing.slice(0, 8).map((r) => r.name) });
+  }
+  const categories = require('../lib/categories');
+  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes'];
+  const pick = (r) => {
+    const u = {};
+    for (const k of FIELDS) if (k in r) u[k] = r[k];
+    if ('category' in u) u.category = categories.ensureCategory(u.category);
+    return u;
+  };
+  let updated = 0, added = 0;
+  db.transaction(() => {
+    for (const r of matched) {
+      const u = pick(r);
+      if (!Object.keys(u).length) continue;
+      const set = Object.keys(u).map((k) => `${k} = @${k}`).join(', ');
+      updated += db.prepare(`UPDATE sequences SET ${set} WHERE id = @id`).run({ ...u, id: existing.get(r.name.toLowerCase()).id }).changes;
+    }
+    if (addMissing) {
+      let order = (db.prepare(`SELECT MAX(display_order) AS m FROM sequences`).get().m || 0);
+      const ins = db.prepare(`
+        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, active, sort_order, display_order)
+        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, 0, 0, @display_order)`);
+      for (const r of missing) {
+        const u = pick(r);
+        added += ins.run({
+          name: r.name, display_name: u.display_name || r.name, artist: u.artist || null,
+          image_url: u.image_url || null, category: u.category || null,
+          visible: u.visible ?? 1, votable: u.votable ?? 1, jukeboxable: u.jukeboxable ?? 1,
+          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, display_order: ++order,
+        }).changes;
+      }
+    }
+  })();
+  const io = req.app.get('io');
+  if (io) io.emit('sequencesReordered');
+  res.json({ ok: true, updated, added });
 });
 
 // Clear a cover (delete file + null the URL)

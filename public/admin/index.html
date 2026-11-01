@@ -1328,6 +1328,116 @@
                        border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
                        color: var(--text-dim); font-size: 0.7rem; cursor: pointer; }
     .editable { cursor: text; padding: 0.25rem 0.4rem; border-radius: 4px; min-width: 60px; display: inline-block; }
+    /* v0.33.247: Sequences page — cover edit overlay, filters, icon actions, compact rows */
+    .art-wrap { position: relative; width: 44px; height: 44px; cursor: pointer; }
+    .art-wrap .art-edit { position: absolute; inset: 0; border-radius: 6px; display: flex; align-items: center;
+                          justify-content: center; background: rgba(0,0,0,0.55); color: #fff; font-size: 1rem;
+                          opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+    .art-wrap:hover .art-edit, .art-wrap:focus-visible .art-edit { opacity: 1; }
+    .seq-filterbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .seq-filterbar input[type=search] { width: 240px; max-width: 100%; padding: 0.4rem 0.6rem; }
+    .seq-pill { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 999px;
+                padding: 0.2rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+    .seq-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    /* Row action buttons use inline SVG icons (v0.33.248-beta.2): emoji
+       rendered as dots or blank boxes on some systems. */
+    .seq-icon-btn { padding: 0 !important; width: 2rem; height: 2rem; min-width: 2rem; margin-right: 0.3rem;
+                    display: inline-flex !important; align-items: center; justify-content: center; vertical-align: middle; }
+    .seq-icon-btn svg, .seq-cat-filter svg { width: 15px; height: 15px; display: block; }
+    .seq-icon-slot { display: inline-block; width: 2rem; margin-right: 0.3rem; }
+    /* Preview button while playing: stop icon + elapsed time (v0.33.248-beta.3). */
+    .seq-icon-btn.seq-previewing { width: 4.6rem !important; min-width: 4.6rem; padding: 0 0.45rem !important; gap: 0.35rem;
+                                   background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
+                                   font-variant-numeric: tabular-nums; font-size: 0.8rem; }
+    .seq-icon-btn.seq-previewing svg { width: 12px; height: 12px; }
+    .seq-cat-filter { padding: 0 !important; width: 1.7rem; height: 1.7rem; min-width: 1.7rem; margin-left: 0.25rem;
+                      display: inline-flex !important; align-items: center; justify-content: center; vertical-align: middle; }
+    /* Active / inactive status dot (own narrow column). */
+    .seq-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+    .seq-dot.on { background: var(--status-success, #22c55e); box-shadow: 0 0 0 3px var(--status-success-soft, rgba(34,197,94,.18)); }
+    .seq-dot.off { background: var(--status-danger, #ef4444); box-shadow: 0 0 0 3px var(--status-danger-soft, rgba(239,68,68,.18)); }
+    tr.seq-inactive td:not(.col-status):not(.col-check):not(.col-actions) { opacity: 0.6; }
+    /* Narrow columns shrink to their content so the text columns get the room. */
+    #sequencesTable th.col-tight, #sequencesTable td.col-tight { width: 1%; white-space: nowrap; }
+    /* v0.33.248-beta.4: the four text columns share the free width by
+       percentage (max-width: 0 makes the table honour the shares), so space
+       freed by hiding columns is spread across all of them instead of piling
+       up in Display Name. Text that doesn't fit its share is cut with … (full
+       text on hover; click a name to edit it in full). Shares: Display Name
+       28, Sequence Name 22, Artist 18, Category 22. */
+    #sequencesTable { width: 100%; min-width: 860px; }
+    #sequencesTable th.col-display, #sequencesTable td.col-display { width: 28%; max-width: 0; }
+    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: 22%; max-width: 0; }
+    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: 18%; max-width: 0; }
+    #sequencesTable th.col-category, #sequencesTable td.col-category { width: 22%; max-width: 0; }
+    #sequencesTable .col-seqname code { display: block; max-width: 100%; width: fit-content; overflow: hidden; text-overflow: ellipsis;
+                                        white-space: nowrap; }
+    #sequencesTable .col-display .editable, #sequencesTable .col-artist .editable { max-width: 100%; overflow-wrap: anywhere; vertical-align: middle; }
+    #sequencesTable .seq-cat-wrap { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+    #sequencesTable .seq-category-select { flex: 1 1 auto; min-width: 0; width: 100%; text-overflow: ellipsis; }
+    #sequencesTable .seq-cat-filter { flex: 0 0 auto; margin-left: 0; }
+    /* Row buttons are right-aligned, and the header reserves room for the
+       wider "■ 0:42" preview button, so playing a preview never moves the
+       other buttons or columns. Each hidden button takes its share out. */
+    #sequencesTable { --w-prev: 4.9rem; --w-search: 2.3rem; --w-lang: 2.3rem; }
+    #sequencesTable.hide-preview { --w-prev: 0rem; }
+    #sequencesTable.hide-search { --w-search: 0rem; }
+    #sequencesTable.hide-lang { --w-lang: 0rem; }
+    #sequencesTable .seq-actions-reserve { width: calc(var(--w-prev) + var(--w-search) + var(--w-lang) + 2.3rem); height: 0; }
+    #sequencesTable td.col-actions { text-align: right; }
+    #sequencesTable td.col-index { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85rem; text-align: center; color: var(--text-muted); }
+    /* Compact: one line per row, everything cut with … in its share. */
+    table.seq-compact td { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    table.seq-compact .art-wrap, table.seq-compact .art-thumb, table.seq-compact .art-placeholder { width: 30px; height: 30px; }
+    table.seq-compact .col-display .editable, table.seq-compact .col-artist .editable {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    table.seq-compact .col-display .editable:focus, table.seq-compact .col-artist .editable:focus { white-space: normal; overflow: visible; }
+    /* Column chooser: hidden columns keep their settings, they're just not shown. */
+    #sequencesTable.hide-art .col-art, #sequencesTable.hide-seqname .col-seqname, #sequencesTable.hide-artist .col-artist,
+    #sequencesTable.hide-category .col-category, #sequencesTable.hide-visible .col-visible, #sequencesTable.hide-vote .col-vote,
+    #sequencesTable.hide-jukebox .col-jukebox, #sequencesTable.hide-psa .col-psa, #sequencesTable.hide-cooldown .col-cooldown,
+    #sequencesTable.hide-preview .col-preview, #sequencesTable.hide-search .col-search, #sequencesTable.hide-lang .col-lang,
+    #sequencesTable.hide-status .col-status, #sequencesTable.hide-index .col-index { display: none !important; }
+    .sp-menu-list .sp-col-row { display: flex; align-items: center; gap: 0.25rem; }
+    .sp-menu-list .sp-col-row label { flex: 1; }
+    .sp-menu-list .sp-col-row .sp-col-fixed { flex: 1; padding: 0.3rem 0.4rem 0.3rem calc(0.4rem + 13px + 0.5rem); font-size: 0.85rem; white-space: nowrap; }
+    .sp-menu-list .sp-menu-hint { font-size: 0.75rem; color: var(--text-muted); padding: 0 0.4rem 0.3rem; }
+    .sp-menu-list .sp-col-row button { padding: 0 !important; width: 1.6rem; height: 1.6rem; min-height: 1.6rem !important; min-width: 1.6rem;
+                                       display: inline-flex !important; align-items: center; justify-content: center; font-size: 0.8rem; margin: 0; }
+    .sp-menu-list .sp-col-reset { display: block; width: 100%; margin-top: 0.35rem; font-size: 0.8rem; }
+    #seqColumnsList { max-height: 70vh; overflow-y: auto; min-width: 250px; }
+    /* Drag-to-reorder lists (Columns menu, Categories) — v0.33.248-beta.5 */
+    .sp-drag-row { cursor: grab; border-radius: 6px; }
+    .sp-drag-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .sp-drag-row.sp-dragging { opacity: 0.4; }
+    .sp-drag-row.sp-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+    .sp-drag-row.sp-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+    .sp-grip { color: var(--text-dim, var(--text-muted)); cursor: grab; padding: 0 0.35rem; user-select: none; letter-spacing: -1px; }
+    /* Category pills on the Sequences page + category schedules (v0.33.248-beta.6) */
+    .seq-catpills { display: flex; flex-wrap: wrap; gap: 0.4rem; flex-basis: 100%; align-items: center; }
+    .seq-catpills .seq-pill.cat-off { opacity: 0.6; text-decoration: line-through; }
+    .seq-catpills .seq-pill.cat-off.active { opacity: 1; }
+    .seq-catpills-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.2rem; }
+    .cat-sched-btn { display: inline-flex !important; align-items: center; gap: 0.35rem; }
+    .cat-sched-btn svg { width: 14px; height: 14px; }
+    .cat-sched-summary { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+    .cat-sched-summary.off-now { color: var(--status-warning, #f59e0b); }
+    .cat-days { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.4rem 0 0.9rem; }
+    .cat-days label { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; padding: 0.3rem 0.6rem; border: 1px solid var(--border);
+                      border-radius: 999px; font-size: 0.85rem; cursor: pointer; }
+    .cat-days label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft, rgba(249,115,22,.15)); }
+    .cat-times { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+    .cat-times input[type=time] { width: auto; }
+    .sp-menu-list label { display: flex; align-items: center; gap: 0.5rem; margin: 0; padding: 0.3rem 0.4rem; border-radius: 6px;
+                          font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+    .sp-menu-list label:hover { background: var(--bg-tertiary); }
+    .sp-menu-list .sp-menu-head { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 0.4rem 0.4rem 0.15rem; }
+    .sp-menu { position: relative; display: inline-block; }
+    .sp-menu > summary { list-style: none; cursor: pointer; }
+    .sp-menu > summary::-webkit-details-marker { display: none; }
+    .sp-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 220px; background: var(--bg-elevated, var(--bg-input));
+                    border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .sp-menu-list button { display: block; width: 100%; text-align: left; margin: 0.15rem 0; }
     .editable:hover { background: var(--bg-tertiary); }
     .editable:focus { outline: 2px solid var(--accent); background: var(--bg-input); }
 
@@ -1808,7 +1918,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.247</span>
+        <span class="app-version">v0.33.248</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1992,9 +2102,37 @@
               <button class="secondary" onclick="fetchAllCovers()">Fetch Covers</button>
               <button class="secondary" onclick="scrapeAllMetadata()" title="Auto-fill display names and artist info by looking up filenames online">Auto-Fill Song Info</button>
               <button class="secondary" onclick="sortSequencesAlphabetically()">Sort A→Z</button>
-              <button class="secondary" onclick="deleteInactiveSequences()">Delete Inactive</button>
+              <button class="secondary" onclick="document.getElementById('seqImportFile').click()" title="Update sequences from a ShowPilot or Remote Falcon sequence CSV">Import CSV</button>
+              <input type="file" id="seqImportFile" accept=".csv,text/csv" style="display:none;" onchange="importSequencesCsv(this)" />
+              <details class="sp-menu" id="seqExportMenu">
+                <summary class="button secondary" style="display:inline-block; padding: 0.5rem 0.9rem; border: 1px solid var(--border); border-radius: 6px;">Export CSV ▾</summary>
+                <div class="sp-menu-list">
+                  <button class="secondary" onclick="exportSequencesCsv('showpilot')" title="Every field, including the toggles and cooldown — a full backup of the list">ShowPilot (all fields)</button>
+                  <button class="secondary" onclick="exportSequencesCsv('rf')" title="Remote Falcon's six columns: name, display name, artist, group, image, category">Remote Falcon format</button>
+                </div>
+              </details>
+              <button class="secondary" onclick="deleteInactiveSequences()" title="Delete sequences no longer in your show player's playlist, and ones switched off everywhere">Delete Inactive</button>
               <button class="danger" onclick="deleteAllSequences()" title="Delete every sequence in the database">Delete All</button>
             </div>
+          </div>
+
+          <!-- v0.33.247: search + filter pills + compact view -->
+          <div class="seq-filterbar">
+            <input type="search" id="seqSearch" placeholder="Search sequences…" oninput="applySeqFilter()" />
+            <button class="seq-pill active" data-seq-filter="all" onclick="setSeqFilter('all')">All</button>
+            <button class="seq-pill" data-seq-filter="active" onclick="setSeqFilter('active')" title="In your show player's playlist">Active</button>
+            <button class="seq-pill" data-seq-filter="inactive" onclick="setSeqFilter('inactive')" title="No longer in the playlist — kept with all their details, hidden from viewers">Inactive</button>
+            <button class="seq-pill" data-seq-filter="hidden" onclick="setSeqFilter('hidden')" title="Visible switched off">Hidden</button>
+
+            <span style="flex:1;"></span>
+            <label style="display:flex; align-items:center; gap:0.35rem; margin:0; font-size:0.85rem; cursor:pointer;" title="One line per row: smaller art, names on a single line">
+              <input type="checkbox" id="seqCompact" onchange="setSeqCompact(this.checked)" /> Compact rows
+            </label>
+            <details class="sp-menu" id="seqColumnsMenu">
+              <summary class="button secondary" style="display:inline-block; padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem;" title="Show or hide columns. Hidden columns keep their settings.">Columns ▾</summary>
+              <div class="sp-menu-list" id="seqColumnsList"></div>
+            </details>
+            <div id="seqCatPills" class="seq-catpills" style="display:none;"></div>
           </div>
 
           <!-- Bulk action toolbar — only visible when one or more rows are selected.
@@ -2012,28 +2150,31 @@
           </div>
 
           <div style="overflow-x: auto;">
-            <table style="min-width: 1200px;">
+            <table id="sequencesTable">
               <thead>
                 <tr>
-                  <th style="width: 30px;">
+                  <th class="col-tight col-check">
                     <input type="checkbox" id="seqSelectAll" onchange="toggleSelectAllSeqs(this.checked)" title="Select all" />
                   </th>
-                  <th style="width: 30px;"></th>
-                  <th style="width: 60px;">Art</th>
-                  <th>Display Name</th>
-                  <th style="width: 200px;">Sequence Name</th>
-                  <th>Artist</th>
-                  <th style="width: 150px;" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
-                  <th style="width: 70px;">Visible</th>
-                  <th style="width: 70px;">Vote</th>
-                  <th style="width: 70px;">Jukebox</th>
-                  <th style="width: 60px;">PSA</th>
-                  <th style="width: 90px;" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
-                  <th></th>
+                  <th class="col-tight"></th>
+                  <th class="col-tight col-status" title="Green: in your show player's playlist. Red: inactive — no longer in the playlist; kept with all its details and hidden from viewers.">Status</th>
+                  <th class="col-tight col-art">Art</th>
+                  <th class="col-display">Display Name</th>
+                  <th class="col-seqname">Sequence Name</th>
+                  <th class="col-tight col-index" title="Position in your show player's playlist, from the last sync. If the wrong song plays, check this matches the playlist (and sync again).">Playlist #</th>
+                  <th class="col-artist">Artist</th>
+                  <th class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
+                  <th class="col-tight col-visible">Visible</th>
+                  <th class="col-tight col-vote">Vote</th>
+                  <th class="col-tight col-jukebox">Jukebox</th>
+                  <th class="col-tight col-psa">PSA</th>
+                  <th class="col-tight col-cooldown" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
+                  <th class="col-tight col-actions"><div class="seq-actions-reserve"></div></th>
                 </tr>
               </thead>
               <tbody id="sequencesBody"></tbody>
             </table>
+            <p id="seqNoMatch" class="muted" style="display:none; padding: 0.75rem;">No sequences match the current search or filter.</p>
           </div>
           <h3>Add Sequence</h3>
           <div class="row">
@@ -4023,6 +4164,8 @@
     // MAIN TAB SWITCHER
     // ============================================================
     function switchMainTab(name) {
+      // Leaving Sequences stops an audio preview (v0.33.248-beta.3).
+      if (name !== 'sequences' && typeof closeSeqPreview === 'function') closeSeqPreview();
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === name);
       });
@@ -7079,6 +7222,16 @@
         name.style.cssText = 'flex:1; font-weight:600;' + (c.enabled ? '' : ' opacity:0.55; text-decoration: line-through;');
         name.textContent = c.name;
 
+        // Time-slot schedule (v0.33.248-beta.6)
+        const sched = document.createElement('span');
+        sched.className = 'cat-sched-summary';
+        if (c.schedule) {
+          const offNow = c.enabled !== 0 && c.available_now === false;
+          sched.textContent = describeCategorySchedule(c.schedule) + (offNow ? ' · hidden now' : (c.enabled ? ' · showing now' : ''));
+          if (offNow) sched.classList.add('off-now');
+          sched.title = 'Times are in the show time zone' + (c.timezone ? ' (' + c.timezone + ')' : '') + '. Outside this schedule the category is hidden from viewers, like switching it off.';
+        }
+
         const count = document.createElement('span');
         count.className = 'muted';
         count.style.fontSize = '0.85rem';
@@ -7091,8 +7244,11 @@
           b.addEventListener('click', fn);
           return b;
         };
-        const up = mkBtn('↑', 'Move up (viewer page order)', () => moveCategory(idx, -1), 'secondary', idx === 0);
-        const down = mkBtn('↓', 'Move down (viewer page order)', () => moveCategory(idx, 1), 'secondary', idx === categoriesCache.length - 1);
+        // v0.33.248-beta.5: drag the row (⋮⋮) to reorder instead of ↑/↓.
+        row.dataset.key = c.name;
+        row.title = 'Drag to reorder (viewer page order), or Alt+↑ / Alt+↓';
+        const grip = document.createElement('span');
+        grip.className = 'sp-grip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
         const ren = mkBtn('Rename', 'Rename this category', async () => {
           const nn = await showPrompt('Rename category', c.name);
           if (nn && nn.trim() && nn.trim() !== c.name) categoryAction('/categories/rename', { name: c.name, new_name: nn.trim() });
@@ -7102,8 +7258,110 @@
           if (ok) categoryAction('/categories/delete', { name: c.name });
         }, 'danger');
 
-        [tog, name, count, up, down, ren, del].forEach(el => row.appendChild(el));
+        const schedBtn = document.createElement('button');
+        schedBtn.type = 'button';
+        schedBtn.className = 'secondary cat-sched-btn';
+        schedBtn.title = c.schedule ? 'Change when this category is shown' : 'Only show this category on certain days or times';
+        schedBtn.innerHTML = SEQ_ICONS.clock + '<span>' + (c.schedule ? 'Schedule' : 'Add schedule') + '</span>';
+        schedBtn.addEventListener('click', () => openCategoryScheduleModal(c));
+
+        [grip, tog, name, sched, count, schedBtn, ren, del].forEach(el => row.appendChild(el));
         host.appendChild(row);
+      });
+      if (categoriesCache.length > 1) {
+        enableDragReorder(host, '.row', (names) => categoryAction('/categories/reorder', { names }));
+      }
+    }
+
+    // ======= Category schedules (v0.33.248-beta.6) =======
+    const CAT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    function fmt12(t) {
+      const m = /^(\d{2}):(\d{2})$/.exec(t || '');
+      if (!m) return t || '';
+      const h = +m[1], ap = h < 12 ? 'AM' : 'PM', h12 = h % 12 || 12;
+      return h12 + ':' + m[2] + ' ' + ap;
+    }
+    function describeCategorySchedule(s) {
+      if (!s) return '';
+      // Listed Monday-first so a weekend reads "Fri, Sat, Sun".
+      const days = (s.days && s.days.length) ? s.days.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)) : [1, 2, 3, 4, 5, 6, 0];
+      let dayText;
+      if (days.length === 7) dayText = 'Every day';
+      else if (days.join() === '1,2,3,4,5') dayText = 'Weekdays';
+      else if (days.join() === '6,0') dayText = 'Weekends';
+      else dayText = days.map(d => CAT_DAY_NAMES[d]).join(', ');
+      const time = (s.from && s.to) ? fmt12(s.from) + '–' + fmt12(s.to) : 'all day';
+      return dayText + ' · ' + time;
+    }
+    function openCategoryScheduleModal(c) {
+      const existing = document.getElementById('catSchedModal');
+      if (existing) existing.remove();
+      const s = c.schedule || null;
+      const days = s && s.days && s.days.length ? s.days : [0, 1, 2, 3, 4, 5, 6];
+      const allDay = !s || !s.from;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      backdrop.id = 'catSchedModal';
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+      backdrop.innerHTML = `
+        <div class="modal-card" style="max-width: 520px;">
+          <div class="modal-header">
+            <h2 style="margin: 0; font-size: 1.05rem;"></h2>
+            <button class="modal-close" type="button" aria-label="Close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="muted" style="margin-top: 0;">Outside this schedule the category is hidden from viewers and can't be voted for or requested, the same as switching it off. Times use the show time zone<span class="cat-tz"></span>.</p>
+            <div style="font-weight: 600; font-size: 0.9rem;">Days</div>
+            <div class="cat-days">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label><input type="checkbox" value="${i}" ${days.includes(i) ? 'checked' : ''}/> ${CAT_DAY_NAMES[i]}</label>`).join('')}</div>
+            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem;">Time</div>
+            <div class="cat-times">
+              <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0;"><input type="checkbox" class="cat-allday" ${allDay ? 'checked' : ''}/> All day</label>
+              <span class="cat-range" style="display:${allDay ? 'none' : 'inline-flex'}; align-items:center; gap:0.4rem;">
+                from <input type="time" class="cat-from" value="${s && s.from ? s.from : '17:00'}"/>
+                to <input type="time" class="cat-to" value="${s && s.to ? s.to : '20:00'}"/>
+              </span>
+            </div>
+            <p class="muted cat-overnight" style="font-size: 0.8rem; display: none; margin: 0.4rem 0 0;">Ends after midnight: the part after midnight counts as the starting day.</p>
+            <div class="cat-err" style="color: var(--status-danger); font-size: 0.85rem; margin-top: 0.6rem;"></div>
+            <div class="row" style="justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
+              ${s ? '<button type="button" class="secondary cat-clear">Remove schedule</button>' : ''}
+              <button type="button" class="secondary cat-cancel">Cancel</button>
+              <button type="button" class="cat-save">Save</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+      const $ = (sel) => backdrop.querySelector(sel);
+      $('h2').textContent = 'When to show “' + c.name + '”';
+      if (c.timezone) $('.cat-tz').textContent = ' (' + c.timezone + ')';
+      const close = () => backdrop.remove();
+      $('.modal-close').addEventListener('click', close);
+      $('.cat-cancel').addEventListener('click', close);
+      const syncUi = () => {
+        $('.cat-err').textContent = '';
+        const ad = $('.cat-allday').checked;
+        $('.cat-range').style.display = ad ? 'none' : 'inline-flex';
+        $('.cat-overnight').style.display = (!ad && $('.cat-from').value && $('.cat-to').value && $('.cat-from').value > $('.cat-to').value) ? 'block' : 'none';
+      };
+      ['.cat-allday', '.cat-from', '.cat-to'].forEach(sel => $(sel).addEventListener('input', syncUi));
+      backdrop.querySelectorAll('.cat-days input').forEach(x => x.addEventListener('change', () => { $('.cat-err').textContent = ''; }));
+      syncUi();
+      const send = async (schedule) => {
+        const res = await fetch('/api/admin/categories/schedule', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: c.name, schedule }),
+        });
+        let data = null; try { data = await res.json(); } catch (e) {}
+        if (!res.ok) { $('.cat-err').textContent = (data && data.error) || 'Could not save the schedule.'; return; }
+        close();
+        loadSequences();
+      };
+      if ($('.cat-clear')) $('.cat-clear').addEventListener('click', () => send(null));
+      $('.cat-save').addEventListener('click', () => {
+        const picked = Array.from(backdrop.querySelectorAll('.cat-days input:checked')).map(x => +x.value);
+        if (!picked.length) { $('.cat-err').textContent = 'Pick at least one day.'; return; }
+        const ad = $('.cat-allday').checked;
+        send({ days: picked.length === 7 ? [] : picked, from: ad ? '' : $('.cat-from').value, to: ad ? '' : $('.cat-to').value });
       });
     }
 
@@ -7111,14 +7369,6 @@
       const r = await api(path, { method: 'POST', body: JSON.stringify(body) });
       if (!r.ok) showAlert('Category update failed — the name may be empty or already in use.');
       await loadSequences(); // also reloads categories
-    }
-
-    function moveCategory(idx, delta) {
-      const names = categoriesCache.map(c => c.name);
-      const j = idx + delta;
-      if (j < 0 || j >= names.length) return;
-      [names[idx], names[j]] = [names[j], names[idx]];
-      categoryAction('/categories/reorder', { names });
     }
 
     function addCategory() {
@@ -7180,17 +7430,21 @@
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
-      document.getElementById('sequenceCount').textContent = `(${r.data.length})`;
+      {
+        const inactive = r.data.filter(s => s.active === 0).length;
+        document.getElementById('sequenceCount').textContent = inactive
+          ? `(${r.data.length - inactive} active, ${inactive} inactive)` : `(${r.data.length})`;
+      }
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
-      // tbody.innerHTML wipes out any open preview row, so reset the
-      // tracker — without this, clicking the preview button on the same
-      // sequence again would close-then-not-reopen because we'd think
-      // it's still open.
-      _activePreviewId = null;
       r.data.forEach(seq => {
         tbody.appendChild(buildSequenceRow(seq));
       });
+      // A preview keeps playing across a list refresh; show it on the new row
+      // (or stop it if that sequence is gone).
+      if (_preview.id !== null && !r.data.some(s => s.id === _preview.id)) closeSeqPreview();
+      else paintSeqPreviewBtns();
+      applySeqFilter();
       // Drop selection entries for sequences that no longer exist (deleted
       // out from under us) so the toolbar count reflects reality.
       const liveIds = new Set(r.data.map(s => s.id));
@@ -7207,38 +7461,44 @@
 
     function buildSequenceRow(seq) {
       const tr = document.createElement('tr');
-      tr.draggable = true;
+      // Only the ⋮⋮ handle starts a drag (v0.33.248-beta.2). With the whole
+      // row draggable, selecting text from the end of an editable name
+      // dragged the row instead.
+      tr.draggable = false;
       tr.dataset.id = seq.id;
       tr.dataset.seqName = seq.name || '';
       tr.dataset.seqDisplay = seq.display_name || seq.name || '';
 
       const art = seq.image_url
-        ? `<img class="art-thumb" src="${escapeAttr(seq.image_url)}" onclick="promptImageUrl(${seq.id}, ${JSON.stringify(seq.image_url || '').replace(/"/g,'&quot;')})" title="Click to change artwork" />`
-        : `<div class="art-placeholder" onclick="promptImageUrl(${seq.id}, '')" title="Click to add artwork">+</div>`;
+        ? `<div class="art-wrap" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Change cover art"><img class="art-thumb" src="${escapeAttr(seq.image_url)}" alt="" /><span class="art-edit" aria-hidden="true">✎</span></div>`
+        : `<div class="art-placeholder" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Add cover art">+</div>`;
+      const inactive = seq.active === 0;
+      if (inactive) tr.classList.add('seq-inactive');
 
       tr.innerHTML = `
-        <td><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
-        <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
-        <td>${art}</td>
-        <td><span class="editable" contenteditable="true"
+        <td class="col-tight col-check"><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
+        <td class="col-tight drag-handle" title="Drag to reorder">⋮⋮</td>
+        <td class="col-tight col-status" style="text-align:center;"><span class="seq-dot ${inactive ? 'off' : 'on'}" role="img"
+              aria-label="${inactive ? 'Inactive' : 'Active'}"
+              title="${inactive ? 'Inactive — no longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again when the playlist lists it.' : 'Active — in your show player\'s playlist'}"></span></td>
+        <td class="col-tight col-art">${art}</td>
+        <td class="col-display"><span class="editable" contenteditable="true" title="${escapeAttr(seq.display_name)}"
                   onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
-        <td><code>${escapeHtml(seq.name)}</code></td>
-        <td><span class="editable" contenteditable="true"
+        <td class="col-seqname"><code title="${escapeAttr(seq.name)}">${escapeHtml(seq.name)}</code></td>
+        <td class="col-tight col-index" title="${inactive ? 'Not in the current playlist' : 'Position in your show player\'s playlist'}">${!inactive && seq.sort_order ? seq.sort_order : '—'}</td>
+        <td class="col-artist"><span class="editable" contenteditable="true" title="${escapeAttr(seq.artist || '')}"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
-        <td><select class="seq-category-select" style="width: 140px; padding: 0.3rem 0.4rem; font-size: 0.85rem;"></select></td>
-        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td><input type="number" min="0" max="1440" step="1" value="${seq.cooldown_minutes || 0}"
+        <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
+        <td class="col-tight col-visible"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td class="col-tight col-vote"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td class="col-tight col-jukebox"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td class="col-tight col-psa"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
+        <td class="col-tight col-cooldown"><input type="number" min="0" max="1440" step="1" value="${seq.cooldown_minutes || 0}"
                    onchange="updateSeqCooldown(${seq.id}, this)"
-                   style="width: 70px; padding: 0.3rem 0.4rem; font-size: 0.9rem;"
+                   style="width: 64px; padding: 0.3rem 0.4rem; font-size: 0.9rem;"
                    title="Minutes to suppress this sequence after it plays. 0 = no cooldown." /></td>
-        <td style="white-space: nowrap;">
-          <button class="secondary" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" style="margin-right: 0.4rem;">▶</button>
-          <button class="secondary" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" style="margin-right: 0.4rem;">🔍 Search</button>
-          ${seq.media_name ? '<button class="secondary sp-lang-btn" style="margin-right: 0.4rem;" title="Manage alternate-language audio variants">🌐 Languages</button>' : ''}
-          <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
+        <td class="col-tight col-actions">
+          <button class="secondary seq-icon-btn col-preview" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" aria-label="Preview">${SEQ_ICONS.play}</button><button class="secondary seq-icon-btn col-search" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" aria-label="Search">${SEQ_ICONS.search}</button>${seq.media_name ? '<button class="secondary seq-icon-btn sp-lang-btn col-lang" title="Manage alternate-language audio variants" aria-label="Languages">' + SEQ_ICONS.lang + '</button>' : '<span class="seq-icon-slot col-lang"></span>'}<button class="danger seq-icon-btn" onclick="delSeq(${seq.id})" title="Delete this sequence" aria-label="Delete">${SEQ_ICONS.trash}</button>
         </td>
       `;
 
@@ -7248,6 +7508,9 @@
         fillCategorySelect(catSel, seq.category || '', '— none —');
         catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
       }
+      orderSeqCells(tr);
+      const catFilterBtn = tr.querySelector('.seq-cat-filter');
+      if (catFilterBtn) catFilterBtn.addEventListener('click', () => setSeqCategoryFilter(seq.category));
 
       // Language variants button — wired here to avoid inline onclick quoting issues
       const langBtn = tr.querySelector('.sp-lang-btn');
@@ -7257,7 +7520,13 @@
         });
       }
 
-      // Drag handlers
+      // Drag handlers — the row becomes draggable only while the handle is held.
+      const handle = tr.querySelector('.drag-handle');
+      if (handle) {
+        handle.addEventListener('mousedown', () => { tr.draggable = true; });
+        handle.addEventListener('mouseup', () => { tr.draggable = false; });
+      }
+      tr.addEventListener('dragend', () => { tr.draggable = false; });
       tr.addEventListener('dragstart', onDragStart);
       tr.addEventListener('dragover', onDragOver);
       tr.addEventListener('dragleave', onDragLeave);
@@ -7269,6 +7538,386 @@
 
     function escapeAttr(s) {
       return String(s || '').replace(/"/g, '&quot;');
+    }
+
+    // ======= Drag-to-reorder for short lists (v0.33.248-beta.5) =======
+    // Rows (direct children of `host` matching `rowSel`, each with
+    // data-key) can be dragged into place; keyboard: focus a row and press
+    // Alt+↑ / Alt+↓. onReorder(keys) gets the new order.
+    function enableDragReorder(host, rowSel, onReorder) {
+      let dragEl = null;
+      const rows = () => Array.from(host.querySelectorAll(':scope > ' + rowSel));
+      const clearMarks = () => rows().forEach(r => r.classList.remove('sp-drop-before', 'sp-drop-after'));
+      const done = () => onReorder(rows().map(r => r.dataset.key));
+      rows().forEach(row => {
+        row.classList.add('sp-drag-row');
+        row.draggable = true;
+        row.tabIndex = 0;
+        row.addEventListener('dragstart', (e) => {
+          dragEl = row; row.classList.add('sp-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          try { e.dataTransfer.setData('text/plain', row.dataset.key || ''); } catch (_) {}
+        });
+        row.addEventListener('dragend', () => { row.classList.remove('sp-dragging'); dragEl = null; clearMarks(); });
+        row.addEventListener('dragover', (e) => {
+          if (!dragEl || dragEl === row) return;
+          e.preventDefault();
+          const r = row.getBoundingClientRect();
+          const before = e.clientY < r.top + r.height / 2;
+          row.classList.toggle('sp-drop-before', before);
+          row.classList.toggle('sp-drop-after', !before);
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('sp-drop-before', 'sp-drop-after'));
+        row.addEventListener('drop', (e) => {
+          e.preventDefault();
+          if (!dragEl || dragEl === row) return;
+          const before = row.classList.contains('sp-drop-before');
+          clearMarks();
+          host.insertBefore(dragEl, before ? row : row.nextSibling);
+          done();
+        });
+        row.addEventListener('keydown', (e) => {
+          if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+          e.preventDefault();
+          const list = rows(), i = list.indexOf(row);
+          const j = e.key === 'ArrowUp' ? i - 1 : i + 1;
+          if (j < 0 || j >= list.length) return;
+          host.insertBefore(row, e.key === 'ArrowUp' ? list[j] : list[j].nextSibling);
+          row.focus();
+          done();
+        });
+      });
+    }
+
+    // Inline SVG icons for the Sequences rows (v0.33.248-beta.2).
+    const SEQ_ICONS = (() => {
+      const i = (d, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+      return {
+        play: i('<path d="M7 4.5v15l12.5-7.5z"/>', true),
+        search: i('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>'),
+        lang: i('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>'),
+        trash: i('<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5M10 11v5.5M14 11v5.5"/>'),
+        filter: i('<path d="M3.5 5h17l-6.5 8v6l-4 1.5V13z"/>'),
+        stop: i('<rect x="6" y="6" width="12" height="12" rx="1.5"/>', true),
+        clock: i('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+      };
+    })();
+
+    // ======= Column chooser + order (v0.33.248-beta.2, order v0.33.248-beta.4) =======
+    // Hidden columns keep their values; they're only taken off the screen.
+    // Columns can be moved up/down in the menu (left/right in the table).
+    // Both are remembered per browser. The checkbox and drag handle stay
+    // first and the row buttons last.
+    const SEQ_COLS = [
+      { key: 'status', label: 'Status (active / inactive)' },
+      { key: 'art', label: 'Art' },
+      { key: 'display', label: 'Display Name', fixed: true },
+      { key: 'seqname', label: 'Sequence Name' },
+      { key: 'index', label: 'Playlist # (position in the playlist)', defaultHidden: true },
+      { key: 'artist', label: 'Artist' },
+      { key: 'category', label: 'Category' },
+      { key: 'visible', label: 'Visible' },
+      { key: 'vote', label: 'Vote' },
+      { key: 'jukebox', label: 'Jukebox' },
+      { key: 'psa', label: 'PSA' },
+      { key: 'cooldown', label: 'Cooldown' },
+    ];
+    const SEQ_BUTTONS = [
+      { key: 'preview', label: 'Preview audio' },
+      { key: 'search', label: 'Search title / cover' },
+      { key: 'lang', label: 'Languages' },
+    ];
+    const SEQ_DEFAULT_ORDER = SEQ_COLS.map(c => c.key);
+    // Saved as { hidden: [...], shown: [...] } so a column that's hidden by
+    // default (Playlist #) can be switched on, and new default-hidden columns
+    // stay hidden for people who already saved settings. Older saves were a
+    // plain array of hidden keys.
+    let _seqHiddenCols = new Set();
+    let _seqShownCols = new Set();
+    let _seqColOrder = SEQ_DEFAULT_ORDER.slice();
+    (function loadSeqColumnPrefs() {
+      try {
+        const raw = JSON.parse(localStorage.getItem('sp_seq_hidden_cols') || '[]');
+        if (Array.isArray(raw)) _seqHiddenCols = new Set(raw);
+        else { _seqHiddenCols = new Set(raw.hidden || []); _seqShownCols = new Set(raw.shown || []); }
+      } catch (e) {}
+      SEQ_COLS.forEach(c => { if (c.defaultHidden && !_seqShownCols.has(c.key)) _seqHiddenCols.add(c.key); });
+      try {
+        const saved = JSON.parse(localStorage.getItem('sp_seq_col_order') || 'null');
+        if (Array.isArray(saved)) {
+          const known = saved.filter(k => SEQ_DEFAULT_ORDER.includes(k));
+          SEQ_DEFAULT_ORDER.forEach((k, i) => {
+            // A column added in a later version goes after its default neighbour.
+            if (!known.includes(k)) {
+              const prev = SEQ_DEFAULT_ORDER[i - 1];
+              const at = prev ? known.indexOf(prev) + 1 : 0;
+              known.splice(at, 0, k);
+            }
+          });
+          _seqColOrder = known;
+        }
+      } catch (e) {}
+    })();
+
+    function saveSeqColumnPrefs() {
+      try {
+        localStorage.setItem('sp_seq_hidden_cols', JSON.stringify({ hidden: Array.from(_seqHiddenCols), shown: Array.from(_seqShownCols) }));
+        localStorage.setItem('sp_seq_col_order', JSON.stringify(_seqColOrder));
+      } catch (e) {}
+    }
+
+    // Put a row's (or the header's) cells in the saved column order, between
+    // the drag handle and the row buttons.
+    function orderSeqCells(tr) {
+      const anchor = tr.querySelector(':scope > .col-actions');
+      if (!anchor) return;
+      _seqColOrder.forEach(key => {
+        const cell = tr.querySelector(':scope > .col-' + key);
+        if (cell) tr.insertBefore(cell, anchor);
+      });
+    }
+
+    function applySeqColumns() {
+      const t = document.getElementById('sequencesTable');
+      if (!t) return;
+      SEQ_COLS.concat(SEQ_BUTTONS).forEach(c => { if (!c.fixed) t.classList.toggle('hide-' + c.key, _seqHiddenCols.has(c.key)); });
+      t.querySelectorAll('tr').forEach(orderSeqCells);
+    }
+    function setSeqColumnVisible(key, visible) {
+      if (visible) { _seqHiddenCols.delete(key); _seqShownCols.add(key); }
+      else { _seqHiddenCols.add(key); _seqShownCols.delete(key); }
+      saveSeqColumnPrefs();
+      applySeqColumns();
+    }
+    function resetSeqColumns() {
+      _seqColOrder = SEQ_DEFAULT_ORDER.slice();
+      _seqHiddenCols = new Set(SEQ_COLS.filter(c => c.defaultHidden).map(c => c.key));
+      _seqShownCols = new Set();
+      saveSeqColumnPrefs();
+      applySeqColumns();
+      buildSeqColumnsMenu();
+    }
+    function buildSeqColumnsMenu() {
+      const host = document.getElementById('seqColumnsList');
+      if (!host) return;
+      host.innerHTML = '';
+      const head = (text) => { const h = document.createElement('div'); h.className = 'sp-menu-head'; h.textContent = text; host.appendChild(h); };
+      const check = (c) => {
+        const lab = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = !_seqHiddenCols.has(c.key);
+        cb.addEventListener('change', () => setSeqColumnVisible(c.key, cb.checked));
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(c.label));
+        return lab;
+      };
+      head('Columns (left to right)');
+      const hint = document.createElement('div');
+      hint.className = 'sp-menu-hint'; hint.textContent = 'Drag to reorder';
+      host.appendChild(hint);
+      const list = document.createElement('div');
+      list.className = 'sp-col-list';
+      _seqColOrder.forEach((key) => {
+        const c = SEQ_COLS.find(x => x.key === key);
+        if (!c) return;
+        const row = document.createElement('div');
+        row.className = 'sp-col-row';
+        row.dataset.key = key;
+        row.title = 'Drag to move (or Alt+↑ / Alt+↓)';
+        const grip = document.createElement('span');
+        grip.className = 'sp-grip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
+        row.appendChild(grip);
+        if (c.fixed) {
+          const span = document.createElement('span');
+          span.className = 'sp-col-fixed'; span.textContent = c.label + ' (always shown)';
+          row.appendChild(span);
+        } else {
+          row.appendChild(check(c));
+        }
+        list.appendChild(row);
+      });
+      host.appendChild(list);
+      enableDragReorder(list, '.sp-col-row', (keys) => {
+        _seqColOrder = keys;
+        saveSeqColumnPrefs();
+        applySeqColumns();
+      });
+      head('Row buttons');
+      SEQ_BUTTONS.forEach(c => host.appendChild(check(c)));
+      const reset = document.createElement('button');
+      reset.type = 'button'; reset.className = 'secondary sp-col-reset'; reset.textContent = 'Reset columns';
+      reset.title = 'Default order, every column shown except Playlist #';
+      reset.addEventListener('click', (e) => { e.preventDefault(); resetSeqColumns(); });
+      host.appendChild(reset);
+    }
+    (function initSeqColumns() {
+      const go = () => { buildSeqColumnsMenu(); applySeqColumns(); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+    })();
+
+    // ======= Search / filters / compact view (v0.33.247) =======
+    // Filtering only hides rows (display:none) so drag-reorder and the saved
+    // order still cover every sequence.
+    let _seqFilter = 'all';
+    let _seqCategoryFilter = null;
+
+    function setSeqFilter(f) {
+      _seqFilter = f;
+      document.querySelectorAll('.seq-pill').forEach(b => b.classList.toggle('active', b.dataset.seqFilter === f));
+      applySeqFilter();
+    }
+
+    // Category filter: a category name, SEQ_UNCATEGORIZED, or null (all).
+    // v0.33.248-beta.6: shown as a row of pills under the search box; the
+    // funnel button on a row picks the same filter. Clicking the active pill
+    // (or All categories) clears it.
+    const SEQ_UNCATEGORIZED = '\u0000none';
+    function setSeqCategoryFilter(cat) {
+      _seqCategoryFilter = (cat === SEQ_UNCATEGORIZED || cat) ? String(cat) : null;
+      applySeqFilter();
+    }
+    function renderSeqCategoryPills() {
+      const host = document.getElementById('seqCatPills');
+      if (!host) return;
+      const all = sequencesCache || [];
+      const count = (pred) => all.filter(pred).length;
+      const key = (v) => String(v || '').trim().toLowerCase();
+      const cats = (categoriesCache || []).filter(c => count(s => key(s.category) === key(c.name)) > 0);
+      const uncat = count(s => !key(s.category));
+      if (!cats.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
+      host.style.display = 'flex';
+      host.innerHTML = '';
+      const lab = document.createElement('span');
+      lab.className = 'seq-catpills-label'; lab.textContent = 'Category';
+      host.appendChild(lab);
+      const pill = (text, value, n, extraTitle, off) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        const active = value === null ? _seqCategoryFilter === null
+          : (_seqCategoryFilter !== null && key(_seqCategoryFilter) === key(value));
+        b.className = 'seq-pill' + (active ? ' active' : '') + (off ? ' cat-off' : '');
+        b.textContent = n === null ? text : `${text} (${n})`;
+        if (extraTitle) b.title = extraTitle;
+        b.addEventListener('click', () => setSeqCategoryFilter(active && value !== null ? null : value));
+        host.appendChild(b);
+      };
+      pill('All categories', null, null);
+      cats.forEach(c => {
+        const off = c.enabled === 0 || c.available_now === false;
+        const why = c.enabled === 0 ? 'Switched off — hidden from viewers'
+          : (c.available_now === false ? 'Outside its schedule right now — hidden from viewers' : '');
+        pill(c.name, c.name, count(s => key(s.category) === key(c.name)), why, off);
+      });
+      if (uncat) pill('Uncategorized', SEQ_UNCATEGORIZED, uncat);
+    }
+
+    function seqMatchesFilter(seq, q) {
+      if (_seqFilter === 'active' && seq.active === 0) return false;
+      if (_seqFilter === 'inactive' && seq.active !== 0) return false;
+      if (_seqFilter === 'hidden' && seq.visible) return false;
+      if (_seqCategoryFilter === SEQ_UNCATEGORIZED) { if (String(seq.category || '').trim()) return false; }
+      else if (_seqCategoryFilter && String(seq.category || '').trim().toLowerCase() !== _seqCategoryFilter.trim().toLowerCase()) return false;
+      if (q) {
+        const hay = [seq.display_name, seq.name, seq.artist, seq.category].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }
+
+    function applySeqFilter() {
+      const q = (document.getElementById('seqSearch')?.value || '').trim().toLowerCase();
+      const byId = new Map((sequencesCache || []).map(s => [s.id, s]));
+      let shown = 0;
+      document.querySelectorAll('#sequencesBody tr[data-id]').forEach(tr => {
+        const seq = byId.get(Number(tr.dataset.id));
+        const ok = !seq || seqMatchesFilter(seq, q);
+        tr.style.display = ok ? '' : 'none';
+        if (ok) shown++;
+        if (!ok && _preview.id === Number(tr.dataset.id)) closeSeqPreview();
+      });
+      const all = sequencesCache || [];
+      const counts = {
+        all: all.length,
+        active: all.filter(s => s.active !== 0).length,
+        inactive: all.filter(s => s.active === 0).length,
+        hidden: all.filter(s => !s.visible).length,
+      };
+      const labels = { all: 'All', active: 'Active', inactive: 'Inactive', hidden: 'Hidden' };
+      document.querySelectorAll('.seq-pill').forEach(b => {
+        const k = b.dataset.seqFilter;
+        b.textContent = `${labels[k]} (${counts[k]})`;
+      });
+      renderSeqCategoryPills();
+      const none = document.getElementById('seqNoMatch');
+      if (none) none.style.display = (all.length && !shown) ? '' : 'none';
+      syncSelectAllState();
+    }
+
+    function setSeqCompact(on) {
+      const t = document.getElementById('sequencesTable');
+      if (t) t.classList.toggle('seq-compact', !!on);
+      try { localStorage.setItem('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
+    }
+    (function initSeqCompact() {
+      let on = false;
+      try { on = localStorage.getItem('sp_seq_compact') === '1'; } catch (e) {}
+      const apply = () => {
+        const cb = document.getElementById('seqCompact');
+        if (cb) cb.checked = on;
+        setSeqCompact(on);
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply); else apply();
+    })();
+
+    // ======= Sequence list CSV import / export (v0.33.247) =======
+    document.addEventListener('click', (e) => {
+      ['seqExportMenu', 'seqColumnsMenu'].forEach(id => {
+        const m = document.getElementById(id);
+        // composedPath() is fixed when the click starts, so a click on an item
+        // the menu then rebuilds still counts as inside (beta.4 closed it).
+        if (m && m.open && !e.composedPath().includes(m)) m.open = false;
+      });
+    });
+    function exportSequencesCsv(format) {
+      const m = document.getElementById('seqExportMenu');
+      if (m) m.open = false;
+      const a = document.createElement('a');
+      a.href = '/api/admin/sequences/export?format=' + encodeURIComponent(format);
+      a.download = '';
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    async function importSequencesCsv(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      const csv = await file.text();
+      const send = async (body) => {
+        const res = await fetch('/api/admin/sequences/import', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        let data = null; try { data = await res.json(); } catch (e) {}
+        return { ok: res.ok, data };
+      };
+      const dry = await send({ csv, dryRun: true });
+      if (!dry.ok) { showAlert('Import failed: ' + ((dry.data && dry.data.error) || 'the file could not be read.')); return; }
+      const d = dry.data;
+      if (!d.total) { showAlert('No sequences found in that file.'); return; }
+      let msg = `${d.total} sequence(s) in the file.\n\n${d.matched} match sequences you already have — their details will be updated from the file (blank cells are left alone).`;
+      if (!d.matched && !d.missing) return;
+      let addMissing = false;
+      if (d.missing) {
+        msg += `\n\n${d.missing} aren't in ShowPilot yet` + (d.missingNames.length ? ` (e.g. ${d.missingNames.slice(0, 3).join(', ')}).` : '.');
+      }
+      if (!await showConfirm(msg, { okLabel: 'Import' })) return;
+      if (d.missing) {
+        addMissing = await showConfirm(`Also add the ${d.missing} sequence(s) that aren't in ShowPilot yet?\n\nThey'll be added as Inactive (hidden from viewers) and become active, keeping these details, once your show player's playlist includes them.`, { okLabel: 'Add them', cancelLabel: 'Skip' });
+      }
+      const r = await send({ csv, addMissing });
+      if (!r.ok) { showAlert('Import failed: ' + ((r.data && r.data.error) || 'unknown error')); return; }
+      showAlert(`Import done: ${r.data.updated} updated` + (r.data.added ? `, ${r.data.added} added as inactive.` : '.'));
+      loadSequences();
     }
 
     async function updateSeqField(id, field, value) {
@@ -7294,118 +7943,86 @@
       updateSeqField(id, 'cooldown_minutes', v);
     }
 
-    // ======= Audio preview =======
-    // Toggles an inline player row beneath the sequence. Only one preview
-    // can be open at a time — opening another closes the existing one.
-    // Shows whether audio came from local cache or FPP fallback so admins
-    // can verify the cache is doing its job.
-    let _activePreviewId = null;
+    // ======= Audio preview (v0.33.248-beta.3) =======
+    // No player bar: the ▶ button itself becomes "■ 0:42" (stop + elapsed
+    // time) while the audio plays in this browser, and a second click stops
+    // it. One preview at a time. Where the audio came from (ShowPilot's
+    // cache or the show player) is in the button's tooltip. The preview
+    // survives list refreshes and stops when you leave the Sequences page,
+    // hide that row with a filter, or the song ends.
+    const _preview = { audio: null, id: null, source: '' };
 
-    function toggleSeqPreview(seqId) {
-      // If clicking the same sequence's button, just close.
-      if (_activePreviewId === seqId) {
-        closeSeqPreview();
-        return;
-      }
-      // Close any other open preview first.
-      if (_activePreviewId !== null) {
-        closeSeqPreview();
-      }
-      openSeqPreview(seqId);
+    function fmtPreviewTime(sec) {
+      const s = Math.max(0, Math.floor(sec || 0));
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function paintSeqPreviewBtns() {
+      document.querySelectorAll('#sequencesBody .col-preview').forEach(btn => {
+        const id = Number(btn.closest('tr').dataset.id);
+        const on = _preview.audio && _preview.id === id;
+        btn.classList.toggle('seq-previewing', !!on);
+        if (on) {
+          btn.innerHTML = SEQ_ICONS.stop + '<span>' + fmtPreviewTime(_preview.audio.currentTime) + '</span>';
+          btn.title = 'Stop preview' + (_preview.source ? ' — ' + _preview.source : '');
+          btn.setAttribute('aria-label', 'Stop preview');
+        } else {
+          btn.innerHTML = SEQ_ICONS.play;
+          btn.title = 'Preview the audio for this sequence (plays in this browser, not on the show speakers)';
+          btn.setAttribute('aria-label', 'Preview');
+        }
+      });
     }
 
     function closeSeqPreview() {
-      const existing = document.querySelector('.seq-preview-row');
-      if (existing) {
-        // Stop any active audio before removing — otherwise it keeps
-        // playing in the background even though the controls disappeared.
-        const audio = existing.querySelector('audio');
-        if (audio) {
-          try { audio.pause(); } catch (e) {}
-          // Revoke any blob URL we created (none right now, but reserved
-          // for future if we switch to blob fetching).
-        }
-        existing.remove();
+      const a = _preview.audio;
+      _preview.audio = null; _preview.id = null; _preview.source = '';
+      if (a) {
+        // Detach first: clearing the source fires 'error' on the old element.
+        a.onended = a.onerror = a.ontimeupdate = null;
+        try { a.pause(); a.removeAttribute('src'); a.load(); } catch (e) {}
       }
-      _activePreviewId = null;
+      paintSeqPreviewBtns();
     }
 
-    function openSeqPreview(seqId) {
+    function toggleSeqPreview(seqId) {
+      const same = _preview.id === seqId;
+      closeSeqPreview();
+      if (same) return;
       const seq = (sequencesCache || []).find(s => s.id === seqId);
       if (!seq) return;
-      // Locate the row to insert the preview row beneath.
-      const tbody = document.getElementById('sequencesBody');
-      const targetRow = tbody.querySelector('tr[data-id="' + seqId + '"]');
-      if (!targetRow) return;
-      // Total column count needs to match the sequences table or the
-      // colspan won't fill the whole row visually.
-      const colCount = tbody.parentElement.querySelector('thead tr').children.length;
-      const previewRow = document.createElement('tr');
-      previewRow.className = 'seq-preview-row';
-      previewRow.dataset.previewFor = seqId;
-      previewRow.innerHTML =
-        '<td colspan="' + colCount + '" style="padding: 0.6rem 1rem; background: var(--bg-elevated, rgba(255,255,255,0.03));">' +
-          '<div class="row" style="align-items: center; gap: 0.75rem; flex-wrap: wrap;">' +
-            '<audio id="seqPreviewAudio_' + seqId + '" controls preload="auto" style="flex: 1; min-width: 280px; height: 36px;"></audio>' +
-            '<span id="seqPreviewSource_' + seqId + '" class="muted" style="font-size: 0.85rem; min-width: 130px;">Loading…</span>' +
-            '<button class="secondary" onclick="closeSeqPreview()" style="padding: 0.3rem 0.7rem;">Close</button>' +
-          '</div>' +
-          '<div id="seqPreviewError_' + seqId + '" style="display: none; color: var(--status-danger); font-size: 0.85rem; margin-top: 0.4rem;"></div>' +
-        '</td>';
-      targetRow.parentElement.insertBefore(previewRow, targetRow.nextSibling);
-      _activePreviewId = seqId;
-
-      // /api/audio-stream/:sequence is keyed on the FPP sequence name —
-      // same endpoint the viewers use. This means the preview tests the
-      // exact same code path real users hit.
-      //
-      // Append ?t=<now> to force the browser to fetch fresh bytes every
-      // time the admin opens a preview. Admin previews are one-off
-      // diagnostics — there's no benefit to leveraging the browser's
-      // HTTP cache, and it actively HURTS to do so when we're trying to
-      // verify a recent file change worked.
-      const audio = document.getElementById('seqPreviewAudio_' + seqId);
-      const sourceEl = document.getElementById('seqPreviewSource_' + seqId);
-      const errorEl = document.getElementById('seqPreviewError_' + seqId);
-      const streamUrl = '/api/audio-stream/' + encodeURIComponent(seq.name) + '?t=' + Date.now();
-
-      audio.src = streamUrl;
-      audio.addEventListener('error', function() {
-        // Audio element's error event fires when the network/decode fails.
-        // Codes are mostly unhelpful (4 = MEDIA_ERR_SRC_NOT_SUPPORTED) so
-        // we just say generic — admin can dig further if needed.
-        errorEl.style.display = '';
-        errorEl.textContent = 'Audio playback error. The file may not be cached yet, or the server returned an error.';
-        sourceEl.textContent = 'failed';
-        sourceEl.style.color = 'var(--status-danger)';
+      // Same endpoint the viewers use, so the preview tests the real path.
+      // ?t= skips the browser cache so a just-replaced file is what you hear.
+      const url = '/api/audio-stream/' + encodeURIComponent(seq.name) + '?t=' + Date.now();
+      const a = new Audio(url);
+      _preview.audio = a; _preview.id = seqId;
+      const mine = () => _preview.audio === a;
+      a.ontimeupdate = () => {
+        if (!mine()) return;
+        const btn = document.querySelector('#sequencesBody tr[data-id="' + seqId + '"] .col-preview span');
+        if (btn) btn.textContent = fmtPreviewTime(a.currentTime);
+      };
+      a.onended = () => { if (mine()) closeSeqPreview(); };
+      a.onerror = () => {
+        if (!mine()) return;
+        closeSeqPreview();
+        showAlert('Couldn\'t play the audio for "' + (seq.display_name || seq.name) + '". The file may not be cached yet, or the show player didn\'t return it.');
+      };
+      paintSeqPreviewBtns();
+      a.play().catch((e) => {
+        if (!mine() || e.name === 'AbortError') return;
+        closeSeqPreview();
+        showAlert('Couldn\'t start the preview: ' + e.message);
       });
-
-      // Probe the source via HEAD — this lets us read the X-Audio-Source
-      // header without forcing the full audio download just for the
-      // indicator. The audio element does its own GET in parallel.
-      fetch(streamUrl, { method: 'HEAD', credentials: 'include' })
-        .then(function(res) {
-          if (!res.ok) {
-            sourceEl.textContent = 'HTTP ' + res.status;
-            sourceEl.style.color = 'var(--status-danger)';
-            return;
-          }
-          const src = (res.headers.get('X-Audio-Source') || 'unknown').toLowerCase();
-          if (src === 'cache') {
-            sourceEl.textContent = '⚡ from cache';
-            sourceEl.style.color = 'var(--status-success, #4ade80)';
-          } else if (src === 'fpp') {
-            sourceEl.textContent = '↪ via show player';
-            sourceEl.style.color = 'var(--status-warning, #f59e0b)';
-          } else {
-            sourceEl.textContent = src;
-            sourceEl.style.color = 'var(--text-dim)';
-          }
-        })
-        .catch(function(err) {
-          sourceEl.textContent = 'probe failed';
-          sourceEl.style.color = 'var(--status-danger)';
-        });
+      // Where is it coming from? A HEAD request reads X-Audio-Source without
+      // downloading the file again.
+      fetch(url, { method: 'HEAD', credentials: 'include' }).then((res) => {
+        if (!mine() || !res.ok) return;
+        const src = (res.headers.get('X-Audio-Source') || '').toLowerCase();
+        _preview.source = src === 'cache' ? 'playing from ShowPilot\'s audio cache'
+          : src === 'fpp' ? 'playing via the show player (not cached yet)' : '';
+        paintSeqPreviewBtns();
+      }).catch(() => {});
     }
 
     async function promptImageUrl(id, current) {
@@ -7443,6 +8060,12 @@
               <input type="text" id="coverManualUrl" placeholder="https://..." style="flex: 1;" />
               <button class="secondary" onclick="setCoverFromUrl(${seq.id})">Use URL</button>
               <button class="danger" onclick="clearCover(${seq.id})">Remove</button>
+            </div>
+            <div class="row" style="gap: 0.5rem; margin-top: 0.5rem; align-items: center;">
+              <label style="margin: 0; flex-shrink: 0;">Or upload:</label>
+              <button class="secondary" onclick="document.getElementById('coverUploadFile').click()">Choose image…</button>
+              <input type="file" id="coverUploadFile" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="uploadCover(${seq.id}, this)" />
+              <span class="muted" style="font-size: 0.8rem;">JPEG, PNG, GIF or WebP, up to 10 MB. Square works best.</span>
             </div>
             <div id="coverResults" class="cover-grid"></div>
             <div id="coverStatus" class="muted" style="margin-top: 0.75rem;"></div>
@@ -7520,6 +8143,26 @@
         setTimeout(() => { closeCoverModal(); loadSequences(); }, 700);
       } else {
         status.textContent = 'Failed: ' + (r.data?.error || 'unknown');
+      }
+    }
+
+    async function uploadCover(seqId, input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      const status = document.getElementById('coverStatus');
+      if (file.size > 10 * 1024 * 1024) { status.textContent = 'That image is over 10 MB.'; return; }
+      status.textContent = 'Uploading…';
+      const res = await fetch(`/api/admin/sequences/${seqId}/cover-upload`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+      });
+      let data = null; try { data = await res.json(); } catch (e) {}
+      if (res.ok) {
+        status.textContent = '✓ Cover updated';
+        setTimeout(() => { closeCoverModal(); loadSequences(); }, 700);
+      } else {
+        status.textContent = 'Upload failed: ' + ((data && data.error) || 'HTTP ' + res.status);
       }
     }
 
@@ -7635,8 +8278,11 @@
     }
 
     async function deleteInactiveSequences() {
-      // "Inactive" = not visible AND not votable AND not jukeboxable
-      if (!await showConfirm('Delete all sequences that are NOT visible, NOT votable, and NOT jukeboxable?', { danger: true, okLabel: 'Delete' })) return;
+      // "Inactive" = no longer in the show player's playlist, OR switched off
+      // everywhere (not visible, votable or jukeboxable, not a PSA).
+      const n = (sequencesCache || []).filter(s => s.active === 0 || (!s.visible && !s.votable && !s.jukeboxable && !s.is_psa)).length;
+      if (!n) { showAlert('There are no inactive sequences to delete.'); return; }
+      if (!await showConfirm(`Delete ${n} inactive sequence(s)?\n\nThat's sequences no longer in your show player's playlist, plus ones switched off everywhere (not visible, votable or jukebox). Their display names, artists, covers and categories are deleted too.`, { danger: true, okLabel: 'Delete' })) return;
       const r = await api('/sequences/delete-inactive', { method: 'POST' });
       if (r.ok) {
         showAlert('Deleted ' + (r.data.deleted || 0) + ' sequence(s)');
@@ -7908,7 +8554,8 @@
     }
 
     function toggleSelectAllSeqs(checked) {
-      const checkboxes = document.querySelectorAll('.seq-row-check');
+      // v0.33.247: only rows the current search/filter shows.
+      const checkboxes = Array.from(document.querySelectorAll('.seq-row-check')).filter(cb => cb.closest('tr').style.display !== 'none');
       checkboxes.forEach(cb => {
         cb.checked = checked;
         const id = Number(cb.dataset.seqId);
@@ -7921,7 +8568,7 @@
     function syncSelectAllState() {
       const all = document.getElementById('seqSelectAll');
       if (!all) return;
-      const checkboxes = document.querySelectorAll('.seq-row-check');
+      const checkboxes = Array.from(document.querySelectorAll('.seq-row-check')).filter(cb => cb.closest('tr').style.display !== 'none');
       const total = checkboxes.length;
       const selected = Array.from(checkboxes).filter(cb => cb.checked).length;
       if (selected === 0) {

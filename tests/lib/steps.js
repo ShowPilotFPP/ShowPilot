@@ -209,6 +209,15 @@ const STEPS = [
   { doc: 'the song ends   (the show player plays whatever ShowPilot asks for, else the next song)',
     re: /^the song ends$/i,
     fn: async (ctx) => { ctx.last.played = await ctx.player.playNext(); } },
+  { doc: 'the show player takes every waiting request   (into its own queue, like the FPP plugin near the end of a song)',
+    re: /^the show player takes every waiting request$/i,
+    fn: async (ctx) => { ctx.last.taken = await ctx.player.takeAll(); } },
+  { doc: 'the show player\'s own queue is "A" and "B"',
+    re: new RegExp(`^the show player's own queue is ${LIST}$`, 'i'),
+    fn: async (ctx, list) => {
+      const want = names(list);
+      assert(JSON.stringify(ctx.player.queue) === JSON.stringify(want), `the show player's queue is [${ctx.player.queue.join(', ')}], expected [${want.join(', ')}]`);
+    } },
   { doc: 'the show player clears the queue   (the "Clear Queue" FPP command)',
     re: /^the show player clears the queue$/i,
     fn: async (ctx) => { ctx.last.cleared = await ctx.player.clearQueue(); } },
@@ -465,6 +474,26 @@ const STEPS = [
       const t = await visibleText(pageOf(ctx, 'admin'));
       assert(t.includes(text), `the admin page doesn't show "${text}"`);
     }) },
+  { doc: 'the admin does not see "text"',
+    re: new RegExp(`^the admin does not see ${q}$`, 'i'),
+    fn: async (ctx, text) => eventually(async () => {
+      const t = await visibleText(pageOf(ctx, 'admin'));
+      assert(!t.includes(text), `the admin page shows "${text}"`);
+    }) },
+  { doc: 'the server log says "text"   (Settings → Debug → Server log)',
+    re: new RegExp(`^the server log says ${q}$`, 'i'),
+    fn: async (ctx, text) => eventually(async () => {
+      const r = await adminOk(ctx, 'GET', '/server-log?lines=3000&filter=' + encodeURIComponent(text));
+      assert(r.lines.length > 0, `the server log has no line containing "${text}"`);
+    }) },
+  { doc: 'the downloaded server log has "text"',
+    re: new RegExp(`^the downloaded server log has ${q}$`, 'i'),
+    fn: async (ctx, yes) => {
+      const r = await http(ctx, 'GET', '/api/admin/server-log/download', { cookie: ctx.sp.adminCookie });
+      assert(r.status === 200, `download → HTTP ${r.status}`);
+      assert(String(r.body).includes(yes), `the downloaded log doesn't contain "${yes}"`);
+      assert(!String(r.body).includes(ctx.sp.showToken), 'the downloaded log contains the show token');
+    } },
   { doc: 'the admin does not see "text" in Top sequences',
     re: new RegExp(`^the admin does not see ${q} in top sequences$`, 'i'),
     fn: async (ctx, text) => eventually(async () => {

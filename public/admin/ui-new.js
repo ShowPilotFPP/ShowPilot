@@ -386,10 +386,13 @@
       $('spnLiveT').textContent = 'Live vote'; $('spnLiveS').textContent = rows.length ? 'Round closes when the current song ends' : '';
       live.innerHTML = rows.length ? bars(rows) : '<div class="spn-empty"><strong>No votes yet this round.</strong><span class="spn-muted">Votes show up here the moment viewers cast them.</span></div>';
     } else if (mode === 'JUKEBOX') {
-      const pending = dashQueue.filter(q => !q.handed_off_at);
+      // Every request that hasn't played, including those already handed to
+      // the show player (they wait in its queue). Before v0.33.249 those were
+      // left out, so the list emptied while songs were still waiting (#37).
+      const pending = dashQueue.slice();
       $('spnLiveT').textContent = 'Request queue'; $('spnLiveS').textContent = pending.length ? pending.length + ' waiting' : '';
-      live.innerHTML = pending.length ? pending.map((q, i) => '<div class="spn-q"><span class="spn-muted">' + (i + 1) + '</span><div><div style="font-weight:600">' + esc(q.display_name || q.sequence_name) + '</div><div class="spn-muted" style="font-size:13px">' + esc(q.artist || '') + '</div></div><span></span>' +
-        '<button type="button" class="spn-x" data-id="' + esc(q.id) + '" aria-label="Remove ' + esc(q.display_name || q.sequence_name) + ' from the queue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>').join('')
+      live.innerHTML = pending.length ? pending.map((q, i) => '<div class="spn-q"><span class="spn-muted">' + (i + 1) + '</span><div><div style="font-weight:600">' + esc(q.display_name || q.sequence_name) + '</div><div class="spn-muted" style="font-size:13px">' + esc(q.artist || '') + (q.handed_off_at ? (q.artist ? ' · ' : '') + 'sent to the show player' : '') + '</div></div><span></span>' +
+        (q.handed_off_at ? '<span></span></div>' : '<button type="button" class="spn-x" data-id="' + esc(q.id) + '" aria-label="Remove ' + esc(q.display_name || q.sequence_name) + ' from the queue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>')).join('')
         : '<div class="spn-empty"><strong>The queue is empty.</strong><span class="spn-muted">Requests from viewers appear here in the order they will play.</span></div>';
       live.querySelectorAll('.spn-x').forEach(b => b.addEventListener('click', async () => { await window.removeQueueEntry(Number(b.dataset.id)); refreshDash(); }));
     } else {

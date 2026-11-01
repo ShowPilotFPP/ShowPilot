@@ -14,6 +14,10 @@ class ShowPlayer {
     this.playlist = [];
     this.playing = null;
     this.lastAnswer = null;
+    // Requests already taken from ShowPilot and waiting in this player's own
+    // queue, like the FPP plugin's pending queue (it takes each request as
+    // ShowPilot hands it out and lines them up in FPP).
+    this.queue = [];
   }
 
   async call(method, path, body) {
@@ -39,6 +43,10 @@ class ShowPlayer {
 
   // Start a song (or '' for "nothing playing").
   async play(name) {
+    // Like the plugin: when a queued song starts, it and everything before it
+    // leave the queue (anything before it was passed over).
+    const qi = this.queue.indexOf(name);
+    if (qi >= 0) this.queue = this.queue.slice(qi + 1);
     this.playing = name || null;
     await this.call('POST', '/playing', { sequence: name || '', seconds_played: 0 });
     // Up Next for the schedule tier: the song after this one in the playlist.
@@ -62,7 +70,25 @@ class ShowPlayer {
 
   // Finish the current song: play whatever ShowPilot asks for, otherwise the
   // next song in the playlist.
+  // Take every request ShowPilot hands out right now into this player's own
+  // queue (the plugin does this when it polls near the end of a song).
+  async takeAll() {
+    for (let i = 0; i < 50; i++) {
+      const a = await this.ask();
+      if (a.why !== 'request' || !a.name || this.queue.includes(a.name)) break;
+      this.queue.push(a.name);
+    }
+    return this.queue.slice();
+  }
+
   async playNext() {
+    if (this.queue.length) {
+      // Pick up anything new first, then play the head of the queue.
+      await this.takeAll();
+      const name = this.queue[0];
+      await this.play(name);
+      return { name, why: 'request' };
+    }
     const a = await this.ask();
     let name = a.name;
     if (!name) {

@@ -387,6 +387,14 @@ router.get('/state', (req, res) => {
     // only acts on nextRequest in JUKEBOX mode, so report that while a
     // queued request is being handed over.
     if (cfg.viewer_control_mode === 'LISTEN') response.viewerMode = 'LISTEN';
+    // Every request already handed over is still waiting in the show
+    // player's own queue, so keep them all fresh. Before, only the oldest
+    // was refreshed: with three or more songs handed over, the later ones
+    // passed the 5-minute stale cleanup while still waiting their turn and
+    // vanished from the queue lists (GitHub #37). If the show player stops
+    // asking, they still expire after 5 minutes.
+    db.prepare(`UPDATE jukebox_queue SET handed_off_at = CURRENT_TIMESTAMP
+                WHERE played = 0 AND handed_off_at IS NOT NULL`).run();
     const next = popNextQueuedRequest();
     if (next) {
       response.nextRequest = {
@@ -395,6 +403,7 @@ router.get('/state', (req, res) => {
         queuedAt: next.requested_at,
       };
       rememberHandoff(next.sequence_name, 'request');
+      console.log(`[queue] handed "${next.sequence_name}" to the show player (requested ${next.requested_at} UTC${next.skip_count ? ', again after it was passed over' : ''})`);
       if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
@@ -411,7 +420,7 @@ router.get('/state', (req, res) => {
         FROM jukebox_queue q
         LEFT JOIN sequences s ON s.name = q.sequence_name COLLATE NOCASE
         WHERE q.played = 0 AND q.handed_off_at IS NOT NULL
-        ORDER BY q.requested_at ASC LIMIT 1
+        ORDER BY q.requested_at ASC, q.id ASC LIMIT 1
       `).get();
       if (pending) {
         db.prepare(
@@ -573,7 +582,12 @@ router.post('/playing', (req, res) => {
   if (name) {
     // Determine source: was this sequence just handed out to the plugin (viewer-driven),
     // or is FPP playing it from the schedule on its own?
-    const handoffSource = consumeHandoff(name);
+    // A request waiting in the show player's queue can start more than 5
+    // minutes after it was handed over (the in-memory handoff note expires),
+    // so a handed-over queue entry with this name also counts as a request.
+    const handoffSource = consumeHandoff(name) || (db.prepare(
+      `SELECT 1 FROM jukebox_queue WHERE sequence_name = ? AND played = 0 AND handed_off_at IS NOT NULL LIMIT 1`
+    ).get(name) ? 'request' : null);
     const source = handoffSource || 'schedule';
 
     db.prepare(`

@@ -1470,6 +1470,37 @@ router.post('/templates/:id/toggle-lock', requireAdmin, (req, res) => {
   res.json({ ok: true, locked: newLocked });
 });
 
+// ---- Server log (v0.33.249+) ----
+// GET /server-log?lines=300&filter=queue  -> { lines: [...], startedAt }
+// GET /server-log/download                -> the whole log as a text file
+router.get('/server-log', requireAdmin, (req, res) => {
+  const sl = require('../lib/server-log');
+  const n = Math.max(1, Math.min(3000, parseInt(req.query.lines, 10) || 300));
+  res.json({ lines: sl.recent(n, String(req.query.filter || '').slice(0, 100)), ...sl.info() });
+});
+router.get('/server-log/download', requireAdmin, (req, res) => {
+  const sl = require('../lib/server-log');
+  const cfg = getConfig();
+  const pkg = require('../package.json');
+  const header = [
+    `ShowPilot server log`,
+    `Version: ${pkg.version}`,
+    `Node: ${process.version} on ${process.platform}/${process.arch}`,
+    `Downloaded: ${new Date().toISOString()}  (server up since ${sl.info().startedAt})`,
+    `Server time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown'}${cfg.show_timezone ? `, show time zone: ${cfg.show_timezone}` : ''}`,
+    `Viewer mode: ${cfg.viewer_control_mode}, interrupt schedule: ${cfg.interrupt_schedule ? 'on' : 'off'}`,
+    `Show player: ${cfg.plugin_version ? 'plugin v' + cfg.plugin_version : 'unknown'}, last seen ${cfg.plugin_last_seen_at || 'never'} (UTC)`,
+    `Times in the log are UTC.`,
+    '-'.repeat(60),
+    '',
+  ].join('\n');
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="showpilot-log-${stamp}.txt"`);
+  res.set('Cache-Control', 'no-store');
+  res.send(header + sl.redact(sl.fullText()));
+});
+
 // ---- Global CSS (v0.33.249+, GitHub #36) ----
 // PUT takes { css?, enabled? }. Saving new css keeps the old one as the
 // "previous" version; restore swaps the two, so a restore can be undone.
@@ -2176,7 +2207,7 @@ router.get('/queue', requireAdmin, (req, res) => {
     FROM jukebox_queue q
     LEFT JOIN sequences s ON s.name = q.sequence_name
     WHERE q.played = 0
-    ORDER BY q.requested_at ASC
+    ORDER BY q.requested_at ASC, q.id ASC
   `).all();
 
   // Jukebox mode lists the last played REQUESTS. Other modes have no

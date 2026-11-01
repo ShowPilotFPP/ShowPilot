@@ -9,6 +9,8 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { Server } = require('socket.io');
 const config = require('./lib/config-loader');
+// Keep ShowPilot's log for Settings → Debug → Server log (v0.33.249+).
+require('./lib/server-log').install(path.dirname(path.resolve(config.dbPath)), [config.showToken, config.jwtSecret]);
 const { cleanupStaleViewers } = require('./lib/db');
 // Register any pre-existing sequences.category text as categories (idempotent).
 try { require('./lib/categories').seedFromSequences(); } catch (e) { console.warn('[categories] seed failed:', e.message); }

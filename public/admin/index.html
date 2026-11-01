@@ -1924,7 +1924,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.9</span>
+        <span class="app-version">v0.33.249-beta.10</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3875,6 +3875,19 @@
 
           <!-- DEBUG — diagnostics toggles for audio sync troubleshooting (v0.33.194+) -->
           <div class="sub-tab-pane" data-subtab="debug">
+            <h3 style="margin: 0 0 0.25rem;">Server log</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              What ShowPilot has been doing: what the show player was told to play, what it reported playing, requests, votes, errors.
+              When something goes wrong, <b>Download log</b> and send the file with your report. Times are UTC.
+              Tokens and passwords are hidden; viewers' IP addresses can appear in it.
+            </p>
+            <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem;">
+              <button type="button" onclick="window.location.href = '/api/admin/server-log/download'">⬇ Download log</button>
+              <input type="text" id="serverLogFilter" placeholder="Only lines containing… (e.g. queue, playing, error)" style="flex: 1; min-width: 200px;" onkeydown="if (event.key === 'Enter') loadServerLog()" />
+              <button type="button" class="secondary" onclick="loadServerLog()">↻ Show latest</button>
+            </div>
+            <pre id="serverLogView" style="max-height: 420px; overflow: auto; font-size: 12px; line-height: 1.45; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; word-break: break-word; margin: 0 0 1.5rem;">Open this page to see the latest lines.</pre>
+
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
               Diagnostics for audio sync troubleshooting. Both options are off by default
               and intended for temporary use — they expose internal state to all visitors.
@@ -6784,6 +6797,7 @@
       if (name === 'viewer-translation') loadTranslationSettings();
       if (name === 'viewer-schedule') loadSchedules();
       if (name === 'viewer-globalcss') loadGlobalCss();
+      if (name === 'debug') loadServerLog();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're
@@ -9400,6 +9414,17 @@
       });
     }
 
+    // ---- Server log (v0.33.249+) ----
+    async function loadServerLog() {
+      const view = document.getElementById('serverLogView');
+      if (!view) return;
+      const filter = (document.getElementById('serverLogFilter') || {}).value || '';
+      const r = await api('/server-log?lines=400&filter=' + encodeURIComponent(filter));
+      if (!r.ok) { view.textContent = 'Could not load the log.'; return; }
+      view.textContent = r.data.lines.length ? r.data.lines.join('\n') : (filter ? 'No lines contain "' + filter + '".' : 'Nothing logged yet.');
+      view.scrollTop = view.scrollHeight;
+    }
+
     // ---- Global CSS (v0.33.249+, GitHub #36) ----
     async function loadGlobalCss() {
       const r = await api('/global-css');
@@ -10592,13 +10617,17 @@
         return;
       }
       el.innerHTML = entries.map(q => {
+        // Handed over = in the show player's own queue, waiting its turn. The
+        // song that is playing has already moved to "Recently played", so
+        // nothing in this list is playing (before v0.33.249 every handed-over
+        // song said "Playing now", GitHub #37).
         const isPlaying = allowDelete && q.handed_off_at;
         const cover = q.image_url
           ? `<img src="${escapeAttr(q.image_url)}" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0;" alt="" />`
           : `<div style="width: 36px; height: 36px; border-radius: 4px; background: var(--bg-tertiary); flex-shrink: 0;"></div>`;
         const sourceLabel = { vote: 'vote winner', request: 'request', psa: 'PSA', schedule: 'show schedule' }[q.source] || '';
         const subtitle = isPlaying
-          ? '<span style="color: var(--status-success); font-weight: 600;">▶ Playing now</span>'
+          ? `<span style="color: var(--status-success); font-weight: 600;" title="ShowPilot has passed this request to the show player, which plays it in turn">Sent to the show player</span> · requested ${formatRelative(q.requested_at)}`
           : (q.played_at
               ? `played ${formatRelative(q.played_at)}${sourceLabel ? ' · ' + sourceLabel : ''}`
               : `requested ${formatRelative(q.requested_at)}`);

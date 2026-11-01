@@ -233,7 +233,7 @@ router.get('/state', (req, res) => {
   // entry; everything after it is genuinely "queued behind."
   const queueAll = db.prepare(`
     SELECT sequence_name, requested_at, handed_off_at FROM jukebox_queue
-    WHERE played = 0 ORDER BY requested_at ASC
+    WHERE played = 0 ORDER BY requested_at ASC, id ASC
   `).all();
 
   // Filter out the currently-playing entry from the queue display
@@ -703,7 +703,7 @@ router.post('/jukebox/add', (req, res) => {
     const firstQueued = db.prepare(
       `SELECT sequence_name FROM jukebox_queue
        WHERE played = 0 AND sequence_name != COALESCE(?, '')
-       ORDER BY requested_at ASC LIMIT 1`
+       ORDER BY requested_at ASC, id ASC LIMIT 1`
     ).get(np.sequence_name || null);
     const nextUp = firstQueued ? firstQueued.sequence_name : (np.next_sequence_name || null);
     if (nextUp && nextUp === seq.name) {
@@ -713,14 +713,16 @@ router.post('/jukebox/add', (req, res) => {
 
   const token = ensureViewerToken(req, res);
 
-  // queueSize, sequence-request-limit, and prevent-multiple-requests checks
-  // should only count *pending* queue entries (handed_off_at IS NULL).
-  // In-flight entries (handed_off_at IS NOT NULL but played=0) are already with
-  // the plugin / FPP and shouldn't count against viewers anymore.
+  // queueSize, sequence-request-limit and prevent-multiple-requests count
+  // every request that hasn't played yet. ShowPilot hands requests to the
+  // show player as soon as it asks (often seconds after the tap), and they
+  // then wait in its queue; counting only the ones not yet handed over
+  // (before v0.33.249) let the queue grow past its limit and let a viewer
+  // request again while their first song was still waiting (GitHub #37).
 
   if (cfg.jukebox_queue_depth > 0) {
     const queueSize = db.prepare(
-      `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0 AND handed_off_at IS NULL`
+      `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`
     ).get().n;
     if (queueSize >= cfg.jukebox_queue_depth) {
       return res.status(409).json({ error: 'The queue is full. Try again later.' });
@@ -730,7 +732,7 @@ router.post('/jukebox/add', (req, res) => {
   if (cfg.jukebox_sequence_request_limit > 0) {
     const seqCount = db.prepare(
       `SELECT COUNT(*) AS n FROM jukebox_queue
-       WHERE played = 0 AND handed_off_at IS NULL AND sequence_name = ?`
+       WHERE played = 0 AND sequence_name = ?`
     ).get(seq.name).n;
     if (seqCount >= cfg.jukebox_sequence_request_limit) {
       return res.status(409).json({
@@ -743,7 +745,7 @@ router.post('/jukebox/add', (req, res) => {
     const limit = Math.max(1, parseInt(cfg.viewer_request_limit, 10) || 1);
     const existing = db.prepare(
       `SELECT COUNT(*) AS n FROM jukebox_queue
-       WHERE viewer_token = ? AND played = 0 AND handed_off_at IS NULL`
+       WHERE viewer_token = ? AND played = 0`
     ).get(token).n;
     if (existing >= limit) {
       const noun = limit === 1 ? 'request' : 'requests';

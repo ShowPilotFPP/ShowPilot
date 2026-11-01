@@ -87,6 +87,8 @@ it and reports back. The scenario then stays in the suite.
   the show player switches to Voting | Jukebox | Race | Listen only | Off | On
   the show player plays "A"
   the song ends   (the show player plays whatever ShowPilot asks for, else the next song)
+  the show player takes every waiting request   (into its own queue, like the FPP plugin near the end of a song)
+  the show player's own queue is "A" and "B"
   the show player clears the queue   (the "Clear Queue" FPP command)
   the show player sets the viewer page to "Name"   (the "Set Viewer Page" command)
   the show player switches the category "Kids" off | on
@@ -129,6 +131,9 @@ it and reports back. The scenario then stays in the suite.
   the live viewer page is "Name"
   it fails with "text"   (the last show player command)
   the admin sees "text"
+  the admin does not see "text"
+  the server log says "text"   (Settings → Debug → Server log)
+  the downloaded server log has "text"
   the admin does not see "text" in Top sequences
   the admin page still responds
   the preview is paused

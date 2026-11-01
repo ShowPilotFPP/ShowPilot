@@ -281,6 +281,7 @@ router.get('/state', (req, res) => {
     nowPlayingImageUrl: npLabel.imageUrl ? bustCoverUrl(npLabel.imageUrl) : null,
     nextScheduledDisplayName: nextLabel.displayName,
     nextScheduledImageUrl: nextLabel.imageUrl ? bustCoverUrl(nextLabel.imageUrl) : null,
+    nextScheduledArtist: nextUp ? (nextLabel.artist || '') : '',
     nowPlayingStartedAtIso,
     nowPlayingDurationSeconds,
     // v0.33.206: server clock (for the viewer page's clock-offset estimate,
@@ -1014,7 +1015,17 @@ router.get('/now-playing-audio', (req, res) => {
   }
   const seq = liveOverride ? liveOverride.seq : getSequenceByName(np.sequence_name);
   if (!seq || !seq.media_name) {
-    return res.json({ playing: true, hasAudio: false, sequenceName: liveOverride ? seq.name : np.sequence_name, ...visualConfig });
+    // No audio for this sequence: still send its name, artist and cover so
+    // the phone player shows the right song instead of the last one's art
+    // (or a broken image) (v0.33.249+).
+    return res.json({
+      playing: true, hasAudio: false,
+      sequenceName: liveOverride ? seq.name : np.sequence_name,
+      displayName: (seq && seq.display_name) || (liveOverride ? seq.name : np.sequence_name),
+      artist: (seq && seq.artist) || '',
+      imageUrl: (seq && bustCoverUrl(seq.image_url)) || null,
+      ...visualConfig,
+    });
   }
 
   // How long has this song been playing? Used to seek the listener forward.

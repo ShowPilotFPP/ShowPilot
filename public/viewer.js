@@ -32,6 +32,29 @@
     }
   }
 
+  // Under Now Playing: "Artist"; after Up Next: " — Artist" (hidden when
+  // the song has no artist). The inner element carries the data attribute.
+  function setArtist(id, after, tag, text) {
+    if (!after) return;
+    let a = el(id);
+    if (!a) {
+      const wrap = document.createElement(tag);
+      wrap.className = 'sp-artist';
+      wrap.style.cssText = tag === 'div'
+        ? 'font-size:0.9em;opacity:0.75;margin-top:0.15em'
+        : 'opacity:0.75';
+      a = document.createElement('span');
+      a.id = id;
+      a.setAttribute(id === 'nowPlayingArtist' ? 'data-showpilot-now-artist' : 'data-showpilot-next-artist', '');
+      if (tag === 'span') wrap.append(' — ');
+      wrap.appendChild(a);
+      after.insertAdjacentElement('afterend', wrap);
+    }
+    const t = text || '';
+    if (a.textContent !== t) a.textContent = t;
+    a.parentElement.style.display = t ? '' : 'none';
+  }
+
   function applyState(data) {
     el('showName').textContent = data.showName || 'Light Show';
     el('viewerCount').textContent = data.activeViewers || 0;
@@ -49,6 +72,11 @@
         ? (data.nextScheduledDisplayName || data.sequences.find(s => s.name === data.nextScheduled)?.display_name || data.nextScheduled)
         : '—';
     }
+    // Artists under Now Playing and after Up Next (v0.33.249+). Created here
+    // rather than in viewer.html because the built-in page is copied into
+    // the database once, so existing installs get them too.
+    setArtist('nowPlayingArtist', el('nowPlayingName'), 'div', data.nowPlaying ? data.nowPlayingArtist : '');
+    setArtist('nextUpArtist', nextEl, 'span', data.nextScheduled ? data.nextScheduledArtist : '');
 
     state.mode = data.viewerControlMode;
     state.sequences = data.sequences;

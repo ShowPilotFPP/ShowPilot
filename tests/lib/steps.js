@@ -301,6 +301,29 @@ const STEPS = [
     re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser))?$/i,
     browser: true,
     fn: async (ctx, phone, how) => { await openPhone(ctx, phone, how || ''); } },
+  { doc: 'phone 1 opens Listen on Phone   (taps the headphones button)',
+    re: /^phone (\w+) opens listen on phone$/i,
+    fn: async (ctx, phone) => {
+      const p = pageOf(ctx, 'phone ' + phone);
+      await p.click('#of-listen-btn');
+      await p.waitForTimeout(2500);
+    } },
+  { doc: 'phone 1\'s player shows "Title" with the cover of "A" | with the no-cover picture',
+    re: new RegExp(`^phone (\\w+)'s player shows ${q} with (?:the cover of ${q}|the no-cover picture)$`, 'i'),
+    fn: async (ctx, phone, title, coverOf) => eventually(async () => {
+      const r = await pageOf(ctx, 'phone ' + phone).evaluate(() => {
+        const c = document.getElementById('of-listen-cover');
+        return { title: document.getElementById('of-listen-title').textContent, src: c.getAttribute('src') || '', loaded: c.complete && c.naturalWidth > 0, visible: getComputedStyle(c).visibility !== 'hidden' && c.offsetWidth > 0 };
+      });
+      assert(r.title === title, `the player's title is "${r.title}"`);
+      assert(r.visible && r.loaded, `the player's picture isn't showing properly (${JSON.stringify(r).slice(0, 160)})`);
+      if (coverOf) {
+        const want = ctx.sp.db.prepare('SELECT image_url FROM sequences WHERE name = ?').get(coverOf).image_url.split('#')[0];
+        assert(r.src.startsWith(want), `the player shows ${r.src.slice(0, 80)}, expected the cover of "${coverOf}"`);
+      } else {
+        assert(r.src.startsWith('data:image/svg'), `expected the no-cover picture, got ${r.src.slice(0, 80)}`);
+      }
+    }) },
   { doc: 'phone 1 taps "A"',
     re: new RegExp(`^phone (\\w+) taps ${q}$`, 'i'),
     browser: true,

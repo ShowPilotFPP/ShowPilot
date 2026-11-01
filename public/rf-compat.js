@@ -2949,6 +2949,14 @@
     `;
     document.head.appendChild(themeStyle);
 
+    // Shown in the player when a song has no cover (or it fails to load).
+    const COVER_PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">' +
+      '<rect width="48" height="48" rx="6" fill="#333"/>' +
+      '<path d="M20 31.5V15l14-3v16.5" fill="none" stroke="#bbb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="16.5" cy="31.5" r="3.5" fill="none" stroke="#bbb" stroke-width="2.5"/>' +
+      '<circle cx="30.5" cy="28.5" r="3.5" fill="none" stroke="#bbb" stroke-width="2.5"/></svg>');
+
     // ---- Sticky-bottom panel ----
     const panel = document.createElement('div');
     panel.id = 'of-listen-panel';
@@ -2964,7 +2972,7 @@
     `;
     panel.innerHTML = `
       <div class="of-listen-row" style="max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: center; position: relative; z-index: 2;">
-        <img id="of-listen-cover" src="" alt=""
+        <img id="of-listen-cover" src="${COVER_PLACEHOLDER}" alt=""
              style="width: 48px; height: 48px; border-radius: 6px; object-fit: cover;
                     background: #333; flex-shrink: 0;" />
         <div class="of-listen-text" style="flex: 1; min-width: 0;">
@@ -3074,6 +3082,16 @@
     const artistEl = panel.querySelector('#of-listen-artist');
     const artistWrap = panel.querySelector('#of-listen-artist-wrap');
     const coverEl = panel.querySelector('#of-listen-cover');
+    // A cover that fails to load shows the music note instead of the
+    // browser's broken-image icon.
+    coverEl.addEventListener('error', () => {
+      if (coverEl.getAttribute('src') !== COVER_PLACEHOLDER) coverEl.src = COVER_PLACEHOLDER;
+    });
+    function setCover(url) {
+      const want = url || COVER_PLACEHOLDER;
+      if (coverEl.getAttribute('src') !== want) coverEl.src = want;
+      coverEl.style.visibility = 'visible';
+    }
     const statusEl = panel.querySelector('#of-listen-status');
     statusEl.textContent = _pt('Preparing…');
     // Only show the drift/calibration readout when player stats are enabled in admin
@@ -4988,8 +5006,14 @@
           // v0.33.249); otherwise none. Before, the last song's art stayed up
           // or the image showed as broken.
           const art = (data.playing && data.imageUrl) || '';
-          if (art) { if (coverEl.getAttribute('src') !== art) coverEl.src = art; coverEl.style.visibility = 'visible'; }
-          else { coverEl.removeAttribute('src'); coverEl.style.visibility = 'hidden'; }
+          setCover(art);
+          // Name the song too, with the no-audio note underneath.
+          if (data.playing && (data.displayName || data.sequenceName)) {
+            titleEl.textContent = data.displayName || data.sequenceName;
+            artistEl.textContent = (data.artist ? data.artist + ' · ' : '') + _pt('No audio for this sequence');
+            setupMarquee(titleEl, titleWrap);
+            setupMarquee(artistEl, artistWrap);
+          }
           // Song changes are noticed by name; forget the last one so a song
           // with audio after this one loads normally.
           if (data.playing && data.sequenceName) { currentSequence = null; }
@@ -5069,7 +5093,7 @@
             livePosition = data.livePosition;
           }
           // Refresh metadata in case admin changed it
-          if (data.imageUrl && coverEl.src !== data.imageUrl) coverEl.src = data.imageUrl;
+          if (data.imageUrl && coverEl.getAttribute('src') !== data.imageUrl) setCover(data.imageUrl);
         }
 
         // Update minimized pill text
@@ -5126,8 +5150,7 @@
       artistEl.textContent = data.artist || '';
       setupMarquee(titleEl, titleWrap);
       setupMarquee(artistEl, artistWrap);
-      coverEl.src = data.imageUrl || '';
-      coverEl.style.visibility = data.imageUrl ? 'visible' : 'hidden';
+      setCover(data.imageUrl);
       // v0.33.246: listener paused — show the new song's details but don't
       // load or play it. Play rebuilds from scratch (currentSequence reset).
       if (userPaused) {

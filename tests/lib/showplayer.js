@@ -103,6 +103,7 @@ class ShowPlayer {
   // only reads the mode (plugins up to 0.14.19), or asks with ?peek=1.
   async checkMode({ peek = false } = {}) {
     const st = await this.call('GET', '/state' + (peek ? '?peek=1' : ''));
+    this.lastModeCheck = st;
     return st.mode;
   }
 

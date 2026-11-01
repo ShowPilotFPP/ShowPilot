@@ -868,6 +868,22 @@
       });
     }
 
+    // --- NEXT_PLAYLIST_IMAGE (v0.33.249+): the Up Next song's cover ---
+    const nextImgEls = document.querySelectorAll('[data-showpilot-next-img]');
+    if (nextImgEls.length) {
+      const nextSeq = data.nextScheduled ? (data.sequences || []).find(s => s.name === data.nextScheduled) : null;
+      const nextImgUrl = nextSeq && nextSeq.image_url ? nextSeq.image_url
+        : (data.nextScheduled && data.nextScheduledImageUrl) || '';
+      nextImgEls.forEach(el => {
+        if (nextImgUrl) {
+          if (el.getAttribute('src') !== nextImgUrl) el.setAttribute('src', nextImgUrl);
+          if (el.style.display === 'none') el.style.display = '';
+        } else {
+          el.style.display = 'none';
+        }
+      });
+    }
+
     // --- NOW_PLAYING_ARTIST (v0.33.249+) ---
     if (data.nowPlayingArtist !== undefined) {
       const artist = data.nowPlaying ? (data.nowPlayingArtist || '') : '';

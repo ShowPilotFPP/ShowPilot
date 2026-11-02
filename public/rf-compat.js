@@ -4998,6 +4998,12 @@
         // early-return below so it's never skipped.
         updateLanguagePicker(data.languages || []);
 
+        // Apply decoration theme (cheap — only does work if it changed).
+        // Before the no-audio return below, so the player is decorated while
+        // the show is stopped or playing a sequence without audio too; it
+        // used to stay plain until a song with audio played.
+        applyDecoration(data.playerDecoration, data.playerDecorationAnimated, data.playerCustomColor);
+
         if (!data.playing || !data.hasAudio) {
           if (currentSource) stopAudio();
           titleEl.textContent = data.playing ? _pt('No audio for this sequence') : _pt('Show is not playing');
@@ -5036,8 +5042,6 @@
           clockOffset = data.serverNowMs - reqEnd + oneWayLatency;
         }
 
-        // Apply decoration theme (cheap — only does work if it changed)
-        applyDecoration(data.playerDecoration, data.playerDecorationAnimated, data.playerCustomColor);
 
         // Append ?lang= to streamUrl/publicStreamUrl if a non-default language
         // is selected. This is done here (not in handleTrackChange) so every

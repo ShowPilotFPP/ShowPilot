@@ -94,3 +94,13 @@ Scenario: Listen on Phone shows the song and its cover when the song has no audi
   Then phone 1's player shows "Alpha" with the cover of "Alpha"
   When the show player plays "Halloween Lights"
   Then phone 1's player shows "Halloween Lights" with the no-cover picture
+
+Scenario: The phone player's decoration shows even when the song has no audio
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the setting "player_decoration" is "christmas"
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page
+  And phone 1 opens Listen on Phone
+  Then phone 1's player has the "christmas" decoration

@@ -324,6 +324,12 @@ const STEPS = [
         assert(r.src.startsWith('data:image/svg'), `expected the no-cover picture, got ${r.src.slice(0, 80)}`);
       }
     }) },
+  { doc: 'phone 1\'s player has the "christmas" decoration',
+    re: new RegExp(`^phone (\\w+)'s player has the ${q} decoration$`, 'i'),
+    fn: async (ctx, phone, theme) => eventually(async () => {
+      const cls = await pageOf(ctx, 'phone ' + phone).evaluate(() => document.getElementById('of-listen-panel').className);
+      assert(cls.split(/\s+/).includes('of-theme-' + theme), `the player's classes are "${cls}"`);
+    }) },
   { doc: 'phone 1 taps "A"',
     re: new RegExp(`^phone (\\w+) taps ${q}$`, 'i'),
     browser: true,

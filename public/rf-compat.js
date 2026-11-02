@@ -2808,6 +2808,11 @@
         --of-border: rgba(254,202,202,0.8);
         --of-glow: rgba(239,68,68,0.5);
       }
+      #of-listen-panel.of-theme-christmas-live {
+        --of-bg: linear-gradient(180deg, rgba(127,29,29,0.97), rgba(20,83,45,0.97));
+        --of-border: rgba(254,202,202,0.8);
+        --of-glow: rgba(239,68,68,0.5);
+            }
       #of-listen-panel.of-theme-halloween {
         --of-bg: linear-gradient(180deg, rgba(88,28,135,0.97), rgba(154,52,18,0.97));
         --of-border: rgba(253,186,116,0.8);
@@ -2853,6 +2858,11 @@
         --of-border: rgba(250,204,21,0.8);
         --of-glow: rgba(250,204,21,0.45);
       }
+      #of-listen-panel.of-theme-newyear-live {
+        --of-bg: linear-gradient(180deg, rgba(15,23,42,0.97), rgba(49,46,129,0.97));
+        --of-border: rgba(250,204,21,0.8);
+        --of-glow: rgba(250,204,21,0.45);
+            }
       #of-listen-panel.of-theme-dayofthedead {
         --of-bg: linear-gradient(180deg, rgba(157,23,77,0.97), rgba(76,29,149,0.97));
         --of-border: rgba(251,146,60,0.85);
@@ -6030,6 +6040,132 @@
     let currentCustomColor = null;
     let decoLayer = null;
 
+    // ---- "Live" decorations (v0.33.225-beta) ----
+    // Theme 'christmas-live': while this listener's audio plays, an
+    // AnalyserNode tapped off gainNode (after mute) splits the sound into one
+    // log-spaced band per bulb (45 Hz - 9 kHz). Each bulb gets --lvl 0..1 with
+    // a quick flare and an incandescent-like fade, auto-levelled per band so
+    // quiet songs still animate. Frames are shown when they're HEARD: delayed
+    // by getOutputLatencySec() (output delay + the listener's timing offset).
+    // Paused / muted / hidden page / no phone audio: .ofd-live-on is removed
+    // and the bulbs fall back to their normal twinkle. ~30 fps; stops when the
+    // theme changes or animations are off.
+    let liveOn = false, liveRaf = 0, liveAnalyser = null, liveBuf = null, liveBands = null;
+    let liveEls = [], liveLvls = [], livePeaks = [], liveMeans = [], liveQueue = [], liveLastT = 0;
+    // Modes: 'bands' (christmas-live: one band per bulb) and 'party'
+    // (newyear-live, v0.33.226-beta: bass/mid/treble + energy -> --beat,
+    // --energy, --treble on #of-deco, plus confetti bursts on big jumps).
+    let liveMode = null, liveParty = null;
+    function liveDecoUpdate(theme, animate) {
+      liveMode = !animate ? null : theme === 'christmas-live' ? 'bands' : theme === 'newyear-live' ? 'party' : null;
+      liveOn = !!liveMode;
+      liveEls = (liveMode === 'bands' && decoLayer) ? Array.from(decoLayer.querySelectorAll('.ofd-lb'))
+        : (liveMode === 'party' && decoLayer && decoLayer.querySelector('.ofd-nyball')) ? [0, 1, 2] : [];
+      liveParty = liveMode === 'party' ? { beat: 0, treble: 0, energy: 0, ePeak: 0.05, eSlow: -1, lastBurst: 0 } : null;
+      liveLvls = liveEls.map(() => 0);
+      livePeaks = liveEls.map(() => 0);
+      liveMeans = liveEls.map(() => -1);
+      liveQueue = []; liveBands = null;
+      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      if (liveOn && !liveRaf) liveRaf = requestAnimationFrame(liveFrame);
+    }
+    function liveEnsureAnalyser() {
+      if (!audioCtx || !gainNode) return false;
+      if (liveAnalyser && liveAnalyser.context === audioCtx) return true;   // re-attach after the engine is rebuilt
+      try {
+        liveAnalyser = audioCtx.createAnalyser();
+        liveAnalyser.fftSize = 1024;
+        liveAnalyser.smoothingTimeConstant = 0.35;
+        gainNode.connect(liveAnalyser);
+        liveBuf = new Uint8Array(liveAnalyser.frequencyBinCount);
+        liveBands = null;
+        return true;
+      } catch (_) { liveAnalyser = null; return false; }
+    }
+    function liveBins(ranges) {
+      const nyq = audioCtx.sampleRate / 2, bins = liveAnalyser.frequencyBinCount;
+      return ranges.map(([f0, f1]) => {
+        const b0 = Math.max(1, Math.floor((f0 / nyq) * bins));
+        return [b0, Math.min(bins, Math.max(b0 + 1, Math.ceil((f1 / nyq) * bins)))];
+      });
+    }
+    function liveComputeBands(n) {
+      if (liveMode === 'party') return liveBins([[45, 180], [180, 2000], [4000, 11000]]);
+      const lo = 45, hi = 9000, ranges = [];
+      for (let i = 0; i < n; i++) ranges.push([lo * Math.pow(hi / lo, i / n), lo * Math.pow(hi / lo, (i + 1) / n)]);
+      return liveBins(ranges);
+    }
+    // One-shot confetti burst for New Year's Live (removed when done).
+    function liveConfettiBurst() {
+      const host = decoLayer && decoLayer.querySelector('.ofd-nyburst');
+      if (!host) return;
+      const div = document.createElement('div');
+      div.innerHTML = decoConfetti(' ofd-anim', ['#facc15', '#fef3c7', '#e5e7eb', '#f59e0b'], 12, (Date.now() & 0xffff) + 1, 'ofdny');
+      div.querySelectorAll('.ofdny-bit').forEach(el => { el.style.setProperty('--delay', (Math.random() * 0.3).toFixed(2) + 's'); el.style.setProperty('--dur', (2 + Math.random() * 1.2).toFixed(2) + 's'); });
+      host.appendChild(div);
+      setTimeout(() => div.remove(), 3800);
+    }
+    function liveFrame(t) {
+      liveRaf = 0;
+      if (!liveOn) return;
+      liveRaf = requestAnimationFrame(liveFrame);
+      if (t - liveLastT < 30) return;
+      liveLastT = t;
+      const playing = !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
+      if (!playing || !liveEls.length || !liveEnsureAnalyser()) {
+        if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+        liveQueue = [];
+        return;
+      }
+      if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
+      liveAnalyser.getByteFrequencyData(liveBuf);
+      const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
+      const now = performance.now();
+      liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      let frame = null;
+      while (liveQueue.length && liveQueue[0][0] <= now) frame = liveQueue.shift()[1];
+      if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);
+      if (!frame) return;
+      decoLayer.classList.add('ofd-live-on');
+      if (liveMode === 'party') {
+        const P = liveParty;
+        const onset = (i, x) => {           // same change-detection as the bulbs
+          if (liveMeans[i] < 0) liveMeans[i] = x;
+          liveMeans[i] = liveMeans[i] * 0.97 + x * 0.03;
+          livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
+          return x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
+        };
+        P.beat = Math.max(onset(0, frame[0]), P.beat * 0.8);
+        P.treble = Math.max(onset(2, frame[2]), P.treble * 0.85);
+        const overall = (frame[0] + frame[1] + frame[2]) / 3;
+        // Energy is loudness against the song's peak, with a floor at typical
+        // loud-music level (0.3) and a slow fade (~45 s half-life), so a quiet
+        // intro reads as a fraction instead of "full" just because it's all
+        // there is so far.
+        P.ePeak = Math.max(overall, P.ePeak * 0.9995, 0.3);
+        P.energy = P.energy * 0.85 + Math.min(1, overall / P.ePeak) * 0.15;
+        P.eSlow = P.eSlow < 0 ? overall : P.eSlow * 0.985 + overall * 0.015;
+        if (overall > P.eSlow * 1.6 && overall > 0.15 && now - P.lastBurst > 4000) { P.lastBurst = now; liveConfettiBurst(); }
+        decoLayer.style.setProperty('--beat', P.beat.toFixed(3));
+        decoLayer.style.setProperty('--treble', P.treble.toFixed(3));
+        decoLayer.style.setProperty('--energy', P.energy.toFixed(3));
+        return;
+      }
+      for (let i = 0; i < liveEls.length; i++) {
+        // React to CHANGE, not loudness: each band tracks its running average
+        // (~1 s) and lights by how far it rises above it, relative to its
+        // recent peak excursion. Steady sound (hiss, a held note) settles to a
+        // calm glow; hits (drums, new notes, cymbals) flare. Near-silence stays dark.
+        const x = frame[i];
+        if (liveMeans[i] < 0) liveMeans[i] = x;
+        liveMeans[i] = liveMeans[i] * 0.97 + x * 0.03;
+        livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
+        const v = x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
+        liveLvls[i] = Math.max(v, liveLvls[i] * 0.84);
+        liveEls[i].style.setProperty('--lvl', liveLvls[i].toFixed(3));
+      }
+    }
+
     function applyDecoration(theme, animated, customColor) {
       theme = theme || 'none';
       animated = (animated !== false);
@@ -6090,6 +6226,7 @@
       const animate = animated && !prefersReduced;
 
       decoLayer.innerHTML = renderDecoration(theme, animate);
+      liveDecoUpdate(theme, animate);
       // Reset panel padding-top in case previous decoration needed extra room
       panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
 
@@ -6170,6 +6307,7 @@
       const A = animate ? ' ofd-anim' : '';
       switch (theme) {
         case 'christmas':    return decoChristmas(A);
+        case 'christmas-live': return decoChristmas(A, true);   // v0.33.225-beta: reacts to the music
         case 'halloween':    return decoHalloween(A);
         case 'easter':       return decoEaster(A);
         case 'stpatricks':   return decoStPatricks(A);
@@ -6179,6 +6317,7 @@
         case 'thanksgiving': return decoThanksgiving(A);
         case 'snow':         return decoSnow(A);
         case 'newyear':      return decoNewYear(A);
+        case 'newyear-live': return decoNewYear(A, true);     // v0.33.226-beta: music-driven
         case 'dayofthedead': return decoDayOfDead(A);
         case 'diwali':       return decoDiwali(A);
         case 'kwanzaa':      return decoKwanzaa(A);
@@ -6199,7 +6338,7 @@
     `;
 
     // ---------- Christmas: C9 bulbs on a scalloped green wire ----------
-    function decoChristmas(A) {
+    function decoChristmas(A, live) {
       const N = 16;
       const palette = [
         ['#ff3b3b', '#b91c1c'], ['#22c55e', '#15803d'], ['#3b82f6', '#1d4ed8'],
@@ -6220,7 +6359,7 @@
         const twinkle = (i % 5 === 2) ? ' ofd-twinkle' : '';
         const tilt = ((r() - 0.5) * 16).toFixed(1);
         bulbs += `
-          <div class="ofd ofd-bulb${A}${twinkle}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;transform:translateX(-50%) rotate(${tilt}deg)">
+          <div class="ofd ofd-bulb${A}${twinkle}${live ? ' ofd-lb' : ''}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;--lvl:0;transform:translateX(-50%) rotate(${tilt}deg)">
             <div class="ofd-halo"></div>
             <svg viewBox="0 0 20 36" width="15" height="27" aria-hidden="true">
               <defs><linearGradient id="ofdB${i}" x1="0" x2="1">
@@ -6247,6 +6386,9 @@
         @keyframes ofdGlow { from { opacity:.38; transform:scale(.85); } to { opacity:.75; transform:scale(1.08); } }
         @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
         @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
+        /* "Live": while music plays, each bulb follows its frequency band (--lvl, set by the player). */
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity: calc(.14 + var(--lvl) * .86); transform: scale(calc(.72 + var(--lvl) * .62)); }
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity: calc(.03 + var(--lvl) * .52); }
       </style>
       <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
         <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
@@ -6650,44 +6792,71 @@
     }
 
     // ---------- New Year's: confetti, a glittering ball, sparkle bursts ----------
-    function decoNewYear(A) {
+    function decoNewYear(A, live) {
       const confetti = decoConfetti(A, ['#facc15', '#e5e7eb', '#fde68a', '#f59e0b', '#cbd5e1', '#fef3c7'], 18, 101, 'ofdny');
-      let facets = '';
-      for (let row = 0; row < 7; row++) {
-        for (let col = 0; col < 8; col++) {
-          const x = 6 + col * 5.2 - (row % 2) * 2.6, y = 6 + row * 4.6;
-          if ((x - 24) ** 2 + (y - 22) ** 2 > 16.5 ** 2) continue;
-          facets += `<rect class="ofd-facet" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="4.4" height="3.8" rx=".5" style="--fa:${((row * 3 + col * 5) % 9) * 0.22}s" fill="${(row + col) % 3 ? '#e2e8f0' : '#fef3c7'}"/>`;
+      const R = 17, CX = 24, CY = 22, r = decoRand(66);
+      let rows = '';
+      for (let row = 0; row < 8; row++) {
+        const y = CY - R + 0.6 + row * 4.2, mid = y + 2;
+        const half = Math.sqrt(Math.max(0, R * R - (mid - CY) ** 2));
+        if (half < 2) continue;
+        const pitch = Math.max(1.8, half * 0.42), tw = pitch - 0.6, n = Math.ceil((2 * half) / pitch) + 1;
+        let tiles = '';
+        for (let k = -n; k <= n; k++) {
+          const x = CX - half + k * pitch, bright = r() < 0.18;
+          tiles += `<rect class="${bright ? 'ofd-nyglint' : 'ofd-nytile'}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${tw.toFixed(2)}" height="3.6" rx=".4" fill="${bright ? '#fffbeb' : ['#e2e8f0', '#cbd5e1', '#f1f5f9', '#fef3c7'][k & 3]}"/>`;
         }
+        rows += `<g class="ofd-nyrow" style="--rw:${(pitch * n).toFixed(2)}px">${tiles}</g>`;
       }
       const ball = `
         <svg viewBox="0 0 48 46" aria-hidden="true">
-          <defs><radialGradient id="ofdNyBall" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#94a3b8"/><stop offset="1" stop-color="#1e293b"/></radialGradient>
-            <clipPath id="ofdNyClip"><circle cx="24" cy="22" r="17"/></clipPath></defs>
+          <defs>
+            <radialGradient id="ofdNyBase" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#1e293b"/></radialGradient>
+            <radialGradient id="ofdNyShade" cx="42%" cy="38%" r="62%"><stop offset=".55" stop-color="rgba(15,23,42,0)"/><stop offset="1" stop-color="rgba(15,23,42,.85)"/></radialGradient>
+            <radialGradient id="ofdNyHalo"><stop offset="0" stop-color="rgba(254,243,199,.95)"/><stop offset="1" stop-color="rgba(250,204,21,0)"/></radialGradient>
+            <clipPath id="ofdNyClip"><circle cx="${CX}" cy="${CY}" r="${R}"/></clipPath>
+          </defs>
+          <circle class="ofd-nyhalo" cx="${CX}" cy="${CY}" r="${R + 9}" fill="url(#ofdNyHalo)"/>
           <path d="M24,0 V5" stroke="#cbd5e1" stroke-width="1.2"/>
-          <circle cx="24" cy="22" r="17" fill="url(#ofdNyBall)"/>
-          <g clip-path="url(#ofdNyClip)" opacity=".85">${facets}</g>
-          <circle cx="18" cy="15" r="3.4" fill="#fff" opacity=".8"/>
+          <circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#ofdNyBase)"/>
+          <g clip-path="url(#ofdNyClip)"><g class="ofd-nytiles">${rows}</g></g>
+          <circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#ofdNyShade)"/>
+          <circle cx="18" cy="15" r="3.2" fill="#fff" opacity=".85"/><circle cx="16.4" cy="13.6" r="1.1" fill="#fff"/>
         </svg>`;
-      const r = decoRand(66);
-      let sparks = '';
-      for (let i = 0; i < 5; i++) {
-        sparks += `<div class="ofd ofd-nyspark${A}" style="left:${(10 + i * 19 + r() * 6).toFixed(1)}%;top:${(-30 + r() * 20).toFixed(0)}px;--delay:${(-r() * 3.5).toFixed(2)}s">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><g stroke="${i % 2 ? '#fde68a' : '#f8fafc'}" stroke-width="1.4" stroke-linecap="round">
-            <path d="M12,2 V7 M12,17 V22 M2,12 H7 M17,12 H22 M5,5 L8.5,8.5 M15.5,15.5 L19,19 M19,5 L15.5,8.5 M8.5,15.5 L5,19"/></g></svg></div>`;
+      // Light spots: one scattered set, drawn twice side by side so the sweep loops seamlessly.
+      let spots = '';
+      for (let copy = 0; copy < 2; copy++) {
+        const rs = decoRand(404);
+        for (let i = 0; i < 14; i++) {
+          const size = 3 + Math.round(rs() * 6);
+          spots += `<i style="left:${(copy * 50 + rs() * 50).toFixed(2)}%;top:${(4 + rs() * 80).toFixed(1)}%;width:${size}px;height:${size}px;opacity:${(0.45 + rs() * 0.5).toFixed(2)};background:${rs() < 0.3 ? '#fde68a' : '#fff'}"></i>`;
+        }
       }
       return `<style>${decoBase}${decoConfettiCss('ofdny')}
-        #of-deco .ofd-nyball { right:18%; bottom:100%; margin-bottom:6px; width:40px; filter: drop-shadow(0 0 8px rgba(250,204,21,.45)); }
+        #of-deco .ofd-nyball { right:18%; bottom:100%; margin-bottom:6px; width:40px; }
         #of-deco .ofd-nyball svg { width:100%; height:auto; }
+        #of-deco .ofd-nyball .ofd-nyhalo { opacity:.35; transform-box: view-box; transform-origin: 24px 22px; }
+        #of-deco .ofd-nyrow { transform-box: view-box; }
         #of-deco .ofd-nyball.ofd-anim { transform-origin: 50% 0; animation: ofdNySwing 5s ease-in-out infinite alternate; }
-        #of-deco .ofd-nyball.ofd-anim .ofd-facet { animation: ofdNyFacet 2s ease-in-out var(--fa) infinite; }
-        @keyframes ofdNySwing { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
-        @keyframes ofdNyFacet { 0%,100% { opacity:.55; } 50% { opacity:1; fill:#fff; } }
-        #of-deco .ofd-nyspark { opacity:.8; }
-        #of-deco .ofd-nyspark.ofd-anim { animation: ofdNySpark 3.5s ease-out var(--delay) infinite; }
-        @keyframes ofdNySpark { 0%,60% { opacity:0; transform: scale(.2) rotate(0); } 70% { opacity:1; } 90% { opacity:0; transform: scale(1.2) rotate(30deg); } 100% { opacity:0; } }
+        #of-deco .ofd-nyball.ofd-anim .ofd-nyrow { animation: ofdNyRow 7s linear infinite; }
+        #of-deco .ofd-nyball.ofd-anim .ofd-nyglint { animation: ofdNyGlint 2.6s ease-in-out infinite; }
+        @keyframes ofdNySwing { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
+        @keyframes ofdNyRow { from { transform: translateX(0); } to { transform: translateX(var(--rw)); } }
+        @keyframes ofdNyGlint { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+        #of-deco .ofd-nyspots { left:0; right:0; bottom:100%; height:96px; overflow:hidden; opacity:.55; }
+        #of-deco .ofd-nyspots-in { position:absolute; top:0; left:0; width:200%; height:100%; }
+        #of-deco .ofd-nyspots-in i { position:absolute; border-radius:50%; }
+        #of-deco .ofd-nyspots.ofd-anim .ofd-nyspots-in { animation: ofdNySpots 16s linear infinite; }
+        @keyframes ofdNySpots { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        /* Live: the music drives the light (variables set by the player). */
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity: calc(.12 + var(--beat, 0) * .88); transform: scale(calc(.85 + var(--beat, 0) * .45)); }
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity: calc(.3 + var(--treble, 0) * .7); }
+        #of-deco.ofd-live-on .ofd-nyspots { opacity: calc(.18 + var(--energy, 0) * .55 + var(--beat, 0) * .27); }
+        #of-deco .ofd-nyburst .ofdny-bit { animation-iteration-count: 1 !important; }
       </style>
-      <div class="ofd ofd-nyball${A}">${ball}</div>${sparks}${confetti}`;
+      <div class="ofd ofd-nyspots${A}"><div class="ofd-nyspots-in">${spots}</div></div>
+      <div class="ofd ofd-nyball${A}">${ball}</div>${confetti}
+      <div class="ofd ofd-nyburst" style="left:0;right:0;top:0;height:0"></div>`;
     }
 
     // ---------- Día de los Muertos: papel picado banner + marigold petals ----------

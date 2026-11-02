@@ -56,3 +56,26 @@ Scenario: Settings → Debug has the hidden output delay switch (restored from t
   When the admin opens the Settings page
   And the admin opens the "Debug" tab
   Then the admin sees "Compensate hidden output delay (experimental)"
+
+Scenario: A category tile on the Cockpit switches the category off and on
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And the category "Kids" has "Bravo"
+  And the admin's cockpit has the tiles "cat:Kids" and "viewerControl"
+  When the admin opens the Cockpit
+  Then the "Kids" tile on the cockpit says "On"
+  When the admin taps the "Kids" tile on the cockpit
+  Then the category "Kids" is off
+  And the "Kids" tile on the cockpit says "Off"
+  When the admin taps the "Kids" tile on the cockpit
+  Then the category "Kids" is on
+  And the "Kids" tile on the cockpit says "On"
+
+Scenario: Cockpit spacers take up space, any number of them, and only show while editing
+  Given the admin's cockpit has the tiles "viewerControl", "spacer1" and "sWatching"
+  When the admin opens the Cockpit
+  Then the cockpit spacer is 2 rows tall and hidden
+  When the admin opens the Cockpit in edit mode
+  Then the cockpit spacer is 2 rows tall and visible
+  When the admin adds a Spacer on the cockpit
+  And the admin adds a Spacer on the cockpit
+  Then the saved cockpit has 3 spacers

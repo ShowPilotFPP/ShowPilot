@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const GROUPS = ['Show control', 'Safeguards', 'Songs & categories', 'Viewer page', 'Status'];
+  const GROUPS = ['Show control', 'Safeguards', 'Songs & categories', 'Viewer page', 'Status', 'Layout'];
 
   const cfgSwitch = (id, group, label, key, hint) =>
     ({ id, group, label, kind: 'switch', key, hint, size: 1 });
@@ -73,6 +73,12 @@
       value: (c) => { const v = c.vstate; if (!c.stats.nowPlaying || !v || !v.nowPlayingStartedAtIso || !v.nowPlayingDurationSeconds) return '--:--';
         return SP.fmtTime(v.nowPlayingDurationSeconds - (SP.serverNow() - Date.parse(v.nowPlayingStartedAtIso)) / 1000); } },
     { id: 'sFpp', group: 'Status', label: 'Player', kind: 'status', size: 1, value: (c) => (c.fppOnline ? 'Online' : 'Offline') },
+
+    // ---- Layout (v0.33.249) ----
+    // Empty space to arrange the other tiles. Can be added any number of
+    // times (each copy gets its own id, spacer1, spacer2, ...); width S/W/L
+    // and height 1-4 rows are set in edit mode. Invisible outside edit mode.
+    { id: 'spacer', group: 'Layout', label: 'Spacer', kind: 'spacer', size: 4, rows: 1, repeatable: true, hint: 'Empty space between tiles' },
   ];
 
   function parseCategories(cfg) {
@@ -83,7 +89,10 @@
   function catalog(ctx) {
     const cats = parseCategories(ctx.cfg || {}).map(c => ({
       id: 'cat:' + c.name, group: 'Songs & categories', label: c.name, kind: 'switch', size: 1, hint: 'Song category on the viewer page',
-      get: (cx) => { const x = parseCategories(cx.cfg).find(y => y.name === c.name); return !!x && x.enabled !== false; },
+      // The server stores enabled as 1/0. Checking only "!== false" read 0 as
+      // on, so the tile never showed Off and tapping it kept turning it off
+      // (v0.33.249).
+      get: (cx) => { const x = parseCategories(cx.cfg).find(y => y.name === c.name); return !!x && x.enabled !== false && Number(x.enabled) !== 0; },
       set: (cx, on) => SP.post('/categories/enabled', { name: c.name, enabled: on }),
     }));
     return STATIC.concat(cats);
@@ -96,5 +105,8 @@
     { id: 'gate', size: 1 }, { id: 'resetVotes', size: 1 }, { id: 'purgeQueue', size: 1 }, { id: 'sLeft', size: 1 },
   ];
 
-  window.SPTiles = { GROUPS, catalog, DEFAULT_LAYOUT, parseCategories };
+  // Layout ids that are copies of a repeatable tile ('spacer3' -> 'spacer').
+  function baseId(id) { const m = /^(spacer)\d+$/.exec(String(id || '')); return m ? m[1] : id; }
+
+  window.SPTiles = { GROUPS, catalog, DEFAULT_LAYOUT, parseCategories, baseId };
 })();

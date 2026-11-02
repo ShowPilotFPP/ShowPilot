@@ -49,6 +49,10 @@
     .grid { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(132px, auto); gap: 12px; }
     .tile { position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 14px 16px; border-radius: 18px; border: 2px solid var(--border); background: var(--bg-elevated); }
     .tile.s1 { grid-column: span 1; } .tile.s2 { grid-column: span 2; } .tile.s4 { grid-column: 1 / -1; }
+    /* Spacer (v0.33.249): empty space, 1-4 rows tall, invisible outside edit mode. */
+    .tile.spacer.r2 { grid-row: span 2; } .tile.spacer.r3 { grid-row: span 3; } .tile.spacer.r4 { grid-row: span 4; }
+    body:not(.editing) .tile.spacer { visibility: hidden; }
+    body.editing .tile.spacer { background: transparent; border-color: var(--border); opacity: .75; }
     .tile.on { border-color: var(--status-success); }
     .tile-label { font-weight: 700; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
     .tile-hint { color: var(--text-muted); font-size: 13px; margin-top: -8px; }
@@ -184,7 +188,20 @@
     }, 400);
   }
   function setLayout(next) { layout = next; saveLayout(); render(); }
-  function defsById() { const m = {}; SPTiles.catalog(ctx).forEach(d => { m[d.id] = d; }); return m; }
+  function defsById() {
+    const m = {};
+    SPTiles.catalog(ctx).forEach(d => { m[d.id] = d; });
+    // Copies of repeatable tiles (spacer1, spacer2, ...) use their base tile.
+    layout.forEach(t => { if (!m[t.id] && m[SPTiles.baseId(t.id)]) m[t.id] = m[SPTiles.baseId(t.id)]; });
+    return m;
+  }
+  // A new layout entry for catalog tile d (repeatable tiles get a fresh id).
+  function newEntry(d) {
+    if (!d.repeatable) return { id: d.id, size: d.size };
+    let n = 1;
+    while (layout.some(x => x.id === d.id + n)) n++;
+    return { id: d.id + n, size: d.size, rows: d.rows || 1 };
+  }
 
   // ---------- Tile actions ----------
   async function run(promise, okText) {
@@ -282,14 +299,21 @@
     const html = layout.map((t, i) => {
       const d = defs[t.id];
       const size = t.size === 4 ? 4 : t.size === 2 ? 2 : 1;
+      const rows = Math.max(1, Math.min(4, Number(t.rows) || 1));
+      const isSpacer = !!(d && d.kind === 'spacer');
       const strip = '<div class="edit-strip"><span class="grip" aria-hidden="true">⋮⋮ drag</span>' +
         '<button type="button" data-edit="left" aria-label="Move earlier">‹</button><button type="button" data-edit="right" aria-label="Move later">›</button>' +
-        '<button type="button" data-edit="size" aria-label="Change size">' + (size === 1 ? 'S' : size === 2 ? 'W' : 'L') + '</button>' +
+        '<button type="button" data-edit="size" aria-label="Change width">' + (size === 1 ? 'S' : size === 2 ? 'W' : 'L') + '</button>' +
+        (isSpacer ? '<button type="button" data-edit="rows" aria-label="Change height (' + rows + ' row' + (rows === 1 ? '' : 's') + ')">↕' + rows + '</button>' : '') +
         '<button type="button" class="remove" data-edit="remove" aria-label="Remove tile">×</button></div>';
       if (!d) {
         // e.g. a category that was deleted: visible only while editing, so it can be removed.
         return '<div class="tile s' + size + ' missing" data-i="' + i + '"' + (editing ? '' : ' hidden') + '>' + strip +
           '<div class="tile-label">' + esc(t.id.replace(/^cat:/, '')) + '</div><div class="tile-hint">No longer available</div></div>';
+      }
+      if (isSpacer) {
+        return '<div class="tile s' + size + ' spacer r' + rows + '" data-i="' + i + '" draggable="' + editing + '" aria-hidden="' + !editing + '">' + strip +
+          '<div class="tile-label">Spacer</div><div class="tile-hint">' + (size === 4 ? 'Full width' : size === 2 ? 'Half width' : 'One tile wide') + ' · ' + rows + ' row' + (rows === 1 ? '' : 's') + ' tall. Only visible while editing.</div></div>';
       }
       const on = d.kind === 'switch' && tileValue(d);
       const showLabel = d.kind !== 'now';
@@ -306,12 +330,12 @@
     if (!editing) return;
     const used = new Set(layout.map(t => t.id));
     const all = SPTiles.catalog(ctx);
-    const kindLabel = { switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel' };
+    const kindLabel = { spacer: 'Empty space · any size', switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel' };
     $('catalogList').innerHTML = SPTiles.GROUPS.map(g => {
       const items = all.filter(d => d.group === g);
       if (!items.length) return '';
       return '<div class="group">' + esc(g) + '</div>' + items.map(d => {
-        const u = used.has(d.id);
+        const u = !d.repeatable && used.has(d.id);
         return '<div class="cat-item' + (u ? ' used' : '') + '" draggable="' + !u + '" data-cat="' + esc(d.id) + '"><span class="txt"><b>' + esc(d.label) + '</b><span>' + esc(kindLabel[d.kind] || '') + '</span></span>' +
           '<button type="button" data-add="' + esc(d.id) + '"' + (u ? ' disabled' : '') + '>' + (u ? 'Added' : '+ Add') + '</button></div>';
       }).join('');
@@ -348,6 +372,7 @@
       if (act === 'left' && i > 0) { [l[i - 1], l[i]] = [l[i], l[i - 1]]; }
       else if (act === 'right' && i < l.length - 1) { [l[i + 1], l[i]] = [l[i], l[i + 1]]; }
       else if (act === 'size') { l[i] = { ...l[i], size: l[i].size === 1 ? 2 : l[i].size === 2 ? 4 : 1 }; }
+      else if (act === 'rows') { const r = Number(l[i].rows) || 1; l[i] = { ...l[i], rows: r >= 4 ? 1 : r + 1 }; }
       else if (act === 'remove') { l.splice(i, 1); }
       return setLayout(l);
     }
@@ -413,9 +438,9 @@
     if (dragging.from === 'grid') {
       const [x] = l.splice(dragging.index, 1);
       l.splice(dragging.index < at ? at - 1 : at, 0, x);
-    } else if (!l.some(x => x.id === dragging.id)) {
+    } else {
       const d = defsById()[dragging.id];
-      l.splice(at, 0, { id: dragging.id, size: d ? d.size : 1 });
+      if (d && (d.repeatable || !l.some(x => x.id === d.id))) l.splice(at, 0, newEntry(d));
     }
     dragging = null;
     setLayout(l);
@@ -426,8 +451,8 @@
     const b = e.target.closest('[data-add]');
     if (!b || b.disabled) return;
     const d = defsById()[b.dataset.add];
-    if (!d || layout.some(x => x.id === d.id)) return;
-    setLayout(layout.concat([{ id: d.id, size: d.size }]));
+    if (!d || (!d.repeatable && layout.some(x => x.id === d.id))) return;
+    setLayout(layout.concat([newEntry(d)]));
   });
   function setEditing(on) {
     editing = on;

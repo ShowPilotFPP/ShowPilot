@@ -79,3 +79,42 @@ Scenario: Cockpit spacers take up space, any number of them, and only show while
   When the admin adds a Spacer on the cockpit
   And the admin adds a Spacer on the cockpit
   Then the saved cockpit has 3 spacers
+
+Scenario: An old FPP plugin gets an update banner on the Dashboard, and the plugin is told
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And the show player is the FPP plugin version "0.14.18"
+  Then the show player is told "0.14.22" is the newest plugin
+  When the admin opens the Dashboard page
+  Then the admin sees "Your ShowPilot plugin in FPP needs updating."
+  And the admin sees "Installed: v0.14.18 · Newest: v0.14.22"
+  And the admin sees "play a requested song twice"
+
+Scenario: An FPP plugin that works but isn't the newest gets a dismissible banner
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And the show player is the FPP plugin version "0.14.21"
+  When the admin opens the Dashboard page
+  Then the admin sees "An update for the ShowPilot plugin in FPP is available."
+  When the admin clicks "Dismiss"
+  Then the admin does not see "An update for the ShowPilot plugin in FPP is available."
+
+Scenario: An up-to-date FPP plugin gets no banner
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And the show player is the FPP plugin version "0.14.22"
+  When the admin opens the Dashboard page
+  Then the admin does not see "plugin in FPP"
+
+Scenario: A show player that says it has an update gets a banner, and can be dismissed
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And the show player is version "player-0.13.6" and says "0.13.7" is the newest
+  Then the show player is told nothing about updates
+  When the admin opens the Dashboard page
+  Then the admin sees "An update for your show player is available."
+  And the admin sees "Installed: v0.13.6 · Newest: v0.13.7"
+  When the admin clicks "Dismiss"
+  Then the admin does not see "An update for your show player is available."
+
+Scenario: A show player on its newest version gets no banner
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And the show player is version "player-0.13.7" and says "0.13.7" is the newest
+  When the admin opens the Dashboard page
+  Then the admin does not see "An update for your show player"

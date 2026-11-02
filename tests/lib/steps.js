@@ -264,6 +264,19 @@ const STEPS = [
       try { ctx.last.result = { ok: true, body: await ctx.player.setViewerPage(name) }; }
       catch (e) { ctx.last.result = { ok: false, error: e.message }; }
     } },
+  { doc: 'the show player is the FPP plugin version "0.14.18"   (its heartbeat)',
+    re: new RegExp(`^the show player is the FPP plugin version ${q}$`, 'i'),
+    fn: async (ctx, v) => { ctx.last.heartbeat = await ctx.player.heartbeat({ pluginVersion: v }); } },
+  { doc: 'the show player is version "player-0.13.6" and says "0.13.7" is the newest   (a non-FPP show player\'s heartbeat)',
+    re: new RegExp(`^the show player is version ${q} and says ${q} is the newest$`, 'i'),
+    fn: async (ctx, v, latest) => { ctx.last.heartbeat = await ctx.player.heartbeat({ pluginVersion: v, latestVersion: latest }); } },
+  { doc: 'the show player is told "0.14.21" is the newest plugin | is told nothing about updates',
+    re: new RegExp(`^the show player is (?:told ${q} is the newest plugin|told nothing about updates)$`, 'i'),
+    fn: async (ctx, v) => {
+      const h = ctx.last.heartbeat || {};
+      if (v) assert(h.pluginLatest === v, `the heartbeat answer says the newest plugin is ${h.pluginLatest}`);
+      else assert(!('pluginLatest' in h), `the heartbeat answer mentions plugin ${h.pluginLatest}`);
+    } },
   { doc: 'the show player switches the category "Kids" off | on',
     re: new RegExp(`^the show player switches the category ${q} (off|on)$`, 'i'),
     fn: async (ctx, name, onoff) => { await ctx.player.setCategory(name, onoff.toLowerCase() === 'on'); } },

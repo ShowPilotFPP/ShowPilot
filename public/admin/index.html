@@ -1925,7 +1925,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.17</span>
+        <span class="app-version">v0.33.249-beta.18</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -1999,6 +1999,9 @@
            TAB: DASHBOARD
            ============================================================ -->
       <div class="tab-pane active" data-pane="dashboard">
+
+        <!-- Out-of-date show player (beta.18+): filled by renderShowPlayerUpdate() -->
+        <div id="showPlayerUpdateBanner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-warning); background: var(--status-warning-soft); font-size: 0.9rem; line-height: 1.45;"></div>
 
         <div class="now-playing-card" style="margin-bottom: 1.25rem;">
           <span class="np-pulse"></span>
@@ -10366,10 +10369,45 @@
     // ============================================================
     // PLUGIN STATUS PANEL
     // ============================================================
+    // Banner on the Dashboard when the show player is out of date (beta.18+).
+    // "Dismiss" hides it until a newer version comes out; a version too old
+    // to work properly can't be dismissed.
+    function renderShowPlayerUpdate(u) {
+      const el = document.getElementById('showPlayerUpdateBanner');
+      if (!el) return;
+      let dismissed = '';
+      try { dismissed = localStorage.getItem('sp_player_update_dismissed') || ''; } catch (e) {}
+      if (!u || (!u.belowRequired && dismissed === u.kind + ':' + u.latest)) { el.style.display = 'none'; el.innerHTML = ''; return; }
+      const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const danger = !!u.belowRequired;
+      el.style.borderColor = danger ? 'var(--status-danger)' : 'var(--status-warning)';
+      el.style.background = danger ? 'var(--status-danger-soft)' : 'var(--status-warning-soft)';
+      let html;
+      if (u.kind === 'fpp') {
+        const fpp = u.fppHost ? '<a href="http://' + esc(u.fppHost) + '/plugins.php" target="_blank" rel="noopener">FPP → Content Setup → Plugin Manager</a>' : 'FPP → Content Setup → Plugin Manager';
+        html = '<b>' + (danger ? '⚠ Your ShowPilot plugin in FPP needs updating.' : '⬆ An update for the ShowPilot plugin in FPP is available.') + '</b> '
+          + 'Installed: v' + esc(u.installed) + ' · Newest: v' + esc(u.latest) + '.'
+          + (danger && u.why ? ' This version of ShowPilot needs v' + esc(u.required) + ' or newer: ' + esc(u.why) + '.' : '')
+          + '<br>Update it in ' + fpp + ' (the ShowPilot plugin\'s update button), then restart FPPD if FPP asks.';
+      } else {
+        html = '<b>⬆ An update for your show player is available.</b> Installed: v' + esc(u.installed) + ' · Newest: v' + esc(u.latest) + '.'
+          + '<br>Update it from the show player\'s own admin page.';
+      }
+      if (!danger) html += ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPlayerUpdate(\'' + esc(u.kind + ':' + u.latest) + '\')">Dismiss</button>';
+      if (el.innerHTML !== html) el.innerHTML = html;
+      el.style.display = '';
+    }
+    function dismissShowPlayerUpdate(key) {
+      try { localStorage.setItem('sp_player_update_dismissed', key); } catch (e) {}
+      const el = document.getElementById('showPlayerUpdateBanner');
+      if (el) el.style.display = 'none';
+    }
+
     async function loadPluginStatus() {
       const r = await api('/plugin-status');
       if (!r.ok) return;
       const d = r.data;
+      renderShowPlayerUpdate(d.update);
       const dot = document.getElementById('headerPluginDot');
       const text = document.getElementById('headerPluginText');
       const conn = document.getElementById('pluginConnStatus');

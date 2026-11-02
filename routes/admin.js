@@ -912,6 +912,8 @@ router.get('/plugin-status', requireAdmin, (req, res) => {
     lastSyncPlaylist: pluginStatus.lastSyncPlaylist,
     lastSyncCount: pluginStatus.lastSyncCount,
     lastSyncDuplicates: pluginStatus.lastSyncDuplicates || [],
+    // Out-of-date show player, for the Dashboard banner (beta.18+); null when up to date.
+    update: require('../lib/show-player-update').status(getConfig()),
   });
 });
 

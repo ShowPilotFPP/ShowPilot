@@ -115,6 +115,7 @@ class ShowPlayer {
   clearQueue() { return this.call('POST', '/queue/clear', {}); }
   setCategory(name, enabled) { return this.call('POST', '/category', { name, enabled }); }
   setViewerPage(name) { return this.call('POST', '/viewer-page', { name }); }
+  heartbeat(body) { return this.call('POST', '/heartbeat', body); }
 }
 
 module.exports = { ShowPlayer };

@@ -104,3 +104,16 @@ Scenario: The phone player's decoration shows even when the song has no audio
   When phone 1 opens the viewer page
   And phone 1 opens Listen on Phone
   Then phone 1's player has the "christmas" decoration
+
+Scenario: The Live player decorations are available and draw without errors
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the setting "player_decoration" is "christmas-live"
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page
+  And phone 1 opens Listen on Phone
+  Then phone 1's player has the "christmas-live" decoration
+  When the setting "player_decoration" is "newyear-live"
+  And 6 seconds pass
+  Then phone 1's player has the "newyear-live" decoration

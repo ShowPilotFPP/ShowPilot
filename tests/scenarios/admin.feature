@@ -118,3 +118,24 @@ Scenario: A show player on its newest version gets no banner
   And the show player is version "player-0.13.7" and says "0.13.7" is the newest
   When the admin opens the Dashboard page
   Then the admin does not see "An update for your show player"
+
+Scenario: A newer ShowPilot release shows a banner on the Dashboard, and can be dismissed
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And ShowPilot "9.9.9" is out
+  When the admin opens the Dashboard page
+  Then the admin sees "ShowPilot v9.9.9 is available."
+  When the admin clicks "Dismiss"
+  Then the admin does not see "ShowPilot v9.9.9 is available."
+
+Scenario: No ShowPilot banner when the newest release isn't newer
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And ShowPilot "0.1.0" is out
+  When the admin opens the Dashboard page
+  Then the admin does not see "is available."
+
+Scenario: The ShowPilot update banner opens the Updates page
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  And ShowPilot "9.9.9" is out
+  When the admin opens the Dashboard page
+  And the admin clicks "Open Updates"
+  Then the admin sees "Pull the latest release of ShowPilot from GitHub"

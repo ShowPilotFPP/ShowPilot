@@ -110,7 +110,7 @@ async function openAdmin(ctx, section) {
     page.on('pageerror', e => ctx.pageErrors.push(`admin: ${e.message}`));
     ctx.pages.set('admin', page);
   }
-  const map = { dashboard: 'dashboard', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings' };
+  const map = { dashboard: 'dashboard', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools' };
   const key = map[section.toLowerCase()];
   assert(key, `unknown admin page "${section}"`);
   await page.goto(ctx.sp.base + '/admin/?section=' + key);
@@ -324,6 +324,9 @@ const STEPS = [
         assert(r.src.startsWith('data:image/svg'), `expected the no-cover picture, got ${r.src.slice(0, 80)}`);
       }
     }) },
+  { doc: 'phone 1 opens Audio timing   (the timing button on the player)',
+    re: /^phone (\w+) opens audio timing$/i,
+    fn: async (ctx, phone) => { const p = pageOf(ctx, 'phone ' + phone); await p.click('#sp-lt-btn'); await p.waitForTimeout(600); } },
   { doc: 'phone 1\'s player has the "christmas" decoration',
     re: new RegExp(`^phone (\\w+)'s player has the ${q} decoration$`, 'i'),
     fn: async (ctx, phone, theme) => eventually(async () => {
@@ -339,7 +342,7 @@ const STEPS = [
       await page.waitForTimeout(1200);
     } },
   { doc: 'the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats page',
-    re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings) page$/i,
+    re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings|tools) page$/i,
     browser: true,
     fn: async (ctx, section) => { await openAdmin(ctx, section); } },
   { doc: 'the admin ticks "Hide PSAs"',
@@ -627,6 +630,14 @@ const STEPS = [
   { doc: 'the admin switches the editor to Code',
     re: /^the admin switches the editor to code$/i,
     fn: async (ctx) => { const p = pageOf(ctx, 'admin'); await p.click('[data-designer-tab="code"]'); await p.waitForTimeout(800); } },
+  { doc: 'the admin opens the "Announcements" tab   (a sub-tab, by its label)',
+    re: new RegExp(`^the admin opens the ${q} tab$`, 'i'),
+    fn: async (ctx, label) => {
+      const p = pageOf(ctx, 'admin');
+      const ok = await p.evaluate((label) => { const t = [...document.querySelectorAll('.sub-tab')].find(x => x.textContent.trim() === label); if (!t) return false; t.click(); return true; }, label);
+      assert(ok, `no "${label}" tab`);
+      await p.waitForTimeout(1500);
+    } },
   { doc: 'the admin goes to the Dashboard and back to the Viewer Page   (without reloading)',
     re: /^the admin goes to the dashboard and back to the viewer page$/i,
     fn: async (ctx) => {

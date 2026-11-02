@@ -107,6 +107,7 @@ it and reports back. The scenario then stays in the suite.
   phone 1 opens the viewer page [as an iPhone | in Facebook's browser]
   phone 1 opens Listen on Phone   (taps the headphones button)
   phone 1's player shows "Title" with the cover of "A" | with the no-cover picture
+  phone 1 opens Audio timing   (the timing button on the player)
   phone 1's player has the "christmas" decoration
   phone 1 taps "A"
   the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats page
@@ -154,6 +155,7 @@ it and reports back. The scenario then stays in the suite.
   the draft contains "text"
   the admin's code editor shows "text"
   the admin switches the editor to Code
+  the admin opens the "Announcements" tab   (a sub-tab, by its label)
   the admin goes to the Dashboard and back to the Viewer Page   (without reloading)
   the draft is gone
   N seconds pass

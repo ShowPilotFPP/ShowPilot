@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/admin/ui-new.css">
   <script src="/admin/ui-new.js"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
+  <script src="/admin/announcer.js?v=1"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -1924,7 +1925,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.15</span>
+        <span class="app-version">v0.33.249-beta.16</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2771,7 +2772,7 @@
               <label for="cfg_player_decoration">Decoration theme</label>
               <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value); updatePlayerCustomColorVisibility();">
                 <option value="none">None</option>
-                <option value="newyear">🎉 New Year's — confetti &amp; glitter ball</option>
+                <option value="newyear">🎉 New Year's — confetti &amp; spinning mirror ball</option>
                 <option value="newyear-live">🎉 New Year's Live — mirror ball reacts to the music</option>
                 <option value="lunarnewyear">🏮 Lunar New Year — red lanterns</option>
                 <option value="valentines">💝 Valentine's — hearts</option>
@@ -3905,6 +3906,16 @@
               <code>?debug=1</code> to the URL. Turn off when done.
             </p>
             <div class="row">
+              <input type="checkbox" id="cfg_debug_output_delay_comp"
+                     onchange="saveSetting('debug_output_delay_comp', this.checked ? 1 : 0)" />
+              <label for="cfg_debug_output_delay_comp" style="margin: 0;">Compensate hidden output delay (experimental)</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+              Some phones (often Android) report no output delay but quietly buffer audio, so the music lags the lights
+              like an echo. The debug overlay's <code>outDelay</code> line shows the delay measured directly; with this on,
+              the player also corrects for it. Takes effect on page reload.
+            </p>
+            <div class="row">
               <input type="checkbox" id="cfg_debug_mic_measure"
                      onchange="saveSetting('debug_mic_measure', this.checked ? 1 : 0)" />
               <label for="cfg_debug_mic_measure" style="margin: 0;">Microphone sync measurement</label>
@@ -4033,7 +4044,18 @@
            TAB: TOOLS — Audio Normalizer (public/admin/audio-normalizer.js)
            ============================================================ -->
       <div class="tab-pane" data-pane="tools">
-        <div id="spNormalizerRoot"></div>
+        <div class="card" style="padding-bottom: 0; margin-bottom: 0;">
+          <div class="sub-tabs">
+            <div class="sub-tab active" data-subtab="tools-normalizer" onclick="switchTab('tools-normalizer')">Audio Normalizer</div>
+            <div class="sub-tab" data-subtab="tools-announcer" onclick="switchTab('tools-announcer')">Announcements</div>
+          </div>
+        </div>
+        <div class="sub-tab-pane active" data-subtab="tools-normalizer">
+          <div id="spNormalizerRoot"></div>
+        </div>
+        <div class="sub-tab-pane" data-subtab="tools-announcer">
+          <div id="spAnnouncerRoot"></div>
+        </div>
       </div>
 
       <!-- ============================================================
@@ -4320,7 +4342,11 @@
       if (name === 'stats') { loadStatsTab(); loadVisitorStats(); }
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
-      if (name === 'tools' && window.SPNormalizer) window.SPNormalizer.open();
+      if (name === 'tools') {
+        const sub = document.querySelector('.tab-pane[data-pane="tools"] .sub-tab.active');
+        if (sub && sub.dataset.subtab === 'tools-announcer') { if (window.SPAnnouncer) window.SPAnnouncer.open(); }
+        else if (window.SPNormalizer) window.SPNormalizer.open();
+      }
       if (name === 'settings') refreshAudioCacheStats();
     }
 
@@ -6166,6 +6192,7 @@
       setChk('cfg_player_stats_enabled', c.player_stats_enabled);
       setChk('cfg_debug_sync_probe', c.debug_sync_probe === 1);
       setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
+      setChk('cfg_debug_output_delay_comp', c.debug_output_delay_comp === 1);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
       setChk('cfg_sync_help_enabled', c.sync_help_enabled !== 0);
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
@@ -6800,6 +6827,8 @@
       if (name === 'viewer-schedule') loadSchedules();
       if (name === 'viewer-globalcss') loadGlobalCss();
       if (name === 'debug') loadServerLog();
+      if (name === 'tools-normalizer' && window.SPNormalizer) window.SPNormalizer.open();
+      if (name === 'tools-announcer' && window.SPAnnouncer) window.SPAnnouncer.open();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're

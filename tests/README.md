@@ -98,6 +98,9 @@ it and reports back. The scenario then stays in the suite.
   the show player's own queue is "A" and "B"
   the show player clears the queue   (the "Clear Queue" FPP command)
   the show player sets the viewer page to "Name"   (the "Set Viewer Page" command)
+  the show player is the FPP plugin version "0.14.18"   (its heartbeat)
+  the show player is version "player-0.13.6" and says "0.13.7" is the newest   (a non-FPP show player's heartbeat)
+  the show player is told "0.14.21" is the newest plugin | is told nothing about updates
   the show player switches the category "Kids" off | on
   phone 1 is at the show | is N miles away [with a rough location]
   phone 1 votes for "A"

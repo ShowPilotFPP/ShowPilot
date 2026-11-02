@@ -1003,11 +1003,18 @@ router.post('/heartbeat', (req, res) => {
   const updates = {
     plugin_last_seen_at: pluginStatus.lastSeen,
     plugin_version: pluginStatus.version,
+    // A show player that checks for its own updates says which version is
+    // newest (beta.18+); the Dashboard banner uses it.
+    plugin_latest_reported: (typeof req.body?.latestVersion === 'string' && /^\d+\.\d+\.\d+/.test(req.body.latestVersion))
+      ? req.body.latestVersion.slice(0, 32) : null,
   };
   if (fppHost) updates.plugin_fpp_host = fppHost;
   updateConfig(updates);
   pluginStatus.fppHost = fppHost || pluginStatus.fppHost;
-  res.json({ ok: true });
+  // The FPP plugin (0.14.22+) shows a warning in FPP when a newer version is
+  // out; tell it which. Other show players check for their own updates.
+  const isFppPlugin = pluginStatus.version && !/^player-/i.test(String(pluginStatus.version));
+  res.json(isFppPlugin ? { ok: true, ...require('../lib/show-player-update').forPlugin() } : { ok: true });
 });
 
 // ============================================================

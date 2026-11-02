@@ -320,6 +320,9 @@
       '</div>'), pane.firstChild);
 
     document.getElementById('spnVc').addEventListener('click', () => window.toggleViewerControl());
+    // The out-of-date show player banner (beta.18+) stays visible, above the new dashboard.
+    const upd = document.getElementById('showPlayerUpdateBanner');
+    if (upd) pane.insertBefore(upd, pane.firstChild);
   }
 
   const MODES = [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race'], ['LISTEN', 'Listen only']];

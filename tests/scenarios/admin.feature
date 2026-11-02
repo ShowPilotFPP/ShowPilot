@@ -139,3 +139,15 @@ Scenario: The ShowPilot update banner opens the Updates page
   When the admin opens the Dashboard page
   And the admin clicks "Open Updates"
   Then the admin sees "Pull the latest release of ShowPilot from GitHub"
+
+Scenario: Logging out shows only the login page (new layout)
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  When the admin opens the Users page
+  And the admin logs out
+  Then the admin sees only the login page
+
+Scenario: Logging out shows only the login page (classic layout)
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  When the admin opens the Users page
+  And the admin logs out in the classic layout
+  Then the admin sees only the login page

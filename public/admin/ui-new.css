@@ -14,6 +14,11 @@ body.ui-new {
   padding-left: var(--rail-collapsed);
 }
 body.ui-new.rail-pinned { padding-left: var(--rail-expanded); }
+/* Signed out (logged out, or the session expired): only the login form shows (beta.20). */
+body.ui-new:has(#loginView:not(.hidden)) { padding-left: 0 !important; }
+body.ui-new:has(#loginView:not(.hidden)) .spn-rail,
+body.ui-new:has(#loginView:not(.hidden)) .spn-backdrop,
+body.ui-new:has(#loginView:not(.hidden)) .spn-menu-btn { display: none !important; }
 
 /* The classic chrome is replaced by the rail and the top bar. The elements
    stay in the page (hidden) so every existing script keeps working. */

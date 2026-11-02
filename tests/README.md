@@ -114,7 +114,9 @@ it and reports back. The scenario then stays in the suite.
   phone 1 opens Audio timing   (the timing button on the player)
   phone 1's player has the "christmas" decoration
   phone 1 taps "A"
-  the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats page
+  the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats | Users page
+  the admin logs out [in the classic layout]
+  the admin sees only the login page   (no menu, no admin pages)
   the admin ticks "Hide PSAs"
   the admin switches to Voting | Jukebox | Race | Listen only | Off
   the admin clears the queue

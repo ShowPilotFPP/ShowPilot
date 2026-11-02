@@ -110,7 +110,7 @@ async function openAdmin(ctx, section) {
     page.on('pageerror', e => ctx.pageErrors.push(`admin: ${e.message}`));
     ctx.pages.set('admin', page);
   }
-  const map = { dashboard: 'dashboard', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools' };
+  const map = { dashboard: 'dashboard', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools', users: 'users' };
   const key = map[section.toLowerCase()];
   assert(key, `unknown admin page "${section}"`);
   await page.goto(ctx.sp.base + '/admin/?section=' + key);
@@ -359,10 +359,37 @@ const STEPS = [
       await page.click(tileSel(name));
       await page.waitForTimeout(1200);
     } },
-  { doc: 'the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats page',
-    re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings|tools) page$/i,
+  { doc: 'the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats | Users page',
+    re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings|tools|users) page$/i,
     browser: true,
     fn: async (ctx, section) => { await openAdmin(ctx, section); } },
+  { doc: 'the admin logs out [in the classic layout]',
+    re: /^the admin logs out( in the classic layout)?$/i,
+    browser: true,
+    fn: async (ctx, classic) => {
+      const p = pageOf(ctx, 'admin');
+      if (classic) {
+        await adminOk(ctx, 'PUT', '/me/layout', { layout: 'classic' }).catch(() => {});
+        await p.reload(); await p.waitForTimeout(1500);
+      }
+      await Promise.all([p.waitForLoadState('load').catch(() => {}), p.evaluate(() => window.logout())]);
+      await p.waitForTimeout(1500);
+    } },
+  { doc: 'the admin sees only the login page   (no menu, no admin pages)',
+    re: /^the admin sees only the login page$/i,
+    fn: async (ctx) => eventually(async () => {
+      const p = pageOf(ctx, 'admin');
+      const r = await p.evaluate(() => {
+        const vis = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+        const login = document.getElementById('loginView');
+        const others = Array.from(document.body.querySelectorAll('body *'))
+          .filter((el) => vis(el) && !login.contains(el) && !el.contains(login) && el.innerText && el.innerText.trim())
+          .map((el) => el.tagName + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '') + ': ' + el.innerText.trim().slice(0, 40));
+        return { login: vis(login), others: others.slice(0, 5) };
+      });
+      assert(r.login, 'the login form is not showing');
+      assert(r.others.length === 0, 'besides the login form the page shows: ' + r.others.join(' | '));
+    }) },
   { doc: 'the admin ticks "Hide PSAs"',
     re: /^the admin ticks "hide psas"$/i,
     browser: true,

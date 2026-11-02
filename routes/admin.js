@@ -193,7 +193,9 @@ router.put('/me/cockpit-layout', requireAdmin, (req, res) => {
     if (![1, 2, 4].includes(size)) return res.status(400).json({ error: 'Invalid tile size' });
     if (seen.has(id)) continue;
     seen.add(id);
-    clean.push({ id, size });
+    // Spacers (v0.33.249) also have a height in rows, 1-4.
+    const rows = Number(t.rows);
+    clean.push(Number.isInteger(rows) && rows >= 1 && rows <= 4 && rows !== 1 ? { id, size, rows } : { id, size });
   }
   require('../lib/db').setUserCockpitLayout(req.user.id, JSON.stringify(clean));
   res.json({ ok: true, layout: clean });

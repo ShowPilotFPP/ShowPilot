@@ -638,6 +638,66 @@ const STEPS = [
       assert(ok, `no "${label}" tab`);
       await p.waitForTimeout(1500);
     } },
+  { doc: 'the admin\'s cockpit has the tiles "cat:Kids" and "spacer1" (spacer1 2 rows tall)',
+    re: new RegExp(`^the admin's cockpit has the tiles ${LIST}$`, 'i'),
+    fn: async (ctx, list) => {
+      const layout = names(list).map(id => /^spacer\d+$/.test(id) ? { id, size: 4, rows: 2 } : { id, size: 1 });
+      await adminOk(ctx, 'PUT', '/me/cockpit-layout', { layout });
+    } },
+  { doc: 'the admin opens the Cockpit [in edit mode]',
+    re: /^the admin opens the cockpit( in edit mode)?$/i,
+    browser: true,
+    fn: async (ctx, edit) => {
+      let page = ctx.pages.get('admin');
+      if (!page) { await openAdmin(ctx, 'dashboard'); page = ctx.pages.get('admin'); }
+      await page.goto(ctx.sp.base + '/admin/cockpit.html' + (edit ? '?edit=1' : ''));
+      await page.waitForTimeout(1500);
+    } },
+  { doc: 'the admin taps the "Kids" tile on the cockpit',
+    re: new RegExp(`^the admin taps the ${q} tile on the cockpit$`, 'i'),
+    fn: async (ctx, label) => {
+      const p = pageOf(ctx, 'admin');
+      const ok = await p.evaluate((label) => { const t = [...document.querySelectorAll('.tile')].find(x => (x.querySelector('.tile-label') || {}).textContent === label); const b = t && t.querySelector('[data-act]'); if (!b) return false; b.click(); return true; }, label);
+      assert(ok, `no "${label}" tile with a control`);
+      await p.waitForTimeout(1200);
+    } },
+  { doc: 'the "Kids" tile on the cockpit says "Off"',
+    re: new RegExp(`^the ${q} tile on the cockpit says ${q}$`, 'i'),
+    fn: async (ctx, label, want) => eventually(async () => {
+      const t = await pageOf(ctx, 'admin').evaluate((label) => { const x = [...document.querySelectorAll('.tile')].find(e => (e.querySelector('.tile-label') || {}).textContent === label); return x ? x.querySelector('.tile-body').innerText.trim() : null; }, label);
+      assert(t === want, `the "${label}" tile says ${JSON.stringify(t)}`);
+    }) },
+  { doc: 'the category "Kids" is off | on   (in the saved settings)',
+    re: new RegExp(`^the category ${q} is (off|on)$`, 'i'),
+    fn: async (ctx, name, onoff) => eventually(async () => {
+      const cats = JSON.parse(ctx.sp.db.prepare('SELECT sequence_categories FROM config WHERE id = 1').get().sequence_categories || '[]');
+      const c = cats.find(x => x.name === name);
+      assert(c, `no category "${name}"`);
+      const on = c.enabled !== false && Number(c.enabled) !== 0;
+      assert(on === (onoff.toLowerCase() === 'on'), `the category "${name}" is ${on ? 'on' : 'off'}`);
+    }) },
+  { doc: 'the cockpit spacer is N rows tall and hidden | and visible',
+    re: /^the cockpit spacer is (\d) rows? tall and (hidden|visible)$/i,
+    fn: async (ctx, rows, vis) => {
+      const r = await pageOf(ctx, 'admin').evaluate(() => {
+        const sp = document.querySelector('.tile.spacer'), other = [...document.querySelectorAll('.tile')].find(t => !t.classList.contains('spacer'));
+        return sp && { h: sp.getBoundingClientRect().height, row: other ? other.getBoundingClientRect().height : 0, vis: getComputedStyle(sp).visibility };
+      });
+      assert(r, 'no spacer on the cockpit');
+      const est = Math.round((r.h + 12) / (r.row + 12));
+      assert(est === Number(rows), `the spacer is about ${est} rows tall (${Math.round(r.h)}px; a tile is ${Math.round(r.row)}px)`);
+      assert((r.vis === 'hidden') === (vis.toLowerCase() === 'hidden'), `the spacer is ${r.vis}`);
+    } },
+  { doc: 'the admin adds a Spacer on the cockpit   (edit mode, + Add)',
+    re: /^the admin adds a spacer on the cockpit$/i,
+    fn: async (ctx) => { const p = pageOf(ctx, 'admin'); await p.click('[data-add="spacer"]'); await p.waitForTimeout(800); } },
+  { doc: 'the saved cockpit has N spacers',
+    re: /^the saved cockpit has (\d+) spacers?$/i,
+    fn: async (ctx, n) => eventually(async () => {
+      const me = await adminOk(ctx, 'GET', '/me');
+      const k = (me.cockpitLayout || []).filter(t => /^spacer\d+$/.test(t.id)).length;
+      assert(k === Number(n), `the saved cockpit has ${k} spacers`);
+    }) },
   { doc: 'the admin goes to the Dashboard and back to the Viewer Page   (without reloading)',
     re: /^the admin goes to the dashboard and back to the viewer page$/i,
     fn: async (ctx) => {

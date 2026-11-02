@@ -156,6 +156,14 @@ it and reports back. The scenario then stays in the suite.
   the admin's code editor shows "text"
   the admin switches the editor to Code
   the admin opens the "Announcements" tab   (a sub-tab, by its label)
+  the admin's cockpit has the tiles "cat:Kids" and "spacer1" (spacer1 2 rows tall)
+  the admin opens the Cockpit [in edit mode]
+  the admin taps the "Kids" tile on the cockpit
+  the "Kids" tile on the cockpit says "Off"
+  the category "Kids" is off | on   (in the saved settings)
+  the cockpit spacer is N rows tall and hidden | and visible
+  the admin adds a Spacer on the cockpit   (edit mode, + Add)
+  the saved cockpit has N spacers
   the admin goes to the Dashboard and back to the Viewer Page   (without reloading)
   the draft is gone
   N seconds pass

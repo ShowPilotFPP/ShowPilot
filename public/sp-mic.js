@@ -127,19 +127,36 @@
   // Each: { mic: Float32Array, ref: Float32Array, refStartSec, expectedPosSec }.
   // Real peaks score in the hundreds against the correlation's typical
   // level; background noise alone scores single digits.
-  const MIN_SPEAKER = 20, MIN_PHONE = 15, SAME_PEAK_SEC = 0.003;
+  const MIN_SPEAKER = 12, MIN_PHONE = 10, SAME_PEAK_SEC = 0.003;
   // Music repeats (beats, bars), which leaves faint 'ghost' matches far
   // away. The phone is next to the mic, so its peak is strong and close to
   // the speakers': ignore anything beyond MAX_GAP_SEC or under
   // MIN_PHONE_SHARE of the strongest peak.
-  const MAX_GAP_SEC = 0.5, MIN_PHONE_SHARE = 0.25;
+  const MAX_GAP_SEC = 0.5, MIN_PHONE_SHARE = 0.35;
+  const RIVAL_GAP_SEC = 0.05, RIVAL_SHARE = 0.7;
   function analyze(a, b, sampleRate) {
     const pb = peaksFor(b, sampleRate);
     const pa = peaksFor(a, sampleRate);
-    if (!pb.length || pb[0].strength < MIN_SPEAKER) {
-      return { ok: false, reason: 'could not hear the show speakers clearly (move closer, turn them up, or reduce background noise)', pa, pb };
+    // Ambiguity check (v0.33.223-beta): repetitive music produces "ghost"
+    // matches a beat or bar away that can score as high as the real one, and
+    // noise alone produces scattered peaks. If the best match has a rival more
+    // than RIVAL_GAP_SEC away and at least RIVAL_SHARE as strong, refuse to
+    // guess rather than report a confident wrong number. (Echoes arrive within
+    // tens of ms, so they don't count as rivals.)
+    const AMBIGUOUS = 'no clear match: the music is too repetitive here, or the speakers too quiet. Try again during a part with vocals';
+    const hasRival = (list, best) => list.some(p => p !== best && Math.abs(p.rel - best.rel) > RIVAL_GAP_SEC && p.strength >= RIVAL_SHARE * best.strength);
+    if (pb.length && hasRival(pb, pb[0])) {
+      return { ok: false, ambiguous: true, reason: AMBIGUOUS, pa, pb };
     }
-    const speakerPeaks = pb.filter(p => p.strength >= MIN_SPEAKER / 2);
+    if (!pb.length || pb[0].strength < MIN_SPEAKER) {
+      return { ok: false, reason: 'could not hear the show speakers clearly (heard at strength ' + Math.round(pb.length ? pb[0].strength : 0) + ', need ' + MIN_SPEAKER + ') — move closer, turn them up, or reduce background noise', pa, pb };
+    }
+    // Everything B hears is the speakers: their direct sound, room echoes, AND
+    // "ghost" matches a beat or bar away (music repeats). Keep B's weaker
+    // peaks too, so a matching ghost in A is recognised as the speakers'
+    // signature — otherwise, when phone and speakers are in sync (one merged
+    // peak in A), a beat-length ghost could be mistaken for the phone.
+    const speakerPeaks = pb.filter(p => p.strength >= Math.max(4, 0.12 * pb[0].strength));
     const speakerRel = pb[0].rel;
     // Capture B holds the speakers' direct sound AND their room echoes. Any
     // peak in A that also appears in B is the speakers' signature; the phone
@@ -154,6 +171,11 @@
         p.strength >= MIN_PHONE_SHARE * strongest &&
         Math.abs(p.rel - speakerInA.rel) <= MAX_GAP_SEC)
       .sort((x, y) => y.strength - x.strength)[0];
+    // The phone's match must be unambiguous too.
+    const phoneCands = pa.filter(p => !inB(p) && p.strength >= MIN_PHONE && Math.abs(p.rel - speakerInA.rel) <= MAX_GAP_SEC);
+    if (phone && hasRival(phoneCands, phone)) {
+      return { ok: false, ambiguous: true, reason: AMBIGUOUS, pa, pb };
+    }
     if (!phone) {
       // No phone-only peak: the phone and the speakers land together.
       return { ok: true, deltaMs: 0, merged: true, speakerStrength: pb[0].strength, pa, pb };
@@ -167,6 +189,68 @@
     };
   }
 
-  root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2 };
+  // ---- Listener delay detection (v0.33.238-beta) ----
+  // For "Detect my delay" in the Audio timing sheet: the player records the
+  // microphone AND its own output (a tap just before the speakers) in the
+  // same audio blocks, so both are on one clock. Where the mic hears the
+  // output again is the round trip: output delay (Bluetooth, car stereo,
+  // the phone's own buffers) + microphone input delay. No song decoding and
+  // no position estimates are involved.
+  //
+  // mic, tap: Float32Arrays of equal length, recorded together.
+  // Checks several windows; returns the mean lag of the windows that agree.
+  const RT_MAX_LAG_SEC = 1.2, RT_NEG_LAG_SEC = 0.05, RT_WIN_SEC = 2.5;
+  const RT_MIN_STRENGTH = 10, RT_AGREE_SEC = 0.025;
+  function roundTripWindow(mic, tap, sampleRate, startSec) {
+    const sr = sampleRate;
+    const m0 = Math.round(startSec * sr), w = Math.round(RT_WIN_SEC * sr);
+    const r0 = m0 - Math.round(RT_MAX_LAG_SEC * sr), r1 = m0 + w + Math.round(RT_NEG_LAG_SEC * sr);
+    if (r0 < 0 || r1 > tap.length || m0 + w > mic.length) return null;
+    const micW = mic.subarray(m0, m0 + w), ref = tap.subarray(r0, r1);
+    let tapEnergy = 0;
+    for (let i = 0; i < ref.length; i++) tapEnergy += ref[i] * ref[i];
+    if (tapEnergy / ref.length < 1e-7) return { ok: false, silent: true };
+    const corr = gccPhat(micW, ref, sr, [150, 6000]);
+    const peaks = findPeaks(corr, Math.round(0.006 * sr), 6).map(p => ({
+      lagSec: (m0 - (r0 + p.k)) / sr,
+      strength: peakRatio(corr, p.v),
+    }));
+    if (!peaks.length) return { ok: false, peaks };
+    const best = peaks[0];
+    if (best.strength < RT_MIN_STRENGTH) return { ok: false, weak: true, peaks };
+    // A rival match far from the best and nearly as strong means repetitive
+    // music (a beat or bar away); echoes arrive within ~50 ms and don't count.
+    const rival = peaks.some(p => p !== best && Math.abs(p.lagSec - best.lagSec) > 0.05 && p.strength >= 0.7 * best.strength);
+    if (rival) return { ok: false, ambiguous: true, peaks };
+    return { ok: true, lagSec: best.lagSec, strength: best.strength, peaks };
+  }
+  function roundTrip(mic, tap, sampleRate) {
+    const sr = sampleRate, total = Math.min(mic.length, tap.length) / sr;
+    const wins = [];
+    for (let s = RT_MAX_LAG_SEC + 0.1; s + RT_WIN_SEC + RT_NEG_LAG_SEC <= total; s += RT_WIN_SEC * 0.8) {
+      const r = roundTripWindow(mic, tap, sr, s);
+      if (r) wins.push(r);
+    }
+    const good = wins.filter(r => r.ok);
+    const base = { windows: wins.length, runs: good.map(r => Math.round(r.lagSec * 1000)) };
+    if (!wins.length) return Object.assign(base, { ok: false, reason: 'the recording was too short' });
+    if (wins.every(r => r.silent)) return Object.assign(base, { ok: false, reason: 'the music was silent — try again while a song is playing' });
+    if (good.length < 2) {
+      const amb = wins.some(r => r.ambiguous);
+      return Object.assign(base, { ok: false, reason: amb
+        ? 'no clear match: this part of the song is too repetitive — try again during vocals'
+        : 'the microphone could not hear the music clearly — turn the volume up and keep the phone near the speakers' });
+    }
+    const lags = good.map(r => r.lagSec).sort((a, b) => a - b);
+    const med = lags[lags.length >> 1];
+    const agree = good.filter(r => Math.abs(r.lagSec - med) <= RT_AGREE_SEC);
+    if (agree.length < Math.max(2, Math.ceil(good.length / 2))) {
+      return Object.assign(base, { ok: false, reason: 'the measurements disagreed (' + base.runs.join(', ') + ' ms) — keep still and try again' });
+    }
+    const mean = agree.reduce((a, r) => a + r.lagSec, 0) / agree.length;
+    return Object.assign(base, { ok: true, lagSec: mean, strength: Math.min.apply(null, agree.map(r => r.strength)) });
+  }
+
+  root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2, roundTrip, roundTripWindow };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SPMicCore;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -45,3 +45,14 @@ Scenario: Opening the Viewer Page shows the preview (it's only paused after a re
   # Reloading the admin straight away isn't mistaken for a freeze either.
   When the admin opens the Viewer Page page
   Then the preview is loaded
+
+Scenario: Tools has the Announcements tool (restored from the old beta)
+  When the admin opens the Tools page
+  And the admin opens the "Announcements" tab
+  Then the admin sees "Install free voices"
+  And the admin page responds
+
+Scenario: Settings → Debug has the hidden output delay switch (restored from the old beta)
+  When the admin opens the Settings page
+  And the admin opens the "Debug" tab
+  Then the admin sees "Compensate hidden output delay (experimental)"

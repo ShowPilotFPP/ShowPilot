@@ -277,6 +277,11 @@ const STEPS = [
       if (v) assert(h.pluginLatest === v, `the heartbeat answer says the newest plugin is ${h.pluginLatest}`);
       else assert(!('pluginLatest' in h), `the heartbeat answer mentions plugin ${h.pluginLatest}`);
     } },
+  { doc: 'ShowPilot "9.9.9" is out   (the newest release the update check finds)',
+    re: new RegExp(`^ShowPilot ${q} is out$`, 'i'),
+    fn: async (ctx, v) => {
+      require('fs').writeFileSync(require('path').join(ctx.sp.app, 'data', 'test-release.json'), JSON.stringify({ stable: v }));
+    } },
   { doc: 'the show player switches the category "Kids" off | on',
     re: new RegExp(`^the show player switches the category ${q} (off|on)$`, 'i'),
     fn: async (ctx, name, onoff) => { await ctx.player.setCategory(name, onoff.toLowerCase() === 'on'); } },

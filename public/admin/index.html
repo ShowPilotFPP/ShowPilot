@@ -1925,7 +1925,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249-beta.18</span>
+        <span class="app-version">v0.33.249-beta.19</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2001,7 +2001,9 @@
       <div class="tab-pane active" data-pane="dashboard">
 
         <!-- Out-of-date show player (beta.18+): filled by renderShowPlayerUpdate() -->
-        <div id="showPlayerUpdateBanner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-warning); background: var(--status-warning-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <!-- Newer ShowPilot available (beta.19+): filled by renderShowPilotUpdate() -->
+        <div id="showPilotUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-success); background: var(--status-success-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <div id="showPlayerUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-warning); background: var(--status-warning-soft); font-size: 0.9rem; line-height: 1.45;"></div>
 
         <div class="now-playing-card" style="margin-bottom: 1.25rem;">
           <span class="np-pulse"></span>
@@ -10397,6 +10399,41 @@
       if (el.innerHTML !== html) el.innerHTML = html;
       el.style.display = '';
     }
+    // Banner on the Dashboard when a newer ShowPilot is out (beta.19+). The
+    // server answers from its last GitHub check, so this is cheap; asked at
+    // most every 60 s. A newer beta is only offered to installs on a beta.
+    let _spUpdAskedAt = 0;
+    async function loadShowPilotUpdate() {
+      if (Date.now() - _spUpdAskedAt < 60000) return;
+      _spUpdAskedAt = Date.now();
+      const r = await api('/updates/notice');
+      if (r.ok) renderShowPilotUpdate(r.data.notice);
+    }
+    function renderShowPilotUpdate(n) {
+      const el = document.getElementById('showPilotUpdateBanner');
+      if (!el) return;
+      let dismissed = '';
+      try { dismissed = localStorage.getItem('sp_showpilot_update_dismissed') || ''; } catch (e) {}
+      if (!n || dismissed === n.kind + ':' + n.latest) { el.style.display = 'none'; el.innerHTML = ''; return; }
+      const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      let how;
+      if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">Open Updates</button>';
+      else if (n.isDocker) how = '<br>Pull the new image and recreate the container to update.';
+      else how = '';
+      el.innerHTML = '<b>⬆ ' + (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available') + '.</b> '
+        + 'You have v' + esc(n.current) + '.' + how
+        + ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPilotUpdate(\'' + esc(n.kind + ':' + n.latest) + '\')">Dismiss</button>';
+      el.style.display = '';
+    }
+    function openShowPilotUpdates() {
+      switchMainTab('settings');
+      switchTab('updates');
+    }
+    function dismissShowPilotUpdate(key) {
+      try { localStorage.setItem('sp_showpilot_update_dismissed', key); } catch (e) {}
+      const el = document.getElementById('showPilotUpdateBanner');
+      if (el) el.style.display = 'none';
+    }
     function dismissShowPlayerUpdate(key) {
       try { localStorage.setItem('sp_player_update_dismissed', key); } catch (e) {}
       const el = document.getElementById('showPlayerUpdateBanner');
@@ -10408,6 +10445,7 @@
       if (!r.ok) return;
       const d = r.data;
       renderShowPlayerUpdate(d.update);
+      loadShowPilotUpdate();
       const dot = document.getElementById('headerPluginDot');
       const text = document.getElementById('headerPluginText');
       const conn = document.getElementById('pluginConnStatus');

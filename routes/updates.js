@@ -81,6 +81,16 @@ async function buildStatusResponse({ force }) {
 // rollback availability, and whether the updater is permitted to act
 // on this deployment. The UI calls this on page load and after every
 // action.
+// Dashboard banner (beta.19+): is a newer ShowPilot out? Answers at once
+// from the last check (see updater.notice()). Docker installs are told to
+// pull the new image; demo mode never shows it.
+router.get('/notice', (req, res) => {
+  if (config.demoMode) return res.json({ notice: null });
+  const n = updater.notice();
+  if (!n) return res.json({ notice: null });
+  res.json({ notice: { ...n, isDocker: supervisor.detectSupervisor() === 'docker', canUpdateHere: updater.isUpdaterAvailable() } });
+});
+
 router.get('/status', async (req, res) => {
   try {
     res.json(await buildStatusResponse({ force: false }));

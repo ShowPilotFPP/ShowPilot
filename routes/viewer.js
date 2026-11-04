@@ -13,6 +13,7 @@ const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, g
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
 const { progressBarConfig } = require('../lib/progress-bar');
+const { launcherColors } = require('../lib/launcher-style');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -279,6 +280,7 @@ router.get('/state', (req, res) => {
     // bar settings, so admin changes reach open pages without a reload.
     serverNowMs: Date.now(),
     progressBar: progressBarConfig(cfg),
+    launcherColors: launcherColors(cfg), // v0.33.249: Listen-on-Phone button colors
     nextScheduled: nextUp,
     activeViewers,
     sequences,

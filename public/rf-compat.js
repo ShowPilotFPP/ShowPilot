@@ -257,7 +257,7 @@
       '.sp-progress--edge .sp-progress-time{position:absolute;bottom:calc(100% + 6px);padding:4px 9px;border-radius:999px;' +
         'font-size:12px;background:rgba(10,10,14,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}' +
       '.sp-progress--onplayer{position:absolute;top:0;z-index:3}' +
-      '.sp-progress--onplayer .sp-progress-time{right:12px}' +
+      '.sp-progress--onplayer .sp-progress-time{left:12px}' +
       '.sp-progress--screenbottom{position:fixed;bottom:env(safe-area-inset-bottom,0px);z-index:9990}' +
       '.sp-progress--screenbottom .sp-progress-time{left:10px}' +
       '.sp-progress--no-time .sp-progress-time{display:none}' +
@@ -307,6 +307,32 @@
   }
   window.addEventListener('showpilot:player-mode', () => placeProgressBar());
   window.addEventListener('showpilot:player-theme', () => placeProgressBar());
+
+  // ---- Listen-on-Phone launcher colors (v0.33.249+) ----
+  // Admin colors ({bg, fg}, each '#rrggbb' or '') arrive in the bootstrap and
+  // every /api/state poll. They're set as --sp-launcher-bg / --sp-launcher-fg
+  // on #of-listen-btn itself; the button's styles read those variables with
+  // the built-in red / white as fallback. An empty value removes the inline
+  // variable, so a template's own --sp-launcher-* (e.g. on :root) applies.
+  let launcherColorCfg = null;
+  let lastLauncherColorKey = '';
+  function applyLauncherColors(cfg) {
+    if (cfg && typeof cfg === 'object') launcherColorCfg = cfg;
+    const c = launcherColorCfg;
+    const btn = document.getElementById('of-listen-btn');
+    if (!c || !btn) return;
+    const key = (c.bg || '') + '|' + (c.fg || '');
+    if (key === lastLauncherColorKey && btn.dataset.spLauncherColors === key) return;
+    lastLauncherColorKey = key;
+    btn.dataset.spLauncherColors = key;
+    const hex = /^#[0-9a-f]{6}$/i;
+    if (hex.test(c.bg || '')) btn.style.setProperty('--sp-launcher-bg', c.bg);
+    else btn.style.removeProperty('--sp-launcher-bg');
+    if (hex.test(c.fg || '')) btn.style.setProperty('--sp-launcher-fg', c.fg);
+    else btn.style.removeProperty('--sp-launcher-fg');
+    try { window.dispatchEvent(new CustomEvent('showpilot:launcher-style')); } catch (_) {}
+  }
+
   function applyProgressBarConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     const key = JSON.stringify(cfg);
@@ -748,6 +774,7 @@
     // both (even if null — that's how we know to render --:--).
     updateTimerFromState(data.nowPlayingStartedAtIso || null, data.nowPlayingDurationSeconds || null);
     if (data.progressBar) applyProgressBarConfig(data.progressBar);
+    if (data.launcherColors) applyLauncherColors(data.launcherColors);
 
     if (typeof data.currentVotingRound === 'number') {
       if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {
@@ -2599,10 +2626,11 @@
     // image itself is the affordance. We still keep cursor:pointer and a
     // subtle drop-shadow so it reads as tappable on light backgrounds.
     const chromeStyles = showChrome
-      ? `background: rgba(220,38,38,0.95); color: white;
+      ? `background: var(--sp-launcher-bg, rgba(220,38,38,0.95));
+         color: var(--sp-launcher-fg, white);
          border: 2px solid rgba(255,255,255,0.4);
          box-shadow: 0 4px 12px rgba(0,0,0,0.4);`
-      : `background: transparent; color: white;
+      : `background: transparent; color: var(--sp-launcher-fg, white);
          border: 0;
          filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));`;
 
@@ -2918,6 +2946,7 @@
     document.head.appendChild(style);
 
     document.body.appendChild(btn);
+    applyLauncherColors(boot.launcherColors); // v0.33.249+
     document.body.appendChild(panel);
     document.body.appendChild(minimizedPill);
 
@@ -3288,6 +3317,7 @@
       mirrorListenIcon();
       setTimeout(mirrorListenIcon, 1500);
       window.addEventListener('showpilot:player-theme', mirrorListenIcon);
+      window.addEventListener('showpilot:launcher-style', mirrorListenIcon);
       // The dot takes the player theme's accent; refresh it when the theme changes.
       window.addEventListener('showpilot:player-theme', () => ltUpdateUi());
     }

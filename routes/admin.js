@@ -331,6 +331,8 @@ router.put('/config', requireAdmin, (req, res) => {
     'launcher_icon_data',
     'launcher_show_chrome',
     'launcher_size',
+    'launcher_bg_color',
+    'launcher_fg_color',
   ];
   const updates = {};
   for (const k of allowed) {

@@ -1918,7 +1918,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.248</span>
+        <span class="app-version">v0.33.249</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2854,6 +2854,30 @@
           </div>
           <p class="muted" style="font-size: 0.78rem; margin: 0.25rem 0 0.75rem;">
             On: classic red circular button with the icon inside. Off: bare icon — your image becomes the button. Use a clearly-clickable image when off.
+          </p>
+
+          <div class="grid-2" style="margin: 0 0 0.75rem;">
+            <div>
+              <label for="cfg_launcher_bg_color">Button color</label>
+              <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
+                <input type="color" id="cfg_launcher_bg_color"
+                       onchange="saveLauncherColor('launcher_bg_color', this.value)"
+                       style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                <button type="button" class="secondary" onclick="resetLauncherColor('launcher_bg_color')" style="font-size: 0.85rem;">Use default</button>
+              </div>
+            </div>
+            <div>
+              <label for="cfg_launcher_fg_color">Icon color</label>
+              <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
+                <input type="color" id="cfg_launcher_fg_color"
+                       onchange="saveLauncherColor('launcher_fg_color', this.value)"
+                       style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                <button type="button" class="secondary" onclick="resetLauncherColor('launcher_fg_color')" style="font-size: 0.85rem;">Use default</button>
+              </div>
+            </div>
+          </div>
+          <p class="muted" style="font-size: 0.78rem; margin: -0.25rem 0 0.75rem;">
+            Defaults are red and white. Icon color applies to the built-in icons (emoji and uploaded images keep their own colors). With the round background off, only the icon color is used. Open viewer pages update within a few seconds. Templates can also set <code>--sp-launcher-bg</code> / <code>--sp-launcher-fg</code> in their CSS; colors chosen here win.
           </p>
 
           <div class="row">
@@ -6076,6 +6100,12 @@
       setVal('cfg_launcher_icon_source', c.launcher_icon_source || 'default');
       setChk('cfg_launcher_show_chrome', (c.launcher_show_chrome === undefined || c.launcher_show_chrome === null) ? 1 : c.launcher_show_chrome);
       setVal('cfg_launcher_size', c.launcher_size || 'medium');
+      window._launcherColors = {
+        launcher_bg_color: /^#[0-9a-f]{6}$/i.test(c.launcher_bg_color || '') ? c.launcher_bg_color : '',
+        launcher_fg_color: /^#[0-9a-f]{6}$/i.test(c.launcher_fg_color || '') ? c.launcher_fg_color : '',
+      };
+      setVal('cfg_launcher_bg_color', window._launcherColors.launcher_bg_color || LAUNCHER_DEFAULT_COLORS.launcher_bg_color);
+      setVal('cfg_launcher_fg_color', window._launcherColors.launcher_fg_color || LAUNCHER_DEFAULT_COLORS.launcher_fg_color);
       updateLauncherIconPreview(c.launcher_icon_data || '');
       updateLauncherUI();
       updateLocationMap();
@@ -6358,6 +6388,23 @@
       star: '<svg viewBox="0 0 24 24" fill="currentColor" width="62%" height="62%" style="display:block;"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7l3-7z"/></svg>',
     };
     const LAUNCHER_SIZES = { small: 40, medium: 52, large: 72 };
+    // Launcher colors (v0.33.249+): '' in config = built-in default; the
+    // pickers show these hex values when nothing is set.
+    const LAUNCHER_DEFAULT_COLORS = { launcher_bg_color: '#dc2626', launcher_fg_color: '#ffffff' };
+    function saveLauncherColor(key, value) {
+      window._launcherColors = window._launcherColors || {};
+      window._launcherColors[key] = value;
+      saveSetting(key, value);
+      updateLauncherPreview();
+    }
+    function resetLauncherColor(key) {
+      window._launcherColors = window._launcherColors || {};
+      window._launcherColors[key] = '';
+      const el = document.getElementById('cfg_' + key);
+      if (el) el.value = LAUNCHER_DEFAULT_COLORS[key];
+      saveSetting(key, '');
+      updateLauncherPreview();
+    }
 
     // Render the preview button using current admin form values.
     function updateLauncherPreview() {
@@ -6387,9 +6434,12 @@
       }
 
       previewBtn.innerHTML = iconHtml;
+      const lc = window._launcherColors || {};
+      const bg = /^#[0-9a-f]{6}$/i.test(lc.launcher_bg_color || '') ? lc.launcher_bg_color : 'rgba(220,38,38,0.95)';
+      const fg = /^#[0-9a-f]{6}$/i.test(lc.launcher_fg_color || '') ? lc.launcher_fg_color : 'white';
       const chrome = showChrome
-        ? 'background: rgba(220,38,38,0.95); color: white; border: 2px solid rgba(255,255,255,0.4); box-shadow: 0 4px 12px rgba(0,0,0,0.4);'
-        : 'background: transparent; color: white; border: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));';
+        ? 'background: ' + bg + '; color: ' + fg + '; border: 2px solid rgba(255,255,255,0.4); box-shadow: 0 4px 12px rgba(0,0,0,0.4);'
+        : 'background: transparent; color: ' + fg + '; border: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));';
       previewBtn.style.cssText = `
         width: ${px}px; height: ${px}px; border-radius: 50%;
         ${chrome}

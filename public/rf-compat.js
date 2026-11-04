@@ -364,6 +364,7 @@
         form.style.removeProperty('--sp-message-accent');
         form.style.removeProperty('--sp-message-accent-text');
       }
+      form.setAttribute('data-sp-theme', m.theme === 'light' ? 'light' : 'dark'); // box style (v0.33.254+)
       // Message wall on/off (v0.33.252+): the "show my message" box and the
       // matching sub-heading.
       const wallOn = !!(m.wall && m.wall.enabled);
@@ -439,6 +440,7 @@
         wall.style.removeProperty('--sp-message-accent-text');
       }
       wall.hidden = !(w.enabled && items.length);
+      wall.setAttribute('data-sp-theme', m.theme === 'light' ? 'light' : 'dark');
       if (wall.dataset.spWallKey === key) return;
       wall.dataset.spWallKey = key;
       wall.setAttribute('data-style', style);

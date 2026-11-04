@@ -351,6 +351,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'visitor_messages_filter_words',
     'visitor_messages_accent',
     'visitor_messages_idle_minutes',
+    'visitor_messages_theme',
     'visitor_messages_wall',
     'visitor_messages_wall_approve',
     'visitor_messages_wall_style',
@@ -892,7 +893,8 @@ router.get('/messages/export', requireAdmin, (req, res) => {
 });
 // Live preview of the message box for the admin (same markup and CSS as the
 // viewer page). ?accent=%23rrggbb (optional), ?bg=dark|light, ?max=N,
-// ?wall=cards|bubbles|ticker to also show the message wall with sample messages.
+// ?wall=cards|bubbles|ticker to also show the message wall with sample messages,
+// ?theme=dark|light for the box style.
 router.get('/messages/preview', requireAdmin, (req, res) => {
   const vm = require('../lib/visitor-messages');
   const accent = /^#[0-9a-f]{6}$/i.test(String(req.query.accent || '')) ? String(req.query.accent).toLowerCase() : '';
@@ -906,7 +908,8 @@ router.get('/messages/preview', requireAdmin, (req, res) => {
     { id: 3, name: '', message: 'Can you add Feliz Navidad next year?', at: ago(24) },
     { id: 4, name: 'Jo', message: 'That finale gave me chills ✨', at: ago(47) },
   ];
-  const state = { open: true, maxLength: max, accent: accent || vm.DEFAULT_ACCENT, customAccent: !!accent,
+  const theme = req.query.theme === 'light' ? 'light' : 'dark';
+  const state = { open: true, maxLength: max, accent: accent || vm.DEFAULT_ACCENT, customAccent: !!accent, theme,
     wall: { enabled: !!wallStyle, style: wallStyle || 'cards', items: wallStyle ? sample : [] } };
   const bg = light
     ? 'linear-gradient(135deg,#fdf6ec,#f3e7d3)'

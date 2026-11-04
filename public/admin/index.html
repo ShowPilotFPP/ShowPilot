@@ -1927,7 +1927,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.253</span>
+        <span class="app-version">v0.33.254</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2379,6 +2379,13 @@
                          style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
                   <button type="button" class="secondary" onclick="saveMessageAccent('')" style="font-size: 0.85rem;">Use default</button>
                 </div>
+              </div>
+              <div>
+                <label for="cfg_visitor_messages_theme">Box style</label>
+                <select id="cfg_visitor_messages_theme" onchange="saveMessageTheme(this.value)" style="width: auto;">
+                  <option value="dark">Dark card (for dark pages)</option>
+                  <option value="light">Light card (for light pages)</option>
+                </select>
               </div>
               <div class="row" style="gap: 0.4rem; margin: 0;" role="group" aria-label="Preview background">
                 <button type="button" class="secondary" id="msgPreviewDark" onclick="setMessagePreviewBg('dark')" style="font-size: 0.8rem;">Dark page</button>
@@ -6442,6 +6449,9 @@
       msgPreviewAccent = /^#[0-9a-f]{6}$/i.test(c.visitor_messages_accent || '') ? c.visitor_messages_accent : '';
       setVal('cfg_visitor_messages_accent', msgPreviewAccent || '#e11d48');
       msgPreviewMax = Number(c.visitor_messages_max_length) || 280;
+      msgPreviewTheme = c.visitor_messages_theme === 'light' ? 'light' : 'dark';
+      msgPreviewBg = msgPreviewTheme;
+      setVal('cfg_visitor_messages_theme', msgPreviewTheme);
       if (document.querySelector('.tab-pane[data-pane="messages"].active')) refreshMessagePreview();
       (async () => {
         const ta = document.getElementById('cfg_visitor_messages_filter_words');
@@ -11016,11 +11026,18 @@
       window.location.href = '/api/admin/messages/export';
     }
     // Message box look (accent + live preview).
-    let msgPreviewBg = 'dark', msgPreviewAccent = '', msgPreviewMax = 280, msgPreviewWallStyle = 'cards';
+    let msgPreviewBg = 'dark', msgPreviewAccent = '', msgPreviewMax = 280, msgPreviewWallStyle = 'cards', msgPreviewTheme = 'dark';
+    async function saveMessageTheme(v) {
+      msgPreviewTheme = v === 'light' ? 'light' : 'dark';
+      // Show the matching page behind it, so the preview shows what it's for.
+      msgPreviewBg = msgPreviewTheme;
+      refreshMessagePreview();
+      await saveSetting('visitor_messages_theme', msgPreviewTheme);
+    }
     function refreshMessagePreview() {
       const f = document.getElementById('msgPreview');
       if (!f) return;
-      const qs = new URLSearchParams({ bg: msgPreviewBg, max: String(msgPreviewMax) });
+      const qs = new URLSearchParams({ bg: msgPreviewBg, max: String(msgPreviewMax), theme: msgPreviewTheme });
       if (msgPreviewAccent) qs.set('accent', msgPreviewAccent);
       // The wall preview follows the Layout choice while the wall is on.
       if ((document.getElementById('cfg_visitor_messages_wall') || {}).checked) qs.set('wall', msgPreviewWallStyle);

@@ -1,0 +1,46 @@
+name: Scenario tests
+
+# The plain-English scenarios in tests/scenarios (see tests/README.md), run
+# against a throwaway ShowPilot with a fake show player and headless phones.
+on:
+  push:
+    branches: [main, beta, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: scenarios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scenarios:
+    # Self-hosted build runner on the Mac (labels self-hosted, linux, arm64,
+    # showpilot). Repo variable SPP_RUNNER=github switches to GitHub-hosted
+    # runners. Pull requests from forks always run on GitHub's runners: their
+    # code never runs on the self-hosted machine.
+    runs-on: ${{ (vars.SPP_RUNNER == 'github' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      # Chromium's headless shell for the phones and admin (all tests run
+      # headless); kept between runs on the self-hosted machine, so after the
+      # first run this is quick. Playwright is pinned to 1.58.2 in
+      # package.json: later versions download Chrome for Testing, which has
+      # no Linux ARM build, so the install fails on the Mac runner.
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Run scenarios
+        run: npm test
+      - name: Summary on the run page
+        if: always()
+        run: test -f tests/out/summary.md && cat tests/out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-report
+          path: tests/out/
+          retention-days: 14

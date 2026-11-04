@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/admin/ui-new.css">
   <script src="/admin/ui-new.js"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
+  <script src="/admin/announcer.js?v=1"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -417,6 +418,7 @@
     .mode-pill.jukebox { background: var(--rgb-blue); color: #fff; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
     .mode-pill.race { background: #f59e0b; color: #000; box-shadow: 0 0 12px rgba(245,158,11,0.4); }
     .mode-pill.off { background: var(--status-neutral); color: #fff; }
+    .mode-pill.listen { background: #0d9488; color: #fff; box-shadow: 0 0 12px rgba(13,148,136,0.35); }
     .header-spacer { margin-left: auto; }
     /* "Show" link in admin header — opens the viewer in a new tab.
        Styled like the user button (subtle outline on dark background)
@@ -787,6 +789,8 @@
       transition: color 0.15s, border-color 0.15s;
     }
     .tab-btn:hover { color: var(--text); }
+    /* Unread visitor messages (v0.33.250+) */
+    .tab-btn[data-unread]::after { content: attr(data-unread); display: inline-block; margin-left: 0.4em; min-width: 1.4em; padding: 0 0.35em; border-radius: 0.7em; background: var(--accent); color: var(--accent-text); font-size: 0.72em; font-weight: 700; line-height: 1.4em; text-align: center; vertical-align: middle; }
     .tab-btn.active {
       color: var(--text);
       border-bottom-color: var(--accent);
@@ -1364,12 +1368,17 @@
        freed by hiding columns is spread across all of them instead of piling
        up in Display Name. Text that doesn't fit its share is cut with … (full
        text on hover; click a name to edit it in full). Shares: Display Name
-       28, Sequence Name 22, Artist 18, Category 22. */
-    #sequencesTable { width: 100%; min-width: 860px; }
-    #sequencesTable th.col-display, #sequencesTable td.col-display { width: 28%; max-width: 0; }
-    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: 22%; max-width: 0; }
-    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: 18%; max-width: 0; }
-    #sequencesTable th.col-category, #sequencesTable td.col-category { width: 22%; max-width: 0; }
+       23, Sequence Name 19, Artist 17, Category 19, Badge 14 (v0.33.249: the
+       Badge column had no share, so it got only the leftovers and its
+       dropdown was squeezed to two letters). Below the min-width the table
+       scrolls sideways instead of crushing columns. */
+    #sequencesTable { width: 100%; min-width: 1400px; }
+    #sequencesTable th.col-display, #sequencesTable td.col-display { width: 23%; max-width: 0; }
+    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: 19%; max-width: 0; }
+    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: 17%; max-width: 0; }
+    #sequencesTable th.col-category, #sequencesTable td.col-category { width: 19%; max-width: 0; }
+    #sequencesTable th.col-badge, #sequencesTable td.col-badge { width: 14%; max-width: 0; }
+    #sequencesTable .seq-badge-select { width: 100%; min-width: 0; text-overflow: ellipsis; }
     #sequencesTable .col-seqname code { display: block; max-width: 100%; width: fit-content; overflow: hidden; text-overflow: ellipsis;
                                         white-space: nowrap; }
     #sequencesTable .col-display .editable, #sequencesTable .col-artist .editable { max-width: 100%; overflow-wrap: anywhere; vertical-align: middle; }
@@ -1394,7 +1403,7 @@
     table.seq-compact .col-display .editable:focus, table.seq-compact .col-artist .editable:focus { white-space: normal; overflow: visible; }
     /* Column chooser: hidden columns keep their settings, they're just not shown. */
     #sequencesTable.hide-art .col-art, #sequencesTable.hide-seqname .col-seqname, #sequencesTable.hide-artist .col-artist,
-    #sequencesTable.hide-category .col-category, #sequencesTable.hide-visible .col-visible, #sequencesTable.hide-vote .col-vote,
+    #sequencesTable.hide-category .col-category, #sequencesTable.hide-badge .col-badge, #sequencesTable.hide-visible .col-visible, #sequencesTable.hide-vote .col-vote,
     #sequencesTable.hide-jukebox .col-jukebox, #sequencesTable.hide-psa .col-psa, #sequencesTable.hide-cooldown .col-cooldown,
     #sequencesTable.hide-preview .col-preview, #sequencesTable.hide-search .col-search, #sequencesTable.hide-lang .col-lang,
     #sequencesTable.hide-status .col-status, #sequencesTable.hide-index .col-index { display: none !important; }
@@ -1918,12 +1927,13 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.249</span>
+        <span class="app-version">v0.33.250</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
         <span id="headerViewerCount"><strong>0</strong> viewers</span>
+        <span id="headerListenerWrap" title="Phones playing the show audio right now"> · <span id="headerListenerCount"><strong>0</strong> listening</span></span>
         <span>·</span>
         <span><span id="headerPluginDot" class="plugin-dot offline"></span> <span id="headerPluginText">plugin</span></span>
       </span>
@@ -1977,6 +1987,7 @@
       <button class="tab-btn active" data-tab="dashboard" onclick="switchMainTab('dashboard')">Dashboard</button>
       <button class="tab-btn" data-tab="sequences" onclick="switchMainTab('sequences')">Sequences</button>
       <button class="tab-btn" data-tab="queue" onclick="switchMainTab('queue')">Queue</button>
+      <button class="tab-btn" data-tab="messages" onclick="switchMainTab('messages')">Messages</button>
       <button class="tab-btn" data-tab="stats" onclick="switchMainTab('stats')">Stats</button>
       <button class="tab-btn" data-tab="viewer" onclick="switchMainTab('viewer')">Viewer Page</button>
       <button class="tab-btn" data-tab="settings" onclick="switchMainTab('settings')">Settings</button>
@@ -1991,6 +2002,12 @@
            TAB: DASHBOARD
            ============================================================ -->
       <div class="tab-pane active" data-pane="dashboard">
+
+        <!-- Out-of-date show player (beta.18+): filled by renderShowPlayerUpdate() -->
+        <!-- Newer ShowPilot available (beta.19+): filled by renderShowPilotUpdate() -->
+        <div id="showPilotUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-success); background: var(--status-success-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <div id="showPlayerUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-warning); background: var(--status-warning-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <div id="messagesBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--accent-soft); font-size: 0.9rem; line-height: 1.45;"></div>
 
         <div class="now-playing-card" style="margin-bottom: 1.25rem;">
           <span class="np-pulse"></span>
@@ -2008,6 +2025,11 @@
           <div class="stat s-green">
             <div class="stat-label">Active viewers</div>
             <div class="stat-value" id="statActiveViewers">0</div>
+          </div>
+          <div class="stat s-green" title="Phones playing the show audio right now (Listen on Phone)">
+            <div class="stat-label">Listening on phones</div>
+            <div class="stat-value" id="statListeners">0</div>
+            <div class="muted" id="statListenersSub" style="font-size: 0.75rem;"></div>
           </div>
           <div class="stat s-red">
             <div class="stat-label">Votes (round)</div>
@@ -2047,6 +2069,7 @@
               <option value="VOTING">Voting</option>
               <option value="JUKEBOX">Jukebox</option>
               <option value="RACE">Race</option>
+              <option value="LISTEN" title="Viewers can see what's playing and listen on their phones, but can't vote or request">Listen only</option>
             </select>
             <button class="secondary" onclick="resetVotes()">Reset Votes</button>
             <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
@@ -2056,7 +2079,12 @@
 
 
         <div class="card">
-          <h2>Top Sequences (all time)</h2>
+          <div class="row" style="justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <h2 style="margin: 0;">Top Sequences (all time)</h2>
+            <label class="muted" style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
+              <input type="checkbox" id="topHidePsa" onchange="toggleTopHidePsa(this.checked)" /> Hide PSAs
+            </label>
+          </div>
           <table>
             <thead><tr><th>Sequence</th><th style="width: 80px;">Plays</th></tr></thead>
             <tbody id="topBody"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
@@ -2144,11 +2172,13 @@
             <button class="secondary" onclick="bulkSetField('visible', 1)">Show</button>
             <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
             <select id="seqBulkCategory" onchange="bulkSetCategory(this)" title="Set the category of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
+            <select id="seqBulkBadge" onchange="bulkSetBadge(this)" title="Set or clear the badge of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
             <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
             <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
             <button class="secondary" onclick="clearSeqSelection()">Clear</button>
           </div>
 
+          <div id="seqDuplicatesNote" class="muted" style="display:none; margin: 0 0 0.6rem; padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-left: 3px solid var(--status-warning, #f59e0b); border-radius: 6px; font-size: 0.85rem;"></div>
           <div style="overflow-x: auto;">
             <table id="sequencesTable">
               <thead>
@@ -2164,6 +2194,7 @@
                   <th class="col-tight col-index" title="Position in your show player's playlist, from the last sync. If the wrong song plays, check this matches the playlist (and sync again).">Playlist #</th>
                   <th class="col-artist">Artist</th>
                   <th class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
+                  <th class="col-badge" title="A short label shown after the song's name on the viewer page, like New or Fan Favorite.">Badge</th>
                   <th class="col-tight col-visible">Visible</th>
                   <th class="col-tight col-vote">Vote</th>
                   <th class="col-tight col-jukebox">Jukebox</th>
@@ -2212,6 +2243,42 @@
             With headings off, categories still control visibility but the viewer list keeps its normal order.
             Templates can restyle headings with the <code>.sequence-category-header</code> CSS class.
           </p>
+          <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem;">Song labels on the viewer page</h3>
+          <div class="row" style="gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <input type="checkbox" id="cfgViewerShowBadges" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
+              Show badges on the viewer page (set them in the Badge column)
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <input type="checkbox" id="cfgViewerDimQueued" onchange="saveCategoryDisplayOptions()" style="width:auto;" />
+              Dim songs that are already in the request queue
+            </label>
+          </div>
+          <div class="row" style="gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 0.6rem;">
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Badge position
+              <select id="cfgBadgePosition" onchange="saveCategoryDisplayOptions()" style="width:auto;">
+                <option value="corner">Top corner of the song</option>
+                <option value="inline">Next to the song name</option>
+              </select>
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Badge color <input type="color" id="cfgBadgeBg" value="#dc2626" onchange="saveCategoryDisplayOptions()" style="width:44px; height:30px; padding:0;" />
+            </label>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+              Text color <input type="color" id="cfgBadgeColor" value="#ffffff" onchange="saveCategoryDisplayOptions()" style="width:44px; height:30px; padding:0;" />
+            </label>
+          </div>
+          <div id="badgePreview" aria-label="Badge preview" style="position: relative; max-width: 340px; margin: 0.75rem 0 0.25rem; padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-input);">
+            <span id="badgePreviewChip" style="padding: 0.15em 0.55em; border-radius: 999px; font-size: 0.7rem; font-weight: 700; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;">Fan Favorite</span>
+            <div id="badgePreviewName" style="font-weight: 700;">Song title</div>
+            <div class="muted" style="font-size: 0.85rem;">Artist</div>
+          </div>
+          <p class="muted" style="font-size: 0.8rem;">
+            For template authors: a song tile with a badge has <code>data-badge</code>, the class <code>showpilot-badge-&lt;name&gt;</code>
+            (for example <code>showpilot-badge-fan-favorite</code>) and a <code>.sequence-badge</code> label. A song in the request queue has
+            the class <code>showpilot-queued</code> and <code>data-queue-position</code> (1 = next). Both update live.
+          </p>
         </div>
 
         <div class="card">
@@ -2252,15 +2319,115 @@
             <h2 style="margin: 0;">Queue</h2>
             <div class="row" style="gap: 0.5rem; margin: 0;">
               <button class="secondary" onclick="loadQueueTab()">Refresh</button>
-              <button class="danger" onclick="clearAllQueue()">Clear All</button>
+              <button class="danger" onclick="clearAllQueue()" title="Remove every request that hasn't played yet. Recently played stays.">Clear Queue</button>
             </div>
           </div>
 
           <h3 style="font-size: 1rem; color: var(--text-muted); margin: 1rem 0 0.5rem;">Pending requests</h3>
           <div id="queuePending" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
 
-          <h3 style="font-size: 1rem; color: var(--text-muted); margin: 1.5rem 0 0.5rem;">Recently played (last 20)</h3>
+          <h3 id="queueRecentTitle" style="font-size: 1rem; color: var(--text-muted); margin: 1.5rem 0 0.5rem;">Recently played requests (last 20)</h3>
           <div id="queueRecent" style="display: flex; flex-direction: column; gap: 0.4rem; opacity: 0.85;"></div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           TAB: MESSAGES (visitor messages, v0.33.250+)
+           ============================================================ -->
+      <div class="tab-pane" data-pane="messages">
+        <div class="card">
+          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h2 style="margin: 0;">Visitor messages</h2>
+            <div class="row" style="gap: 0.5rem; margin: 0; flex-wrap: wrap;">
+              <select id="msgFilter" onchange="loadMessagesTab()" aria-label="Show" style="width: auto;">
+                <option value="all">All messages</option>
+                <option value="unread">Unread only</option>
+              </select>
+              <button class="secondary" onclick="loadMessagesTab()">Refresh</button>
+              <button class="secondary" onclick="markAllMessagesRead()">Mark all read</button>
+              <button class="secondary" onclick="exportMessages()">Export CSV</button>
+              <button class="danger" onclick="deleteReadMessages()">Delete read</button>
+            </div>
+          </div>
+          <p class="muted" id="msgSummary" style="font-size: 0.85rem; margin: 0 0 0.75rem;"></p>
+          <div id="msgList" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+          <div id="msgMore" style="margin-top: 0.75rem; display: none;">
+            <button class="secondary" onclick="loadMessagesTab(true)">Show more</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Settings</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            Visitors send a short message from the viewer page. Messages are private: only you see them here, never on the public page.
+            Put <code>{MESSAGE_BOX}</code> in your template where the message box should go; wrap a section in an element with
+            <code>{message-dynamic-container}</code> to show it only while messages are open. Templates can style
+            <code>#messageSent</code>, <code>#messageFailed</code> and <code>#messageTooSoon</code>.
+          </p>
+          <div class="row">
+            <input type="checkbox" id="cfg_visitor_messages_enabled" onchange="saveSetting('visitor_messages_enabled', this.checked ? 1 : 0)" />
+            <label for="cfg_visitor_messages_enabled" style="margin: 0;">Accept messages from visitors</label>
+          </div>
+          <div style="margin: 0.9rem 0 0.25rem;">
+            <div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 0.5rem;">
+              <div>
+                <label for="cfg_visitor_messages_accent">Accent color</label>
+                <div class="row" style="gap: 0.5rem; align-items: center; margin: 0;">
+                  <input type="color" id="cfg_visitor_messages_accent" onchange="saveMessageAccent(this.value)"
+                         style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                  <button type="button" class="secondary" onclick="saveMessageAccent('')" style="font-size: 0.85rem;">Use default</button>
+                </div>
+              </div>
+              <div class="row" style="gap: 0.4rem; margin: 0;" role="group" aria-label="Preview background">
+                <button type="button" class="secondary" id="msgPreviewDark" onclick="setMessagePreviewBg('dark')" style="font-size: 0.8rem;">Dark page</button>
+                <button type="button" class="secondary" id="msgPreviewLight" onclick="setMessagePreviewBg('light')" style="font-size: 0.8rem;">Light page</button>
+              </div>
+            </div>
+            <div class="muted" style="font-size: 0.78rem; margin-bottom: 0.4rem;">Preview (how visitors will see the box; try typing in it):</div>
+            <iframe id="msgPreview" title="Message box preview" style="width: 100%; height: 400px; border: 1px solid var(--border); border-radius: 8px; display: block; background: #0b1020;"></iframe>
+            <p class="muted" style="font-size: 0.78rem; margin: 0.4rem 0 0;">
+              The box keeps its own dark card on any template. Template authors can restyle it with CSS (<code>.sp-message-box</code>) or the variables
+              <code>--sp-message-accent</code>, <code>--sp-message-bg</code>, <code>--sp-message-text</code> and <code>--sp-message-field-bg</code>.
+            </p>
+          </div>
+          <div class="grid-2" style="margin: 0.75rem 0;">
+            <div>
+              <label for="cfg_visitor_messages_when">When</label>
+              <select id="cfg_visitor_messages_when" onchange="saveSetting('visitor_messages_when', this.value)">
+                <option value="show">Only while the show is on</option>
+                <option value="always">Any time</option>
+              </select>
+              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">"While the show is on" means viewer control isn't Off and a song played in the last 15 minutes.</p>
+            </div>
+            <div>
+              <label for="cfg_visitor_messages_max_length">Longest message (characters)</label>
+              <input type="number" id="cfg_visitor_messages_max_length" min="20" max="1000" step="10" onchange="saveSetting('visitor_messages_max_length', this.value)" />
+            </div>
+            <div>
+              <label for="cfg_visitor_messages_cooldown_minutes">Minutes between messages (per visitor)</label>
+              <input type="number" id="cfg_visitor_messages_cooldown_minutes" min="0" max="120" onchange="saveSetting('visitor_messages_cooldown_minutes', this.value)" />
+            </div>
+            <div>
+              <label for="cfg_visitor_messages_nightly_limit">Most messages per visitor per night</label>
+              <input type="number" id="cfg_visitor_messages_nightly_limit" min="0" max="100" onchange="saveSetting('visitor_messages_nightly_limit', this.value)" />
+              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">0 = no limit. A night is the last 12 hours.</p>
+            </div>
+          </div>
+          <p class="muted" style="font-size: 0.78rem; margin: 0 0 0.75rem;">
+            When the access code or "viewer must be at the show" location check is on (Settings), visitors must pass it to send a message too.
+          </p>
+          <div class="row">
+            <input type="checkbox" id="cfg_visitor_messages_filter_enabled" onchange="saveSetting('visitor_messages_filter_enabled', this.checked ? 1 : 0)" />
+            <label for="cfg_visitor_messages_filter_enabled" style="margin: 0;">Hide bad words (replaced with ***)</label>
+          </div>
+          <div style="margin-top: 0.5rem;">
+            <label for="cfg_visitor_messages_filter_words">Words to hide, one per line (end with * to also catch longer words, e.g. <code>fudge*</code>)</label>
+            <textarea id="cfg_visitor_messages_filter_words" rows="6" style="width: 100%; font-family: ui-monospace, monospace; font-size: 0.85rem;" spellcheck="false"></textarea>
+            <div class="row" style="gap: 0.5rem; margin: 0.4rem 0 0;">
+              <button class="secondary" type="button" onclick="saveMessageWords()">Save word list</button>
+              <button class="secondary" type="button" onclick="resetMessageWords()">Reset to the built-in list</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2344,6 +2511,21 @@
             </p>
           </div>
 
+          <!-- Phone listeners (v0.33.249+): same From/To range. -->
+          <div style="border-top: 1px solid var(--border); padding-top: 1rem; margin: 0.5rem 0 1rem;">
+            <h3 style="margin: 0 0 0.5rem; font-size: 1.05rem;">Phone Listeners</h3>
+            <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;" id="listenerStatsToday"></p>
+            <div style="overflow-x: auto;">
+              <table class="seq-table" style="width: 100%; max-width: 520px; border-collapse: collapse;">
+                <thead><tr><th style="text-align: left;">Day</th><th style="text-align: right;" title="Most phones listening at the same time">Most at once</th><th style="text-align: right;" title="Different phones that listened that day">Phones</th></tr></thead>
+                <tbody id="listenerStatsBody"></tbody>
+              </table>
+            </div>
+            <p class="muted" style="font-size: 0.75rem; margin: 0.5rem 0 0;">
+              Counts phones with Listen on Phone playing. A phone whose screen is locked may drop out of the live count for a while. Kept for 90 days.
+            </p>
+          </div>
+
           <div style="overflow-x: auto;">
             <table id="statsTable" class="seq-table" style="width: 100%; border-collapse: collapse;">
               <thead>
@@ -2385,6 +2567,7 @@
             <div class="sub-tab" data-subtab="viewer-effects" onclick="switchTab('viewer-effects')">Page Effects</div>
             <div class="sub-tab" data-subtab="viewer-phone" onclick="switchTab('viewer-phone')">Listen-on-Phone</div>
             <div class="sub-tab" data-subtab="viewer-schedule" onclick="switchTab('viewer-schedule')">Scheduled Switches</div>
+            <div class="sub-tab" data-subtab="viewer-globalcss" onclick="switchTab('viewer-globalcss')">Global CSS</div>
             <div class="sub-tab" data-subtab="viewer-translation" onclick="switchTab('viewer-translation')">Translation</div>
           </div>
         </div>
@@ -2401,7 +2584,7 @@
             </div>
           </div>
           <p class="muted" style="margin-bottom: 0.75rem;">
-            Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>.
+            Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>. ShowPilot adds <code>{NOW_PLAYING_ARTIST}</code>, <code>{NOW_PLAYING_IMAGE}</code>, <code>{NEXT_PLAYLIST_ARTIST}</code> and <code>{NEXT_PLAYLIST_IMAGE}</code> (Up Next artist and cover), <code>{NOW_PLAYING_TIMER}</code> and <code>{NOW_PLAYING_PROGRESS}</code>.
             <a href="/" target="_blank" style="color: var(--accent);">Open viewer page →</a>
           </p>
 
@@ -2453,6 +2636,8 @@
                 <button class="designer-tab active of-tpl-bypass-lock" data-designer-tab="settings" onclick="switchDesignerTab('settings')">⚙️ Settings</button>
                 <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="blocks" onclick="switchDesignerTab('blocks')">🧱 Blocks</button>
                 <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="code" onclick="switchDesignerTab('code')">⌨️ Code</button>
+                <button class="secondary" onclick="document.getElementById('tplUploadFile').click()" id="tplUploadBtn" title="Replace this page's code with an .html file from your computer (you still Save Changes to make it live)">📄 Load from file…</button>
+                <input type="file" id="tplUploadFile" accept=".html,.htm,.txt,text/html,text/plain" style="display:none;" onchange="loadTemplateFromFile(this)" />
                 <span style="flex: 1;"></span>
                 <button class="secondary" onclick="discardDraft()" id="tplDiscardBtn" style="display:none;">Discard Changes</button>
                 <button onclick="commitDraft()" id="tplCommitBtn" style="display:none;">Save Changes</button>
@@ -2538,10 +2723,23 @@
                 <div>
                   <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.4rem; gap: 0.5rem;">
                     <span style="font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Live Preview</span>
-                    <button class="secondary" onclick="refreshPreview()" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" title="Refresh preview">↻</button>
+                    <button class="secondary" onclick="refreshPreview(true)" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" title="Refresh preview">↻</button>
                   </div>
-                  <div style="border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #000; height: 600px;">
+                  <div style="position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #000; height: 600px;">
                     <iframe id="designerPreview" style="width: 100%; height: 100%; border: 0; background: #fff;" sandbox="allow-same-origin allow-scripts"></iframe>
+                    <!-- Shown instead of loading the preview when the last preview never
+                         finished loading (v0.33.249+): a template script that hangs
+                         freezes the whole admin page, not just the preview. -->
+                    <div id="previewPaused" style="display:none; position:absolute; inset:0; padding:1.5rem; background: var(--bg-elevated, #111827); color: var(--text, #fff); overflow:auto;">
+                      <h3 style="margin-top:0;">Preview paused</h3>
+                      <p>The preview didn't finish loading last time and may have frozen this page. That usually means a script in the template is stuck (for example an endless loop).</p>
+                      <p class="muted" style="font-size:0.85rem;">Your live viewer page is not affected: it only changes when you Save Changes.</p>
+                      <div class="row" style="gap:0.5rem; flex-wrap:wrap;">
+                        <button class="danger" onclick="discardDraft()">Discard unsaved changes</button>
+                        <button class="secondary" onclick="refreshPreview(true)">Load preview anyway</button>
+                      </div>
+                      <p class="muted" style="font-size:0.8rem; margin-bottom:0;">Or fix the script in the Code editor first, then load the preview.</p>
+                    </div>
                   </div>
                   <div class="muted" style="font-size: 0.75rem; margin-top: 0.4rem;">
                     Preview shows your draft. Save Changes to apply to the live viewer page.
@@ -2554,6 +2752,33 @@
 
 
 
+        </div>
+
+        <div class="sub-tab-pane" data-subtab="viewer-globalcss">
+        <div class="card">
+          <h2>Global CSS</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            One stylesheet loaded on every viewer page, whichever template is active (and in the preview).
+            It loads before the template's own styles, so a template can still override anything here.
+            Handy for keeping a season's colors and fonts in one place across several templates.
+          </p>
+          <div class="row" style="margin-bottom: 0.5rem;">
+            <input type="checkbox" id="gcssEnabled" />
+            <label for="gcssEnabled" style="margin: 0;">Use the global CSS on viewer pages</label>
+          </div>
+          <textarea id="gcssText" spellcheck="false" placeholder="/* e.g. */&#10;:root { --show-accent: #ff7a00; }&#10;body { font-family: 'Creepster', cursive; }" style="width: 100%; min-height: 380px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; tab-size: 2;"></textarea>
+          <div class="row" style="gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <button onclick="saveGlobalCss()">Save</button>
+            <button class="secondary" onclick="document.getElementById('gcssFile').click()">📄 Load from file…</button>
+            <input type="file" id="gcssFile" accept=".css,.txt,text/css,text/plain" style="display:none;" onchange="loadGlobalCssFile(this)" />
+            <button class="secondary" id="gcssRestoreBtn" onclick="restoreGlobalCss()" title="Go back to what was saved before the last Save">↶ Restore previous</button>
+            <span id="gcssStatus" class="muted" style="font-size: 0.85rem;"></span>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin-bottom: 0;">
+            If a change breaks your pages, untick the box (pages go back to their own styles at once) or use Restore previous.
+            Saved in ShowPilot's database, so it survives updates and is included in backups.
+          </p>
+        </div>
         </div>
 
         <div class="sub-tab-pane" data-subtab="viewer-effects">
@@ -2656,7 +2881,8 @@
               <label for="cfg_player_decoration">Decoration theme</label>
               <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value); updatePlayerCustomColorVisibility();">
                 <option value="none">None</option>
-                <option value="newyear">🎉 New Year's — confetti &amp; glitter ball</option>
+                <option value="newyear">🎉 New Year's — confetti &amp; spinning mirror ball</option>
+                <option value="newyear-live">🎉 New Year's Live — mirror ball reacts to the music</option>
                 <option value="lunarnewyear">🏮 Lunar New Year — red lanterns</option>
                 <option value="valentines">💝 Valentine's — hearts</option>
                 <option value="mardigras">🎭 Mardi Gras — beads &amp; mask</option>
@@ -2669,6 +2895,7 @@
                 <option value="thanksgiving">🍂 Thanksgiving — autumn leaves</option>
                 <option value="hanukkah">🕎 Hanukkah — menorah &amp; stars</option>
                 <option value="christmas">🎄 Christmas — string lights</option>
+                <option value="christmas-live">🎄 Christmas Live — lights react to the music</option>
                 <option value="kwanzaa">🕯️ Kwanzaa — kinara</option>
                 <option value="snow">❄️ Snow (winter generic)</option>
               </select>
@@ -2951,7 +3178,7 @@
               <label for="sch_snapshot" style="margin: 0;">Also restore</label>
               <select id="sch_snapshot"><option value="">No snapshot</option></select>
               <label for="sch_mode" style="margin: 0;">and set the mode to</label>
-              <select id="sch_mode"><option value="">(don't change)</option><option value="VOTING">Voting</option><option value="JUKEBOX">Jukebox</option><option value="RACE">Race</option><option value="OFF">Off</option></select>
+              <select id="sch_mode"><option value="">(don't change)</option><option value="VOTING">Voting</option><option value="JUKEBOX">Jukebox</option><option value="RACE">Race</option><option value="LISTEN">Listen only</option><option value="OFF">Off</option></select>
             </div>
             <div class="row" style="gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
               <input type="checkbox" id="sch_enabled" checked />
@@ -3784,6 +4011,19 @@
 
           <!-- DEBUG — diagnostics toggles for audio sync troubleshooting (v0.33.194+) -->
           <div class="sub-tab-pane" data-subtab="debug">
+            <h3 style="margin: 0 0 0.25rem;">Server log</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              What ShowPilot has been doing: what the show player was told to play, what it reported playing, requests, votes, errors.
+              When something goes wrong, <b>Download log</b> and send the file with your report. Times are UTC.
+              Tokens and passwords are hidden; viewers' IP addresses can appear in it.
+            </p>
+            <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem;">
+              <button type="button" onclick="window.location.href = '/api/admin/server-log/download'">⬇ Download log</button>
+              <input type="text" id="serverLogFilter" placeholder="Only lines containing… (e.g. queue, playing, error)" style="flex: 1; min-width: 200px;" onkeydown="if (event.key === 'Enter') loadServerLog()" />
+              <button type="button" class="secondary" onclick="loadServerLog()">↻ Show latest</button>
+            </div>
+            <pre id="serverLogView" style="max-height: 420px; overflow: auto; font-size: 12px; line-height: 1.45; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; word-break: break-word; margin: 0 0 1.5rem;">Open this page to see the latest lines.</pre>
+
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
               Diagnostics for audio sync troubleshooting. Both options are off by default
               and intended for temporary use — they expose internal state to all visitors.
@@ -3797,6 +4037,16 @@
               Displays a live readout (drift, player position, clock offset, calibration) pinned to
               the top of the viewer page for every visitor. Equivalent to appending
               <code>?debug=1</code> to the URL. Turn off when done.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_debug_output_delay_comp"
+                     onchange="saveSetting('debug_output_delay_comp', this.checked ? 1 : 0)" />
+              <label for="cfg_debug_output_delay_comp" style="margin: 0;">Compensate hidden output delay (experimental)</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 1.5rem;">
+              Some phones (often Android) report no output delay but quietly buffer audio, so the music lags the lights
+              like an echo. The debug overlay's <code>outDelay</code> line shows the delay measured directly; with this on,
+              the player also corrects for it. Takes effect on page reload.
             </p>
             <div class="row">
               <input type="checkbox" id="cfg_debug_mic_measure"
@@ -3927,7 +4177,18 @@
            TAB: TOOLS — Audio Normalizer (public/admin/audio-normalizer.js)
            ============================================================ -->
       <div class="tab-pane" data-pane="tools">
-        <div id="spNormalizerRoot"></div>
+        <div class="card" style="padding-bottom: 0; margin-bottom: 0;">
+          <div class="sub-tabs">
+            <div class="sub-tab active" data-subtab="tools-normalizer" onclick="switchTab('tools-normalizer')">Audio Normalizer</div>
+            <div class="sub-tab" data-subtab="tools-announcer" onclick="switchTab('tools-announcer')">Announcements</div>
+          </div>
+        </div>
+        <div class="sub-tab-pane active" data-subtab="tools-normalizer">
+          <div id="spNormalizerRoot"></div>
+        </div>
+        <div class="sub-tab-pane" data-subtab="tools-announcer">
+          <div id="spAnnouncerRoot"></div>
+        </div>
       </div>
 
       <!-- ============================================================
@@ -4202,15 +4463,24 @@
         // Only init Monaco if the user actually switches to Code mode;
         // saves time on initial visit.
         if (currentMode === 'code') initMonacoIfNeeded();
+        // The editor may have been built while this tab was hidden (template
+        // loaded at admin start), which leaves it drawn at zero size: blank
+        // until you left and came back (GitHub #35). Redraw it now.
+        if (monacoEditor) setTimeout(() => monacoEditor.layout(), 0);
         // Refresh preview iframe in case data changed (e.g. now playing)
         if (selectedTplId !== null) refreshPreview();
       }
       // Refresh data when switching to these tabs
       if (name === 'queue') loadQueueTab();
+      if (name === 'messages') { loadMessagesTab(); refreshMessagePreview(); }
       if (name === 'stats') { loadStatsTab(); loadVisitorStats(); }
       if (name === 'sequences') loadSnapshots();
       if (name === 'users') loadUsers();
-      if (name === 'tools' && window.SPNormalizer) window.SPNormalizer.open();
+      if (name === 'tools') {
+        const sub = document.querySelector('.tab-pane[data-pane="tools"] .sub-tab.active');
+        if (sub && sub.dataset.subtab === 'tools-announcer') { if (window.SPAnnouncer) window.SPAnnouncer.open(); }
+        else if (window.SPNormalizer) window.SPNormalizer.open();
+      }
       if (name === 'settings') refreshAudioCacheStats();
     }
 
@@ -5962,6 +6232,10 @@
       show('loginView'); hide('appView');
       document.getElementById('loginPassword').value = '';
       document.getElementById('loginMsg').textContent = '';
+      // Start over from a clean page (beta.20): the new layout's menu, top bar
+      // and banners live outside the admin view, and the next person to sign
+      // in may use the classic layout.
+      window.location.replace(window.location.pathname);
     }
 
     function renderHeaderUser() {
@@ -6056,6 +6330,7 @@
       setChk('cfg_player_stats_enabled', c.player_stats_enabled);
       setChk('cfg_debug_sync_probe', c.debug_sync_probe === 1);
       setChk('cfg_debug_mic_measure', c.debug_mic_measure === 1);
+      setChk('cfg_debug_output_delay_comp', c.debug_output_delay_comp === 1);
       setChk('cfg_listener_timing_enabled', c.listener_timing_enabled !== 0);
       setChk('cfg_sync_help_enabled', c.sync_help_enabled !== 0);
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
@@ -6107,6 +6382,27 @@
       setVal('cfg_launcher_bg_color', window._launcherColors.launcher_bg_color || LAUNCHER_DEFAULT_COLORS.launcher_bg_color);
       setVal('cfg_launcher_fg_color', window._launcherColors.launcher_fg_color || LAUNCHER_DEFAULT_COLORS.launcher_fg_color);
       updateLauncherIconPreview(c.launcher_icon_data || '');
+      // Visitor messages (v0.33.250+)
+      setChk('cfg_visitor_messages_enabled', c.visitor_messages_enabled === 1);
+      setVal('cfg_visitor_messages_when', c.visitor_messages_when === 'always' ? 'always' : 'show');
+      setVal('cfg_visitor_messages_max_length', c.visitor_messages_max_length || 280);
+      setVal('cfg_visitor_messages_cooldown_minutes', c.visitor_messages_cooldown_minutes ?? 2);
+      setVal('cfg_visitor_messages_nightly_limit', c.visitor_messages_nightly_limit ?? 5);
+      setChk('cfg_visitor_messages_filter_enabled', c.visitor_messages_filter_enabled !== 0);
+      msgPreviewAccent = /^#[0-9a-f]{6}$/i.test(c.visitor_messages_accent || '') ? c.visitor_messages_accent : '';
+      setVal('cfg_visitor_messages_accent', msgPreviewAccent || '#e11d48');
+      msgPreviewMax = Number(c.visitor_messages_max_length) || 280;
+      if (document.querySelector('.tab-pane[data-pane="messages"].active')) refreshMessagePreview();
+      (async () => {
+        const ta = document.getElementById('cfg_visitor_messages_filter_words');
+        if (!ta || document.activeElement === ta) return;
+        if (c.visitor_messages_filter_words === null || c.visitor_messages_filter_words === undefined) {
+          const r = await api('/messages/default-words');
+          if (r.ok) ta.value = r.data.words;
+        } else {
+          ta.value = c.visitor_messages_filter_words;
+        }
+      })();
       updateLauncherUI();
       updateLocationMap();
       // QR card — update whenever config is reloaded in case public_base_url changed
@@ -6714,6 +7010,10 @@
       if (name === 'public-access') loadCloudflaredStatus();
       if (name === 'viewer-translation') loadTranslationSettings();
       if (name === 'viewer-schedule') loadSchedules();
+      if (name === 'viewer-globalcss') loadGlobalCss();
+      if (name === 'debug') loadServerLog();
+      if (name === 'tools-normalizer' && window.SPNormalizer) window.SPNormalizer.open();
+      if (name === 'tools-announcer' && window.SPAnnouncer) window.SPAnnouncer.open();
       if (name === 'updates') {
         // First open: hit /status (uses cached check). Subsequent opens
         // also hit /status — the server's check cache is 1h, so we're
@@ -6923,7 +7223,7 @@
           badge.className = 'pill pill-danger';
           setVcToggle(btn, false);
         } else {
-          badge.textContent = 'ON · ' + mode;
+          badge.textContent = 'ON · ' + modeText(mode);
           badge.className = 'pill pill-success';
           setVcToggle(btn, true);
         }
@@ -6935,7 +7235,7 @@
       const pill = document.getElementById('modePill');
       if (pill) {
         pill.className = 'mode-pill ' + (mode || 'off').toLowerCase();
-        pill.textContent = mode || 'OFF';
+        pill.textContent = modeText(mode);
       }
     }
 
@@ -6966,6 +7266,17 @@
         await updateMode(restored);
       }
       await loadConfig();
+    }
+
+    // Phones playing the show audio (v0.33.249+): header, Dashboard card.
+    function showListenerCounts(d) {
+      const n = d.listenersNow ?? 0;
+      const h = document.getElementById('headerListenerCount');
+      if (h) h.innerHTML = '<strong>' + n + '</strong> listening';
+      const c = document.getElementById('statListeners');
+      if (c) c.textContent = n;
+      const sub = document.getElementById('statListenersSub');
+      if (sub) sub.textContent = (d.listenersToday ?? 0) ? 'Today: ' + d.listenersToday + ' phone' + (d.listenersToday === 1 ? '' : 's') + ', ' + (d.listenersPeakToday ?? 0) + ' at once at most' : '';
     }
 
     async function loadStats() {
@@ -7011,20 +7322,36 @@
       }
 
       // Top sequences table
+      renderTopSequences(d);
+    }
+
+    // Top Sequences card (dashboard). "Hide PSAs" is remembered per browser.
+    let _topStats = null;
+    function topHidePsa() {
+      try { return localStorage.getItem('sp_top_hide_psa') === '1'; } catch (e) { return false; }
+    }
+    function toggleTopHidePsa(on) {
+      try { localStorage.setItem('sp_top_hide_psa', on ? '1' : '0'); } catch (e) {}
+      if (_topStats) renderTopSequences(_topStats);
+    }
+    function renderTopSequences(d) {
+      _topStats = d;
       const tbody = document.getElementById('topBody');
-      if (tbody) {
-        tbody.innerHTML = '';
-        const top = d.topSequences || [];
-        if (top.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
-        } else {
-          top.forEach(s => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
-            tbody.appendChild(tr);
-          });
-        }
+      if (!tbody) return;
+      const hide = topHidePsa();
+      const box = document.getElementById('topHidePsa');
+      if (box) box.checked = hide;
+      const top = (hide ? d.topSequencesNoPsa : d.topSequences) || d.topSequences || [];
+      tbody.innerHTML = '';
+      if (top.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
+        return;
       }
+      top.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
+        tbody.appendChild(tr);
+      });
     }
 
     // ============================================================
@@ -7141,7 +7468,27 @@
     }
 
     // Uses the same From/To range as the per-sequence table (empty = all time).
+    async function loadListenerStats() {
+      const from = document.getElementById('statsFrom')?.value || '';
+      const to = document.getElementById('statsTo')?.value || '';
+      const params = new URLSearchParams();
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      const r = await api('/stats/listeners' + (params.toString() ? '?' + params : ''));
+      if (!r.ok) return;
+      const t = r.data.today || {};
+      const today = document.getElementById('listenerStatsToday');
+      if (today) today.textContent = 'Now: ' + (t.now || 0) + ' · Today: ' + (t.uniqueToday || 0) + ' phone' + (t.uniqueToday === 1 ? '' : 's') + ', at most ' + (t.peakToday || 0) + ' at once.';
+      const body = document.getElementById('listenerStatsBody');
+      if (!body) return;
+      const days = r.data.days || [];
+      body.innerHTML = days.length
+        ? days.map(d => '<tr><td>' + escapeHtml(d.day) + '</td><td style="text-align:right;">' + d.peak + '</td><td style="text-align:right;">' + d.unique + '</td></tr>').join('')
+        : '<tr><td colspan="3" class="muted">No phone listeners in this range yet.</td></tr>';
+    }
+
     async function loadVisitorStats() {
+      loadListenerStats();
       const from = document.getElementById('statsFrom')?.value || '';
       const to = document.getElementById('statsTo')?.value || '';
       const params = new URLSearchParams();
@@ -7445,6 +7792,49 @@
       loadSequences(); // refresh counts + pick up canonical spelling / new category
     }
 
+    // ======= Song badges (v0.33.249+) =======
+    // A short label shown after the song's name on the viewer page. The list
+    // offers common ones plus any already in use; "Custom…" asks for text.
+    const BADGE_PRESETS = ['New', 'Fan Favorite', 'Classic', 'Kids\' Pick', 'Pretty', 'Funny', 'Spooky'];
+    const BADGE_CUSTOM = '__custom__';
+    const BADGE_CLEAR = '__clear__';
+    function fillBadgeSelect(sel, current, noneLabel, bulk) {
+      sel.innerHTML = '';
+      const add = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; sel.appendChild(o); return o; };
+      add('', noneLabel);
+      if (bulk) add(BADGE_CLEAR, 'No badge');
+      const names = BADGE_PRESETS.slice();
+      (sequencesCache || []).forEach(x => { const b = String(x.badge || '').trim(); if (b && !names.some(n => n.toLowerCase() === b.toLowerCase())) names.push(b); });
+      const cur = String(current || '').trim().toLowerCase();
+      names.forEach(n => { const o = add(n, n); if (cur && n.toLowerCase() === cur) o.selected = true; });
+      add(BADGE_CUSTOM, 'Custom…');
+    }
+    async function resolveBadgeChoice(sel) {
+      if (sel.value === BADGE_CLEAR) return '';
+      if (sel.value !== BADGE_CUSTOM) return sel.value;
+      const v = await showPrompt('Badge text (up to 24 characters), e.g. "New for 2026"', '', { title: 'Custom badge' });
+      if (v === null || v === undefined || !String(v).trim()) return undefined;
+      return String(v).trim().slice(0, 24);
+    }
+    async function onSeqBadgeChange(id, sel) {
+      const value = await resolveBadgeChoice(sel);
+      if (value === undefined) { loadSequences(); return; }
+      await updateSeqField(id, 'badge', value);
+      loadSequences();
+    }
+    async function bulkSetBadge(sel) {
+      if (_seqSelection.size === 0 || sel.value === '') { sel.value = ''; return; }
+      const value = await resolveBadgeChoice(sel);
+      if (value === undefined) { sel.value = ''; return; }
+      await api('/sequences/bulk-badge', { method: 'POST', body: JSON.stringify({ ids: Array.from(_seqSelection), badge: value }) });
+      clearSeqSelection();
+      loadSequences();
+    }
+    function refreshBulkBadgeSelect() {
+      const sel = document.getElementById('seqBulkBadge');
+      if (sel) fillBadgeSelect(sel, '', 'Set badge…', true);
+    }
+
     async function bulkSetCategory(sel) {
       if (_seqSelection.size === 0) { sel.value = ''; return; }
       const value = await resolveCategoryChoice(sel);
@@ -7461,13 +7851,49 @@
       const lbl = document.getElementById('cfgUncategorizedLabel');
       if (cb) cb.checked = r.data.viewer_show_categories !== 0;
       if (lbl) lbl.value = r.data.uncategorized_label || 'Other';
+      const sb = document.getElementById('cfgViewerShowBadges');
+      const dq = document.getElementById('cfgViewerDimQueued');
+      if (sb) sb.checked = r.data.viewer_show_badges !== 0;
+      if (dq) dq.checked = r.data.viewer_dim_queued === 1;
+      const bp = document.getElementById('cfgBadgePosition');
+      if (bp) bp.value = r.data.viewer_badge_position === 'inline' ? 'inline' : 'corner';
+      const bb = document.getElementById('cfgBadgeBg');
+      if (bb && /^#[0-9a-f]{6}$/i.test(r.data.viewer_badge_bg || '')) bb.value = r.data.viewer_badge_bg;
+      const bc = document.getElementById('cfgBadgeColor');
+      if (bc && /^#[0-9a-f]{6}$/i.test(r.data.viewer_badge_color || '')) bc.value = r.data.viewer_badge_color;
+      paintBadgePreview();
+    }
+
+    // Badge preview (v0.33.249+): mirrors the viewer page's badge look.
+    function paintBadgePreview() {
+      const chip = document.getElementById('badgePreviewChip');
+      const name = document.getElementById('badgePreviewName');
+      if (!chip || !name) return;
+      const show = document.getElementById('cfgViewerShowBadges').checked;
+      const corner = document.getElementById('cfgBadgePosition').value !== 'inline';
+      chip.style.background = document.getElementById('cfgBadgeBg').value;
+      chip.style.color = document.getElementById('cfgBadgeColor').value;
+      chip.style.display = show ? 'inline-block' : 'none';
+      chip.style.position = corner ? 'absolute' : 'static';
+      chip.style.top = corner ? '6px' : '';
+      chip.style.right = corner ? '8px' : '';
+      chip.style.marginLeft = corner ? '0' : '0.4em';
+      chip.style.verticalAlign = 'middle';
+      if (corner) document.getElementById('badgePreview').insertBefore(chip, name);
+      else name.appendChild(chip);
     }
 
     async function saveCategoryDisplayOptions() {
+      paintBadgePreview();
       const label = document.getElementById('cfgUncategorizedLabel').value.trim() || 'Other';
       await api('/config', { method: 'PUT', body: JSON.stringify({
         viewer_show_categories: document.getElementById('cfgViewerShowCategories').checked ? 1 : 0,
         uncategorized_label: label,
+        viewer_show_badges: document.getElementById('cfgViewerShowBadges').checked ? 1 : 0,
+        viewer_badge_position: document.getElementById('cfgBadgePosition').value,
+        viewer_badge_bg: document.getElementById('cfgBadgeBg').value,
+        viewer_badge_color: document.getElementById('cfgBadgeColor').value,
+        viewer_dim_queued: document.getElementById('cfgViewerDimQueued').checked ? 1 : 0,
       }) });
     }
 
@@ -7495,6 +7921,8 @@
       if (_preview.id !== null && !r.data.some(s => s.id === _preview.id)) closeSeqPreview();
       else paintSeqPreviewBtns();
       applySeqFilter();
+      renderSeqDuplicatesNote();
+      refreshBulkBadgeSelect();
       // Drop selection entries for sequences that no longer exist (deleted
       // out from under us) so the toolbar count reflects reality.
       const liveIds = new Set(r.data.map(s => s.id));
@@ -7507,6 +7935,22 @@
       // toolbar should hide).
       updateBulkToolbar();
       syncSelectAllState();
+    }
+
+    // Songs listed more than once in the synced playlist (v0.33.249+).
+    async function renderSeqDuplicatesNote() {
+      const el = document.getElementById('seqDuplicatesNote');
+      if (!el) return;
+      const r = await api('/plugin-status');
+      const dups = (r.ok && Array.isArray(r.data.lastSyncDuplicates)) ? r.data.lastSyncDuplicates : [];
+      if (!dups.length) { el.style.display = 'none'; el.textContent = ''; return; }
+      const list = dups.map(d => '<li><strong>' + escapeHtml(d.name) + '</strong> — positions ' +
+        d.positions.map(n => escapeHtml(String(n))).join(', ') + '</li>').join('');
+      el.innerHTML = '<strong>' + (dups.length === 1 ? 'A song is' : dups.length + ' songs are') +
+        ' listed more than once in your playlist' + (r.data.lastSyncPlaylist ? ' "' + escapeHtml(r.data.lastSyncPlaylist) + '"' : '') +
+        '.</strong> ShowPilot shows each song once, and requests and vote winners play the first copy.' +
+        '<ul style="margin: 0.35rem 0 0; padding-left: 1.2rem;">' + list + '</ul>';
+      el.style.display = '';
     }
 
     function buildSequenceRow(seq) {
@@ -7539,6 +7983,7 @@
         <td class="col-artist"><span class="editable" contenteditable="true" title="${escapeAttr(seq.artist || '')}"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
         <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
+        <td class="col-badge"><select class="seq-badge-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.badge || '')}"></select></td>
         <td class="col-tight col-visible"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-vote"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-jukebox"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
@@ -7557,6 +8002,11 @@
       if (catSel) {
         fillCategorySelect(catSel, seq.category || '', '— none —');
         catSel.addEventListener('change', () => onSeqCategoryChange(seq.id, catSel));
+      }
+      const badgeSel = tr.querySelector('.seq-badge-select');
+      if (badgeSel) {
+        fillBadgeSelect(badgeSel, seq.badge || '', '—');
+        badgeSel.addEventListener('change', () => onSeqBadgeChange(seq.id, badgeSel));
       }
       orderSeqCells(tr);
       const catFilterBtn = tr.querySelector('.seq-cat-filter');
@@ -7666,6 +8116,7 @@
       { key: 'index', label: 'Playlist # (position in the playlist)', defaultHidden: true },
       { key: 'artist', label: 'Artist' },
       { key: 'category', label: 'Category' },
+      { key: 'badge', label: 'Badge (New, Fan Favorite...)' },
       { key: 'visible', label: 'Visible' },
       { key: 'vote', label: 'Vote' },
       { key: 'jukebox', label: 'Jukebox' },
@@ -9116,6 +9567,7 @@
             if (queuePane && queuePane.classList.contains('active')) loadQueueTab();
           });
           socket.on('nowPlaying', () => loadStats());
+          socket.on('listenersChanged', () => loadStats());
 
           // Plugin status
           socket.on('pluginStatus', () => loadPluginStatus());
@@ -9136,6 +9588,12 @@
     let loadedContent = '';
 
     let _monacoInitPromise = null;
+    // The code the editor should show for the selected template. Kept here
+    // because the editor can be created after the template was loaded (when
+    // Monaco's loader wasn't ready yet), and it then has to start with this
+    // instead of empty (GitHub #35: blank code editor until you left the page
+    // and came back).
+    let _editorCode = '';
     function initMonacoIfNeeded() {
       if (monacoEditor) return Promise.resolve();
       // `monacoEditor` is only assigned once the async require() below
@@ -9148,11 +9606,11 @@
       // caller await the same single load.
       if (_monacoInitPromise) return _monacoInitPromise;
       _monacoInitPromise = new Promise((resolve) => {
-        if (typeof require === 'undefined') { _monacoInitPromise = null; return resolve(); }
+        if (typeof require === 'undefined' || typeof require.config !== 'function') { _monacoInitPromise = null; return resolve(); }
         require.config({ paths: { vs: '/vendor/monaco/vs' } });
         require(['vs/editor/editor.main'], () => {
           monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
-            value: '',
+            value: _editorCode,
             language: 'html',
             theme: (localStorage.getItem('showpilot_theme') === 'stage-light') ? 'vs' : 'vs-dark',
             automaticLayout: true,
@@ -9170,7 +9628,64 @@
           resolve();
         });
       });
+      return _monacoInitPromise;
     }
+
+    // ---- Server log (v0.33.249+) ----
+    async function loadServerLog() {
+      const view = document.getElementById('serverLogView');
+      if (!view) return;
+      const filter = (document.getElementById('serverLogFilter') || {}).value || '';
+      const r = await api('/server-log?lines=400&filter=' + encodeURIComponent(filter));
+      if (!r.ok) { view.textContent = 'Could not load the log.'; return; }
+      view.textContent = r.data.lines.length ? r.data.lines.join('\n') : (filter ? 'No lines contain "' + filter + '".' : 'Nothing logged yet.');
+      view.scrollTop = view.scrollHeight;
+    }
+
+    // ---- Global CSS (v0.33.249+, GitHub #36) ----
+    async function loadGlobalCss() {
+      const r = await api('/global-css');
+      if (!r.ok) return;
+      document.getElementById('gcssText').value = r.data.css || '';
+      document.getElementById('gcssEnabled').checked = !!r.data.enabled;
+      document.getElementById('gcssRestoreBtn').disabled = !r.data.hasPrevious;
+      document.getElementById('gcssStatus').textContent = '';
+    }
+    async function saveGlobalCss() {
+      const status = document.getElementById('gcssStatus');
+      const r = await api('/global-css', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ css: document.getElementById('gcssText').value, enabled: document.getElementById('gcssEnabled').checked }),
+      });
+      if (!r.ok) { showAlert(r.data?.error || 'Save failed'); return; }
+      document.getElementById('gcssRestoreBtn').disabled = !r.data.hasPrevious;
+      status.textContent = '✓ Saved. Open viewer pages pick it up on their next load.';
+      if (typeof refreshPreview === 'function') refreshPreview();
+    }
+    async function restoreGlobalCss() {
+      if (!await showConfirm('Go back to the global CSS saved before the last Save? (You can undo this with Restore previous again.)', { okLabel: 'Restore' })) return;
+      const r = await api('/global-css/restore', { method: 'POST' });
+      if (!r.ok) { showAlert(r.data?.error || 'Restore failed'); return; }
+      await loadGlobalCss();
+      document.getElementById('gcssStatus').textContent = '✓ Restored the previous version.';
+    }
+    async function loadGlobalCssFile(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      if (file.size > 512 * 1024) { showAlert('That file is over 512 KB, which is too big for the global CSS.'); return; }
+      try { document.getElementById('gcssText').value = await file.text(); } catch (e) { showAlert('Could not read that file.'); return; }
+      document.getElementById('gcssStatus').textContent = `Loaded "${file.name}". Click Save to use it.`;
+    }
+    // The checkbox saves straight away, so it works as a quick off switch.
+    document.addEventListener('change', async (e) => {
+      if (!e.target || e.target.id !== 'gcssEnabled') return;
+      const r = await api('/global-css', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: e.target.checked }),
+      });
+      document.getElementById('gcssStatus').textContent = r.ok ? (e.target.checked ? '✓ Global CSS on.' : '✓ Global CSS off.') : 'Could not save.';
+    });
 
     // ---- Scheduled template switches (v0.33.231+) ----
     let _schEditId = null, _schData = null;
@@ -9315,9 +9830,13 @@
       // they switch tabs. Monaco gets the latest html (draft if pending).
       loadSettingsForm(currentSettings);
       renderBlocksCanvas();
+      _editorCode = tpl.draft_html || tpl.html || '';
+      // A draft saved earlier (even in another browser) shows as unsaved,
+      // with Save Changes / Discard Changes, instead of "SAVED".
+      hasDraft = !!tpl.draft_html;
       await initMonacoIfNeeded();
       if (monacoEditor) {
-        const codeContent = tpl.draft_html || tpl.html || '';
+        const codeContent = _editorCode;
         if (monacoEditor.getValue() !== codeContent) {
           // Suppress the change handler so loading a template doesn't
           // immediately flip hasDraft to true. The dirty flag should only
@@ -9451,6 +9970,27 @@
     //   - Lock button reads "Unlock" with closed padlock
     //   - Monaco's read-only mode is enabled
     // When unlocked, all of those are reversed.
+    // "Load from file…" (v0.33.249+, GitHub #36): puts an .html file's text in
+    // the Code editor as an unsaved draft, the same as pasting it in. Nothing
+    // goes live until Save Changes.
+    async function loadTemplateFromFile(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file || selectedTplId === null) return;
+      if (_isLocked) { showAlert('This template is locked. Unlock it first.'); return; }
+      if (file.size > 2 * 1024 * 1024) { showAlert('That file is over 2 MB, which is too big for a viewer page.'); return; }
+      let text;
+      try { text = await file.text(); } catch (e) { showAlert('Could not read that file.'); return; }
+      if (text.indexOf('\u0000') !== -1) { showAlert("That doesn't look like an HTML file."); return; }
+      if (!await showConfirm(`Replace this template's code with "${file.name}"? It becomes an unsaved draft: check the preview, then Save Changes to make it live, or Discard Changes to undo.`, { okLabel: 'Replace' })) return;
+      switchDesignerTab('code');
+      await initMonacoIfNeeded();
+      if (!monacoEditor) { showAlert('The code editor did not load.'); return; }
+      // A real edit: marks the draft dirty and saves it like typing would.
+      monacoEditor.setValue(text);
+      setTimeout(() => monacoEditor.layout(), 0);
+    }
+
     function applyLockUI(locked) {
       _isLocked = !!locked;
       const banner = document.getElementById('tplLockedBanner');
@@ -9849,6 +10389,7 @@
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        if (typeof r.data?.html === 'string') _editorCode = r.data.html;
         // Mirror the generated HTML into Monaco so switching to Code tab
         // shows what Settings/Blocks produced. Skip if user is currently
         // typing in Code (to avoid clobbering their cursor position).
@@ -9863,12 +10404,56 @@
       }
     }
 
-    function refreshPreview() {
+    // The preview runs the template's own scripts in this page's thread, so a
+    // script that hangs freezes the whole admin (v0.33.249+):
+    //   - The preview only loads while the Viewer Page section is open
+    //     (opening it calls refreshPreview). Before, it loaded on every admin
+    //     start, so a broken draft froze the admin before you could reach
+    //     "Discard Changes".
+    //   - A marker is set before each load and cleared 5 s after it finishes.
+    //     If the page froze, the marker survives the reload and the preview
+    //     is paused with options to discard the draft or load it anyway.
+    const PREVIEW_GUARD_KEY = 'sp_preview_loading';
+    // Which page load set the marker: a marker from this same visit only
+    // means a preview is still loading (the preview is often reloaded twice
+    // in a row on opening), not that an earlier visit froze.
+    const PREVIEW_VISIT = Date.now() + '-' + Math.random().toString(36).slice(2);
+    // Leaving or reloading the admin normally clears this visit's marker. A
+    // frozen page never gets here, so its marker survives for the next visit.
+    window.addEventListener('pagehide', () => {
+      try {
+        const m = JSON.parse(localStorage.getItem(PREVIEW_GUARD_KEY) || 'null');
+        if (m && m.visit === PREVIEW_VISIT) localStorage.removeItem(PREVIEW_GUARD_KEY);
+      } catch (e) {}
+    });
+    function previewPaneOpen() {
+      const pane = document.querySelector('.tab-pane[data-pane="viewer"]');
+      return !!(pane && pane.classList.contains('active'));
+    }
+    function refreshPreview(force) {
       if (selectedTplId === null) return;
       const iframe = document.getElementById('designerPreview');
       if (!iframe) return;
+      if (!previewPaneOpen()) return;
+      const paused = document.getElementById('previewPaused');
+      let stuck = null;
+      try { stuck = JSON.parse(localStorage.getItem(PREVIEW_GUARD_KEY) || 'null'); } catch (e) {}
+      if (force !== true && stuck && stuck.id === selectedTplId && stuck.visit !== PREVIEW_VISIT) {
+        iframe.src = 'about:blank';
+        if (paused) paused.style.display = '';
+        return;
+      }
+      if (paused) paused.style.display = 'none';
+      try { localStorage.setItem(PREVIEW_GUARD_KEY, JSON.stringify({ id: selectedTplId, at: Date.now(), visit: PREVIEW_VISIT })); } catch (e) {}
+      const tok = Date.now();
+      iframe.onload = () => setTimeout(() => {
+        // Only the latest load clears the marker.
+        if (iframe.dataset.loadTok !== String(tok)) return;
+        try { localStorage.removeItem(PREVIEW_GUARD_KEY); } catch (e) {}
+      }, 5000);
+      iframe.dataset.loadTok = String(tok);
       // Cache-bust the iframe so it actually reloads each time
-      iframe.src = `/?preview=${selectedTplId}&t=${Date.now()}`;
+      iframe.src = `/?preview=${selectedTplId}&t=${tok}`;
     }
 
     function updateDraftButtons() {
@@ -9922,6 +10507,7 @@
       if (!await showConfirm('Discard all unsaved changes? The template will revert to its last saved state.', { danger: true, okLabel: 'Discard' })) return;
       const r = await api('/templates/' + selectedTplId + '/discard-draft', { method: 'POST' });
       if (r.ok) {
+        try { localStorage.removeItem(PREVIEW_GUARD_KEY); } catch (e) {}
         hasDraft = false;
         updateDraftButtons();
         await selectTemplate(selectedTplId);  // reload from saved state
@@ -9965,10 +10551,81 @@
     // ============================================================
     // PLUGIN STATUS PANEL
     // ============================================================
+    // Banner on the Dashboard when the show player is out of date (beta.18+).
+    // "Dismiss" hides it until a newer version comes out; a version too old
+    // to work properly can't be dismissed.
+    function renderShowPlayerUpdate(u) {
+      const el = document.getElementById('showPlayerUpdateBanner');
+      if (!el) return;
+      let dismissed = '';
+      try { dismissed = localStorage.getItem('sp_player_update_dismissed') || ''; } catch (e) {}
+      if (!u || (!u.belowRequired && dismissed === u.kind + ':' + u.latest)) { el.style.display = 'none'; el.innerHTML = ''; return; }
+      const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const danger = !!u.belowRequired;
+      el.style.borderColor = danger ? 'var(--status-danger)' : 'var(--status-warning)';
+      el.style.background = danger ? 'var(--status-danger-soft)' : 'var(--status-warning-soft)';
+      let html;
+      if (u.kind === 'fpp') {
+        const fpp = u.fppHost ? '<a href="http://' + esc(u.fppHost) + '/plugins.php" target="_blank" rel="noopener">FPP → Content Setup → Plugin Manager</a>' : 'FPP → Content Setup → Plugin Manager';
+        html = '<b>' + (danger ? '⚠ Your ShowPilot plugin in FPP needs updating.' : '⬆ An update for the ShowPilot plugin in FPP is available.') + '</b> '
+          + 'Installed: v' + esc(u.installed) + ' · Newest: v' + esc(u.latest) + '.'
+          + (danger && u.why ? ' This version of ShowPilot needs v' + esc(u.required) + ' or newer: ' + esc(u.why) + '.' : '')
+          + '<br>Update it in ' + fpp + ' (the ShowPilot plugin\'s update button), then restart FPPD if FPP asks.';
+      } else {
+        html = '<b>⬆ An update for your show player is available.</b> Installed: v' + esc(u.installed) + ' · Newest: v' + esc(u.latest) + '.'
+          + '<br>Update it from the show player\'s own admin page.';
+      }
+      if (!danger) html += ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPlayerUpdate(\'' + esc(u.kind + ':' + u.latest) + '\')">Dismiss</button>';
+      if (el.innerHTML !== html) el.innerHTML = html;
+      el.style.display = '';
+    }
+    // Banner on the Dashboard when a newer ShowPilot is out (beta.19+). The
+    // server answers from its last GitHub check, so this is cheap; asked at
+    // most every 60 s. A newer beta is only offered to installs on a beta.
+    let _spUpdAskedAt = 0;
+    async function loadShowPilotUpdate() {
+      if (Date.now() - _spUpdAskedAt < 60000) return;
+      _spUpdAskedAt = Date.now();
+      const r = await api('/updates/notice');
+      if (r.ok) renderShowPilotUpdate(r.data.notice);
+    }
+    function renderShowPilotUpdate(n) {
+      const el = document.getElementById('showPilotUpdateBanner');
+      if (!el) return;
+      let dismissed = '';
+      try { dismissed = localStorage.getItem('sp_showpilot_update_dismissed') || ''; } catch (e) {}
+      if (!n || dismissed === n.kind + ':' + n.latest) { el.style.display = 'none'; el.innerHTML = ''; return; }
+      const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      let how;
+      if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">Open Updates</button>';
+      else if (n.isDocker) how = '<br>Pull the new image and recreate the container to update.';
+      else how = '';
+      el.innerHTML = '<b>⬆ ' + (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available') + '.</b> '
+        + 'You have v' + esc(n.current) + '.' + how
+        + ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPilotUpdate(\'' + esc(n.kind + ':' + n.latest) + '\')">Dismiss</button>';
+      el.style.display = '';
+    }
+    function openShowPilotUpdates() {
+      switchMainTab('settings');
+      switchTab('updates');
+    }
+    function dismissShowPilotUpdate(key) {
+      try { localStorage.setItem('sp_showpilot_update_dismissed', key); } catch (e) {}
+      const el = document.getElementById('showPilotUpdateBanner');
+      if (el) el.style.display = 'none';
+    }
+    function dismissShowPlayerUpdate(key) {
+      try { localStorage.setItem('sp_player_update_dismissed', key); } catch (e) {}
+      const el = document.getElementById('showPlayerUpdateBanner');
+      if (el) el.style.display = 'none';
+    }
+
     async function loadPluginStatus() {
       const r = await api('/plugin-status');
       if (!r.ok) return;
       const d = r.data;
+      renderShowPlayerUpdate(d.update);
+      loadShowPilotUpdate();
       const dot = document.getElementById('headerPluginDot');
       const text = document.getElementById('headerPluginText');
       const conn = document.getElementById('pluginConnStatus');
@@ -10016,10 +10673,11 @@
     // STATUS STRIP / DASHBOARD live values
     // Hook into existing loadStats + loadConfig pathways
     // ============================================================
+    function modeText(mode) { return mode === 'LISTEN' ? 'LISTEN ONLY' : (mode || 'OFF'); }
     function updateModePill(mode) {
       const pill = document.getElementById('modePill');
       pill.className = 'mode-pill ' + (mode || 'off').toLowerCase();
-      pill.textContent = mode || 'OFF';
+      pill.textContent = modeText(mode);
     }
 
     // Override updateViewerControlBadge to use the new pill classes
@@ -10032,7 +10690,7 @@
         badge.className = 'pill pill-danger';
         setVcToggle(btn, false);
       } else {
-        badge.textContent = 'ON · ' + mode;
+        badge.textContent = 'ON · ' + modeText(mode);
         badge.className = 'pill pill-success';
         setVcToggle(btn, true);
       }
@@ -10056,7 +10714,7 @@
           setVcToggle(btn, false);
         } else {
           badge.className = 'pill pill-success';
-          badge.textContent = 'ON · ' + mode;
+          badge.textContent = 'ON · ' + modeText(mode);
           setVcToggle(btn, true);
         }
         // Show Reset Race button only in RACE mode
@@ -10087,8 +10745,11 @@
       document.getElementById('statQueue').textContent = d.queueLength ?? 0;
       document.getElementById('statPlayed').textContent = d.totalPlays ?? 0;
 
+      updateMessageBadge(d); // visitor messages (v0.33.250+)
+
       // Header count
       document.getElementById('headerViewerCount').innerHTML = '<strong>' + (d.activeViewers ?? 0) + '</strong> viewers';
+      showListenerCounts(d);
 
       // Status strip
       document.getElementById('stripVoteCount').textContent = d.totalVotes ?? 0;
@@ -10108,18 +10769,7 @@
       document.getElementById('dashNextUp').textContent = nextDisplay;
 
       // Top sequences table
-      const tbody = document.getElementById('topBody');
-      tbody.innerHTML = '';
-      const top = d.topSequences || [];
-      if (top.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
-      } else {
-        top.forEach(s => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
-          tbody.appendChild(tr);
-        });
-      }
+      renderTopSequences(d);
 
       // Total sequences count (only after sequences are loaded)
       const seqCountEl = document.getElementById('sequenceCount');
@@ -10219,6 +10869,146 @@
     })();
 
     // ============================================================
+    // MESSAGES TAB (visitor messages, v0.33.250+)
+    // ============================================================
+    let msgPageSize = 100, msgShown = 100;
+    function fmtMsgTime(utc) {
+      const d = new Date(String(utc || '').replace(' ', 'T') + 'Z');
+      if (isNaN(d)) return String(utc || '');
+      return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+    async function loadMessagesTab(more) {
+      msgShown = more ? msgShown + msgPageSize : msgPageSize;
+      const filter = (document.getElementById('msgFilter') || {}).value || 'all';
+      const r = await api('/messages?filter=' + encodeURIComponent(filter) + '&limit=' + msgShown);
+      if (!r.ok) return;
+      const { messages, total, unread } = r.data;
+      updateMessageBadge({ unreadMessages: unread, messagesEnabled: !!(document.getElementById('cfg_visitor_messages_enabled') || {}).checked });
+      const enabled = (document.getElementById('cfg_visitor_messages_enabled') || {}).checked;
+      document.getElementById('msgSummary').textContent =
+        (total === 0 ? (filter === 'unread' ? 'No unread messages.' : 'No messages yet.') :
+          total + (filter === 'unread' ? ' unread' : ' message' + (total === 1 ? '' : 's') + ', ' + unread + ' unread') + '. Newest first.') +
+        (enabled ? '' : ' Messages are turned off (see Settings below).');
+      const list = document.getElementById('msgList');
+      list.textContent = '';
+      messages.forEach(m => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:0.75rem;align-items:flex-start;padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:8px;' +
+          (m.is_read ? 'opacity:0.75;' : 'border-left:3px solid var(--accent);');
+        const body = document.createElement('div');
+        body.style.cssText = 'flex:1;min-width:0;';
+        const meta = document.createElement('div');
+        meta.className = 'muted';
+        meta.style.cssText = 'font-size:0.8rem;margin-bottom:0.2rem;';
+        meta.textContent = fmtMsgTime(m.created_at) + ' · ' + (m.name || 'No name') + (m.filtered ? ' · words hidden' : '') + (m.is_read ? '' : ' · new');
+        const text = document.createElement('div');
+        text.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;';
+        text.textContent = m.message;
+        body.appendChild(meta); body.appendChild(text);
+        const acts = document.createElement('div');
+        acts.style.cssText = 'display:flex;gap:0.4rem;flex-shrink:0;';
+        const readBtn = document.createElement('button');
+        readBtn.className = 'secondary';
+        readBtn.style.fontSize = '0.8rem';
+        readBtn.textContent = m.is_read ? 'Mark unread' : 'Mark read';
+        readBtn.addEventListener('click', async () => {
+          await api('/messages/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [m.id], read: !m.is_read }) });
+          loadMessagesTab();
+        });
+        const delBtn = document.createElement('button');
+        delBtn.className = 'danger';
+        delBtn.style.fontSize = '0.8rem';
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', async () => {
+          if (!confirm('Delete this message?')) return;
+          await api('/messages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [m.id] }) });
+          loadMessagesTab();
+        });
+        acts.appendChild(readBtn); acts.appendChild(delBtn);
+        row.appendChild(body); row.appendChild(acts);
+        list.appendChild(row);
+      });
+      document.getElementById('msgMore').style.display = total > messages.length ? '' : 'none';
+    }
+    async function markAllMessagesRead() {
+      await api('/messages/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) });
+      loadMessagesTab();
+    }
+    async function deleteReadMessages() {
+      if (!confirm('Delete every message you have already read? This cannot be undone.')) return;
+      await api('/messages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allRead: true }) });
+      loadMessagesTab();
+    }
+    function exportMessages() {
+      window.location.href = '/api/admin/messages/export';
+    }
+    // Message box look (accent + live preview).
+    let msgPreviewBg = 'dark', msgPreviewAccent = '', msgPreviewMax = 280;
+    function refreshMessagePreview() {
+      const f = document.getElementById('msgPreview');
+      if (!f) return;
+      const qs = new URLSearchParams({ bg: msgPreviewBg, max: String(msgPreviewMax) });
+      if (msgPreviewAccent) qs.set('accent', msgPreviewAccent);
+      const src = '/api/admin/messages/preview?' + qs.toString();
+      if (f.getAttribute('src') !== src) f.setAttribute('src', src);
+      const d = document.getElementById('msgPreviewDark'), l = document.getElementById('msgPreviewLight');
+      if (d) d.style.fontWeight = msgPreviewBg === 'dark' ? '700' : '';
+      if (l) l.style.fontWeight = msgPreviewBg === 'light' ? '700' : '';
+    }
+    function setMessagePreviewBg(bg) { msgPreviewBg = bg === 'light' ? 'light' : 'dark'; refreshMessagePreview(); }
+    async function saveMessageAccent(value) {
+      const v = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '';
+      msgPreviewAccent = v;
+      const el = document.getElementById('cfg_visitor_messages_accent');
+      if (el && !v) el.value = '#e11d48';
+      refreshMessagePreview();
+      await saveSetting('visitor_messages_accent', v);
+    }
+    async function saveMessageWords() {
+      const ta = document.getElementById('cfg_visitor_messages_filter_words');
+      await saveSetting('visitor_messages_filter_words', ta ? ta.value : '');
+    }
+    async function resetMessageWords() {
+      if (!confirm('Replace your word list with the built-in list?')) return;
+      await saveSetting('visitor_messages_filter_words', null);
+      const r = await api('/messages/default-words');
+      const ta = document.getElementById('cfg_visitor_messages_filter_words');
+      if (r.ok && ta) ta.value = r.data.words;
+    }
+    // Unread count: badge on the Messages tab (both layouts) and a dashboard
+    // banner. Fed by /stats (polled every 5 s) and by the Messages tab itself.
+    function updateMessageBadge(d) {
+      const n = Number(d && d.unreadMessages) || 0;
+      const label = n > 99 ? '99+' : String(n);
+      document.querySelectorAll('.tab-btn[data-tab="messages"], .spn-item[data-tab="messages"]').forEach(b => {
+        if (n > 0) b.setAttribute('data-unread', label); else b.removeAttribute('data-unread');
+      });
+      const banner = document.getElementById('messagesBanner');
+      if (banner) {
+        if (n > 0) {
+          banner.textContent = '';
+          const t = document.createElement('span');
+          t.textContent = '✉ ' + n + ' unread visitor message' + (n === 1 ? '' : 's') + '. ';
+          const a = document.createElement('a');
+          a.href = '#';
+          a.textContent = 'Read them';
+          a.style.cssText = 'color: inherit; font-weight: 700; text-decoration: underline;';
+          a.addEventListener('click', (e) => { e.preventDefault(); switchMainTab('messages'); });
+          banner.appendChild(t); banner.appendChild(a);
+          banner.style.display = '';
+          // New layout: keep the banner above the new dashboard.
+          const dash = document.getElementById('spnDash');
+          if (dash && dash.parentNode === banner.parentNode && (banner.compareDocumentPosition(dash) & Node.DOCUMENT_POSITION_PRECEDING)) {
+            dash.parentNode.insertBefore(banner, dash);
+          }
+        } else {
+          banner.style.display = 'none';
+        }
+      }
+    }
+    window.updateMessageBadge = updateMessageBadge;
+
+    // ============================================================
     // QUEUE TAB
     // ============================================================
     let queuePollTimer = null;
@@ -10226,9 +11016,13 @@
     async function loadQueueTab() {
       const r = await api('/queue');
       if (!r.ok) return;
-      const { pending, recentlyPlayed } = r.data;
+      const { pending, recentlyPlayed, recentMode } = r.data;
       renderQueueList('queuePending', pending, true);
       renderQueueList('queueRecent', recentlyPlayed, false);
+      // Jukebox lists played requests; other modes list every song played.
+      const recentTitle = document.getElementById('queueRecentTitle');
+      if (recentTitle) recentTitle.textContent = recentMode === 'plays'
+        ? 'Recently played (last 20)' : 'Recently played requests (last 20)';
 
       // Start a poll loop that runs while the queue tab is the active tab.
       // Sockets should refresh us on real changes, but polling every 4s is a
@@ -10253,14 +11047,19 @@
         return;
       }
       el.innerHTML = entries.map(q => {
+        // Handed over = in the show player's own queue, waiting its turn. The
+        // song that is playing has already moved to "Recently played", so
+        // nothing in this list is playing (before v0.33.249 every handed-over
+        // song said "Playing now", GitHub #37).
         const isPlaying = allowDelete && q.handed_off_at;
         const cover = q.image_url
           ? `<img src="${escapeAttr(q.image_url)}" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0;" alt="" />`
           : `<div style="width: 36px; height: 36px; border-radius: 4px; background: var(--bg-tertiary); flex-shrink: 0;"></div>`;
+        const sourceLabel = { vote: 'vote winner', request: 'request', psa: 'PSA', schedule: 'show schedule' }[q.source] || '';
         const subtitle = isPlaying
-          ? '<span style="color: var(--status-success); font-weight: 600;">▶ Playing now</span>'
+          ? `<span style="color: var(--status-success); font-weight: 600;" title="ShowPilot has passed this request to the show player, which plays it in turn">Sent to the show player</span> · requested ${formatRelative(q.requested_at)}`
           : (q.played_at
-              ? `played ${formatRelative(q.played_at)}`
+              ? `played ${formatRelative(q.played_at)}${sourceLabel ? ' · ' + sourceLabel : ''}`
               : `requested ${formatRelative(q.requested_at)}`);
         const removeBtn = (allowDelete && !isPlaying)
           ? `<button class="secondary" onclick="removeQueueEntry(${q.id})" style="font-size: 0.75rem; padding: 4px 10px;">Remove</button>`
@@ -10296,8 +11095,8 @@
     }
 
     async function clearAllQueue() {
-      if (!await showConfirm('Clear the entire queue?\nAll pending requests will be removed.\nThis cannot be undone.', { danger: true, okLabel: 'Clear' })) return;
-      const r = await api('/stats/reset/queue', { method: 'POST' });
+      if (!await showConfirm('Clear the queue?\nAll requests that haven\'t played yet will be removed. Recently played stays.\nThis cannot be undone.', { danger: true, okLabel: 'Clear' })) return;
+      const r = await api('/purge-queue', { method: 'POST' });
       if (r.ok) loadQueueTab();
     }
 

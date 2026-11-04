@@ -20,16 +20,21 @@ You get an admin with a live dashboard, a tablet show-remote mode (Cockpit), sta
 ### Visitor experience
 
 - **Voting, Jukebox & Race modes** — let viewers vote for the next sequence, queue songs to play in order, or race to tap their pick to a target first. Optional tiebreak round when a vote ends tied
+- **Listen Only mode** — close votes and requests near the end of the night while viewers still see what's playing and can listen on their phones (songs already queued still play). Switch to it from the admin or an FPP command
 - **Listen-on-Phone audio player** — your show audio, served by ShowPilot and kept in sync with FPP. Phones continuously correct toward FPP's playback position with inaudible speed nudges, and song changes reach them in real time. No native app, no extra service, no Icecast setup. Works on iOS Safari, Android Chrome, and desktop browsers
 - **Alternate-language audio** — optional extra audio tracks per sequence (for example a translated version) that listeners can choose in the player
 - **Larger player on phones (optional)** — a two-row player on phones with the full song title and bigger, spread-out controls, turned on in the admin
 - **Sync debug tools** — under Settings → Debug (off by default): a microphone "Measure sync" button that reports how far the show speakers are from a phone, and a sync probe that checks the relay against FPP directly
 - **Listener audio timing** — phones can't see Bluetooth or car-stereo delay, so listeners can shift the sound earlier or later from a small timing button in the player until it lines up with the lights (big "music is late / early" buttons, a fine slider and presets). Saved on that phone only; you can turn the button off, and set the slider's range, in the admin. A collapsible **Audio Sync Help** block for the viewer page, and a tip inside the timing sheet, explain how to use it
 - **Mobile-first viewer page** — designed for cold winter hands tapping with gloves. Large hit targets, high-contrast cards, marquee-scrolling long titles, optional page-wide effects (snow, leaves, fireworks, hearts, stars, bats, confetti, petals, embers, bubbles, rain), optional themed player decorations (Christmas, Halloween, Easter, St. Patrick's, Independence Day, Valentine's, Hanukkah, Thanksgiving, generic snow)
-- **Cover art support** — automatic MusicBrainz/iTunes cover lookup per sequence with admin override, displayed inline on song cards
+- **Cover art support** — automatic MusicBrainz/iTunes cover lookup per sequence with admin override, displayed inline on song cards, and optionally on Now Playing and Up Next (designer option, or `{NOW_PLAYING_IMAGE}` / `{NEXT_PLAYLIST_IMAGE}` in templates)
 - **Now Playing + Up Next** — real-time updates pushed via Socket.io, plus polled fallback for slower connections
+- **Visitor messages (optional, off by default)** — visitors send you a short private message from the viewer page (`{MESSAGE_BOX}`): thanks, song requests that aren't on the list, a string of lights that's out. Read, mark, delete and export them in the admin's Messages tab. Rate limits, a word filter and your access code / location check keep it clean
 - **Song progress bar (optional)** — a slim bar with time left, on top of the Listen-on-Phone player in its theme color (or across the top of the page). Templates can also place `{NOW_PLAYING_PROGRESS}` or the `{NOW_PLAYING_TIMER}` countdown anywhere
 - **Song categories** — group sequences under headings on the viewer page, and switch whole categories on or off
+- **Song badges** — mark songs as New, Fan Favorite or your own label; the badge shows after the song's name on the viewer page
+- **Already-queued songs marked** — song tiles already in the request queue carry a class (and can be dimmed with one setting), so viewers see what's coming up
+- **Phone listener count** — the admin shows how many phones are listening right now, and the Stats page keeps each day's most-at-once and number of phones
 - **Viewer page translation (optional)** — visitors can read the viewer page in their own language
 
 ### Visual page designer

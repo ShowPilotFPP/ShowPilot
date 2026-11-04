@@ -121,6 +121,7 @@ const pluginStatus = (() => {
     lastSyncAt: cfg.plugin_last_sync_at || null,
     lastSyncPlaylist: cfg.plugin_last_sync_playlist || null,
     lastSyncCount: cfg.plugin_last_sync_count || 0,
+    lastSyncDuplicates: (() => { try { return JSON.parse(cfg.plugin_last_sync_duplicates || '[]'); } catch (e) { return []; } })(),
     fppHost: cfg.plugin_fpp_host || null,
   };
 })();
@@ -130,6 +131,20 @@ const pluginStatus = (() => {
 // ============================================================
 router.get('/state', (req, res) => {
   const cfg = getConfig();
+
+  // ?peek=1 (v0.33.249+): just the mode, nothing handed out. For a show
+  // player that only wants to know the mode (the FPP plugin checks it once a
+  // minute); answering those calls with a request used to hand that request
+  // out to a caller that never queued it (GitHub #37).
+  if (req.query.peek === '1' || req.query.peek === 'true') {
+    return res.json({
+      mode: cfg.viewer_control_mode === 'LISTEN' ? 'JUKEBOX' : cfg.viewer_control_mode,
+      ...(cfg.viewer_control_mode === 'LISTEN' ? { viewerMode: 'LISTEN' } : {}),
+      interruptSchedule: cfg.interrupt_schedule === 1,
+      managedPsa: cfg.managed_psa_enabled === 1,
+      winningVote: null, nextRequest: null, psa: null, peek: true,
+    });
+  }
 
   const response = {
     mode: cfg.viewer_control_mode,
@@ -158,7 +173,9 @@ router.get('/state', (req, res) => {
   // mode regardless of trigger mode or threshold. The counters keep
   // incrementing in the background so when viewer mode is re-enabled,
   // PSAs can fire normally without a hard reset.
-  if (cfg.viewer_control_mode !== 'OFF' && cfg.play_psa_enabled && cfg.psa_frequency > 0) {
+  // Listen Only (LISTEN) is hands-off for PSAs too: nobody can vote or
+  // request, so there is nothing to prompt.
+  if (cfg.viewer_control_mode !== 'OFF' && cfg.viewer_control_mode !== 'LISTEN' && cfg.play_psa_enabled && cfg.psa_frequency > 0) {
     const mode = cfg.psa_trigger_mode === 'sequences' ? 'sequences' : 'interactions';
     const counter = mode === 'sequences'
       ? (cfg.sequences_since_last_psa || 0)
@@ -378,44 +395,54 @@ router.get('/state', (req, res) => {
       }
     }
     // Round advances when the new song starts playing — handled in /playing.
-  } else if (cfg.viewer_control_mode === 'JUKEBOX') {
-    const next = popNextQueuedRequest();
-    if (next) {
+  } else if (cfg.viewer_control_mode === 'JUKEBOX' || cfg.viewer_control_mode === 'LISTEN') {
+    // Listen Only (v0.33.249+): no new requests come in, but the ones already
+    // queued still play, so nobody loses a song they asked for. The plugin
+    // only acts on nextRequest in JUKEBOX mode, so report that while a
+    // queued request is being handed over.
+    if (cfg.viewer_control_mode === 'LISTEN') response.viewerMode = 'LISTEN';
+    // Every request already handed over is still waiting in the show
+    // player's own queue, so keep them all fresh. Before, only the oldest
+    // was refreshed: with three or more songs handed over, the later ones
+    // passed the 5-minute stale cleanup while still waiting their turn and
+    // vanished from the queue lists (GitHub #37). If the show player stops
+    // asking, they still expire after 5 minutes.
+    db.prepare(`UPDATE jukebox_queue SET handed_off_at = CURRENT_TIMESTAMP
+                WHERE played = 0 AND handed_off_at IS NOT NULL`).run();
+    // One request in flight at a time (v0.33.249+, GitHub #37): while a
+    // handed-over request hasn't started, every ask gets that same request
+    // again (the plugin ignores repeats), and the next one is handed out only
+    // once it plays. Before, each ask handed out the next request, so a call
+    // that didn't queue the answer (the plugin's once-a-minute mode check)
+    // silently used up a request: it was marked handed over, the plugin never
+    // had it, and FPP skipped it.
+    const inFlight = db.prepare(`
+      SELECT q.sequence_name, q.requested_at, s.sort_order
+      FROM jukebox_queue q
+      LEFT JOIN sequences s ON s.name = q.sequence_name COLLATE NOCASE
+      WHERE q.played = 0 AND q.handed_off_at IS NOT NULL
+      ORDER BY q.handoff_order ASC, q.requested_at ASC, q.id ASC LIMIT 1
+    `).get();
+    const next = inFlight ? null : popNextQueuedRequest();
+    if (inFlight) {
+      rememberHandoff(inFlight.sequence_name, 'request');
+      if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
+      response.nextRequest = {
+        sequence: inFlight.sequence_name,
+        playlistIndex: inFlight.sort_order,
+        queuedAt: inFlight.requested_at,
+      };
+    } else if (next) {
       response.nextRequest = {
         sequence: next.sequence_name,
         playlistIndex: next.sort_order,
         queuedAt: next.requested_at,
       };
       rememberHandoff(next.sequence_name, 'request');
+      console.log(`[queue] handed "${next.sequence_name}" to the show player (requested ${next.requested_at} UTC${next.skip_count ? ', again after it was passed over' : ''})`);
+      if (response.viewerMode === 'LISTEN') response.mode = 'JUKEBOX';
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
-    } else {
-      // No fresh entry to hand off. In non-interrupt mode FPP polls many
-      // times between the handoff and when the current song actually ends;
-      // if we return nothing on those polls FPP drops the queued song and
-      // resumes its main playlist. Re-return the already-handed-off but
-      // not-yet-confirmed-played entry so FPP keeps it queued.
-      // Also refresh handed_off_at so cleanupStaleHandoffs doesn't expire
-      // it while a long song is still playing.
-      const pending = db.prepare(`
-        SELECT q.sequence_name, q.requested_at, s.sort_order
-        FROM jukebox_queue q
-        LEFT JOIN sequences s ON s.name = q.sequence_name COLLATE NOCASE
-        WHERE q.played = 0 AND q.handed_off_at IS NOT NULL
-        ORDER BY q.requested_at ASC LIMIT 1
-      `).get();
-      if (pending) {
-        db.prepare(
-          `UPDATE jukebox_queue SET handed_off_at = CURRENT_TIMESTAMP
-           WHERE sequence_name = ? AND played = 0 AND handed_off_at IS NOT NULL`
-        ).run(pending.sequence_name);
-        rememberHandoff(pending.sequence_name, 'request');
-        response.nextRequest = {
-          sequence: pending.sequence_name,
-          playlistIndex: pending.sort_order,
-          queuedAt: pending.requested_at,
-        };
-      }
     }
   } else if (cfg.viewer_control_mode === 'RACE') {
     // Race mode: plugin v0.13.58+ handles RACE natively via the raceWinner
@@ -563,7 +590,12 @@ router.post('/playing', (req, res) => {
   if (name) {
     // Determine source: was this sequence just handed out to the plugin (viewer-driven),
     // or is FPP playing it from the schedule on its own?
-    const handoffSource = consumeHandoff(name);
+    // A request waiting in the show player's queue can start more than 5
+    // minutes after it was handed over (the in-memory handoff note expires),
+    // so a handed-over queue entry with this name also counts as a request.
+    const handoffSource = consumeHandoff(name) || (db.prepare(
+      `SELECT 1 FROM jukebox_queue WHERE sequence_name = ? AND played = 0 AND handed_off_at IS NOT NULL LIMIT 1`
+    ).get(name) ? 'request' : null);
     const source = handoffSource || 'schedule';
 
     db.prepare(`
@@ -578,6 +610,23 @@ router.post('/playing', (req, res) => {
       markQueueEntryPlayed(name);
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
+    } else if (isSequenceChange && source !== 'psa') {
+      // Another song started while a request was handed over and waiting
+      // (one at a time, so it should have been next). Allow one such pass
+      // (the request can land one song late), then drop it so a song the
+      // show player can't play doesn't hold up everyone else's requests.
+      const waiting = db.prepare(`SELECT id, sequence_name, skip_count FROM jukebox_queue
+        WHERE played = 0 AND handed_off_at IS NOT NULL`).all();
+      for (const w of waiting) {
+        if ((w.skip_count || 0) + 1 >= 2) {
+          db.prepare(`UPDATE jukebox_queue SET played = 1, played_at = CURRENT_TIMESTAMP, skip_count = skip_count + 1 WHERE id = ?`).run(w.id);
+          console.warn(`[queue] "${w.sequence_name}" was handed to the show player but other songs played instead; dropping it from the queue. Check that the show player can play "${w.sequence_name}".`);
+        } else {
+          db.prepare(`UPDATE jukebox_queue SET skip_count = skip_count + 1 WHERE id = ?`).run(w.id);
+          console.warn(`[queue] "${name}" started while "${w.sequence_name}" was handed to the show player and waiting; it gets one more song to start`);
+        }
+      }
+      if (waiting.length) { const io = req.app.get('io'); if (io) io.emit('queueUpdated'); }
     }
 
     // ---- Voting round close (v0.23.10+) ----
@@ -603,7 +652,7 @@ router.post('/playing', (req, res) => {
     // exact song started, so one missed return pinned "Up Next" to it for
     // good. Jukebox additionally waits for its queue to drain.
     if (isSequenceChange && source === 'schedule') {
-      const queueEmpty = cfgForRound.viewer_control_mode !== 'JUKEBOX' || db.prepare(
+      const queueEmpty = !['JUKEBOX', 'LISTEN'].includes(cfgForRound.viewer_control_mode) || db.prepare(
         `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`
       ).get().n === 0;
       if (queueEmpty) {
@@ -618,7 +667,16 @@ router.post('/playing', (req, res) => {
     }
 
     const isVoting = cfgForRound.viewer_control_mode === 'VOTING';
-    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round) {
+    // A PSA starting doesn't end the voting round: the votes cast so far
+    // carry over and the winner plays after the PSA. Before, the PSA counted
+    // as the round's song, so the votes were cleared and the winner never
+    // played.
+    const psaStarting = source === 'psa' ||
+      !!(db.prepare(`SELECT is_psa FROM sequences WHERE name = ?`).get(name) || {}).is_psa;
+    if (isVoting && isSequenceChange && psaStarting) {
+      console.log(`[playing] PSA "${name}" started; voting round ${cfgForRound.current_voting_round} stays open`);
+    }
+    if (isVoting && isSequenceChange && !psaStarting && cfgForRound.reset_votes_after_round) {
       // Determine if this song change is a tiebreak resolution.
       // Tiebreak rules:
       //   - If the winning sequence (by handoff) is a tiebreak candidate
@@ -825,6 +883,23 @@ router.post('/position', (req, res) => {
     WHERE id = 1 AND sequence_name = ?
   `).run(name);
 
+  // The same sequence started over (a sequence on repeat, or FPP restarted
+  // it): the plugin only reports /playing when the NAME changes, so
+  // started_at still points at the first run and the progress bar sat full
+  // (GitHub #37). A jump back of more than 3 s re-anchors it; normal jitter
+  // is far smaller, so the stable anchor rule in setNowPlaying still holds.
+  const np = db.prepare(`SELECT started_at FROM now_playing WHERE id = 1 AND sequence_name = ?`).get(name);
+  if (np && np.started_at) {
+    const startedMs = new Date(np.started_at.replace(' ', 'T') + 'Z').getTime();
+    const elapsed = (Date.now() - startedMs) / 1000;
+    if (isFinite(elapsed) && pos + 3 < elapsed) {
+      const startedAt = new Date(Date.now() - Math.round(pos * 1000)).toISOString().replace('T', ' ').replace('Z', '');
+      db.prepare(`UPDATE now_playing SET started_at = ? WHERE id = 1 AND sequence_name = ?`).run(startedAt, name);
+      const io0 = req.app.get('io');
+      if (io0) io0.emit('nowPlaying', { sequenceName: name });
+    }
+  }
+
   // Emit to all connected viewers. They'll use this as the freshest
   // anchor for sync — replaces extrapolating from a stale started_at.
   const io = req.app.get('io');
@@ -928,11 +1003,18 @@ router.post('/heartbeat', (req, res) => {
   const updates = {
     plugin_last_seen_at: pluginStatus.lastSeen,
     plugin_version: pluginStatus.version,
+    // A show player that checks for its own updates says which version is
+    // newest (beta.18+); the Dashboard banner uses it.
+    plugin_latest_reported: (typeof req.body?.latestVersion === 'string' && /^\d+\.\d+\.\d+/.test(req.body.latestVersion))
+      ? req.body.latestVersion.slice(0, 32) : null,
   };
   if (fppHost) updates.plugin_fpp_host = fppHost;
   updateConfig(updates);
   pluginStatus.fppHost = fppHost || pluginStatus.fppHost;
-  res.json({ ok: true });
+  // The FPP plugin (0.14.22+) shows a warning in FPP when a newer version is
+  // out; tell it which. Other show players check for their own updates.
+  const isFppPlugin = pluginStatus.version && !/^player-/i.test(String(pluginStatus.version));
+  res.json(isFppPlugin ? { ok: true, ...require('../lib/show-player-update').forPlugin() } : { ok: true });
 });
 
 // ============================================================
@@ -1005,11 +1087,26 @@ router.post('/sync-sequences', (req, res) => {
       .replace(/\s+/g, ' ')             // collapse whitespace
       .trim();
 
+  // A song listed more than once in the playlist (v0.33.249+) is still one
+  // sequence (votes, cooldowns, categories and the viewer list are per name).
+  // Its FIRST position is kept, which is also the copy the plugin falls back
+  // to when it looks the song up by name; later copies used to overwrite it.
+  // The duplicates are reported on the Sequences page.
   let inserted = 0;
+  const firstAt = new Map();      // name -> index into duplicates or -1
+  const duplicates = [];          // [{ name, positions: [first, ...later] }]
   const tx = db.transaction((items) => {
     items.forEach((seq, index) => {
       const name = String(seq.name || '').trim();
       if (!name) return;
+      const position = Number.isFinite(seq.playlistIndex) ? seq.playlistIndex : (index + 1);
+      if (firstAt.has(name)) {
+        const d = firstAt.get(name);
+        if (d.dup === null) { d.dup = duplicates.length; duplicates.push({ name, positions: [d.position] }); }
+        duplicates[d.dup].positions.push(position);
+        return;
+      }
+      firstAt.set(name, { position, dup: null });
       upsert.run({
         name,
         display_name: String(seq.displayName || toDisplayName(name)).trim(),
@@ -1017,7 +1114,7 @@ router.post('/sync-sequences', (req, res) => {
         image_url: String(seq.imageUrl || '').trim() || null,
         media_name: String(seq.mediaName || '').trim() || null,
         duration_seconds: Number.isFinite(seq.durationSeconds) ? seq.durationSeconds : null,
-        sort_order: Number.isFinite(seq.playlistIndex) ? seq.playlistIndex : (index + 1),
+        sort_order: position,
       });
       inserted++;
     });
@@ -1054,7 +1151,12 @@ router.post('/sync-sequences', (req, res) => {
   pluginStatus.lastSyncAt = new Date().toISOString();
   pluginStatus.lastSyncPlaylist = playlistName || null;
   pluginStatus.lastSyncCount = inserted;
+  pluginStatus.lastSyncDuplicates = duplicates;
+  if (duplicates.length) {
+    console.log(`[sync] listed more than once (first position kept): ${duplicates.map((d) => `${d.name} @ ${d.positions.join(', ')}`).join('; ')}`);
+  }
   updateConfig({
+    plugin_last_sync_duplicates: JSON.stringify(duplicates),
     plugin_last_sync_at: pluginStatus.lastSyncAt,
     plugin_last_sync_playlist: pluginStatus.lastSyncPlaylist,
     plugin_last_sync_count: pluginStatus.lastSyncCount,
@@ -1119,30 +1221,32 @@ router.post('/sync-sequences', (req, res) => {
 // ============================================================
 router.post('/viewer-mode', (req, res) => {
   const { mode: requested } = req.body || {};
-  const allowed = ['VOTING', 'JUKEBOX', 'RACE', 'OFF', 'ON'];
+  const allowed = ['VOTING', 'JUKEBOX', 'RACE', 'LISTEN', 'OFF', 'ON'];
 
   if (!requested || !allowed.includes(requested)) {
     return res.status(400).json({
-      error: 'mode must be VOTING, JUKEBOX, RACE, OFF, or ON',
+      error: 'mode must be VOTING, JUKEBOX, RACE, LISTEN, OFF, or ON',
     });
   }
 
-  const { updateConfig } = require('../lib/db');
+  const { updateConfig, RESTORABLE_MODES } = require('../lib/db');
   const cfg = getConfig();
   let newMode;
 
   if (requested === 'ON') {
     // Restore the last active mode (defaults to VOTING)
-    newMode = cfg.last_active_mode || 'VOTING';
+    newMode = RESTORABLE_MODES.includes(cfg.last_active_mode) ? cfg.last_active_mode : 'VOTING';
     updateConfig({ viewer_control_mode: newMode });
-  } else if (requested === 'OFF') {
-    // Stash the current mode (if it's active) before turning off
-    const updates = { viewer_control_mode: 'OFF' };
-    if (cfg.viewer_control_mode && cfg.viewer_control_mode !== 'OFF') {
+  } else if (requested === 'OFF' || requested === 'LISTEN') {
+    // Stash the current mode (if it's an active one) before switching.
+    // LISTEN (Listen Only, v0.33.249+): the page stays up and phone audio
+    // works, but votes and requests are closed.
+    const updates = { viewer_control_mode: requested };
+    if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) {
       updates.last_active_mode = cfg.viewer_control_mode;
     }
     updateConfig(updates);
-    newMode = 'OFF';
+    newMode = requested;
   } else {
     // Explicit VOTING, JUKEBOX, or RACE — also update last_active_mode
     updateConfig({ viewer_control_mode: requested, last_active_mode: requested });
@@ -1153,6 +1257,86 @@ router.post('/viewer-mode', (req, res) => {
   if (io) io.emit('viewerModeChanged', { mode: newMode });
 
   res.json({ ok: true, mode: newMode, requested });
+});
+
+// ============================================================
+// POST /api/plugin/queue/clear   (v0.33.249+)
+// Empties the request queue, exactly like Clear Queue on the admin's Queue
+// page (the recently played list is kept). Used by the "ShowPilot - Clear
+// Queue" FPP command, e.g. right before turning viewer control on or off.
+// Auth: same Bearer token as other plugin endpoints.
+// ============================================================
+router.post('/queue/clear', (req, res) => {
+  const r = db.prepare(`DELETE FROM jukebox_queue WHERE played = 0`).run();
+  console.log(`[queue] cleared by FPP command (${r.changes} request${r.changes === 1 ? '' : 's'})`);
+  const io = req.app.get('io');
+  if (io) io.emit('queueUpdated');
+  res.json({ ok: true, cleared: r.changes });
+});
+
+// ============================================================
+// POST /api/plugin/category   (v0.33.249+)
+// Body: { name: "Kids Songs", enabled: true | false }
+// Switches a category on or off, exactly like the toggle in the admin's
+// Categories list (a schedule, if set, still applies while it's on). Used by
+// the "ShowPilot - Enable Category" / "Disable Category" FPP commands so a
+// show schedule can open or close a category. Name match ignores case.
+// GET /api/plugin/categories lists the names (for the plugin's command help).
+// Auth: same Bearer token as other plugin endpoints.
+// ============================================================
+router.post('/category', (req, res) => {
+  const { name, enabled } = req.body || {};
+  const clean = String(name || '').trim();
+  if (!clean) return res.status(400).json({ error: 'name is required' });
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be true or false' });
+  const cats = require('../lib/categories');
+  const result = cats.setCategoryEnabled(clean, enabled);
+  if (result.error) {
+    const known = cats.listCategories(getConfig()).map((c) => c.name);
+    return res.status(404).json({ error: `No category named "${clean}"`, categories: known });
+  }
+  const hit = cats.listCategories(getConfig()).find((c) => c.name.toLowerCase() === clean.toLowerCase());
+  const canonical = hit ? hit.name : clean;
+  console.log(`[category] "${canonical}" switched ${enabled ? 'on' : 'off'} by the show player`);
+  const io = req.app.get('io');
+  if (io) io.emit('sequencesReordered');
+  res.json({ ok: true, name: canonical, enabled });
+});
+
+router.get('/categories', (req, res) => {
+  const cats = require('../lib/categories');
+  res.json({ categories: cats.listCategories(getConfig()).map((c) => ({ name: c.name, enabled: c.enabled ? 1 : 0 })) });
+});
+
+// ============================================================
+// Viewer page switch by command (v0.33.249+, GitHub #36)
+// GET  /api/plugin/viewer-pages        -> { pages: [{ name, active }] }
+// POST /api/plugin/viewer-page {name}  -> makes that page live
+// Used by the "ShowPilot - Set Viewer Page" command in the FPP plugin and
+// other show players. Same effect as Activate in the admin: open viewer
+// pages switch live. Names match without regard to capitals.
+// ============================================================
+router.get('/viewer-pages', (req, res) => {
+  const rows = db.prepare('SELECT name, is_active FROM viewer_page_templates ORDER BY name COLLATE NOCASE').all();
+  res.json({ pages: rows.map((r) => ({ name: r.name, active: r.is_active ? 1 : 0 })) });
+});
+
+router.post('/viewer-page', (req, res) => {
+  const clean = String((req.body && req.body.name) || '').trim();
+  if (!clean) return res.status(400).json({ error: 'name is required' });
+  const rows = db.prepare('SELECT id, name, is_active FROM viewer_page_templates').all();
+  const hit = rows.find((r) => r.name === clean) || rows.find((r) => r.name.toLowerCase() === clean.toLowerCase());
+  if (!hit) return res.status(404).json({ error: `No viewer page named "${clean}"`, pages: rows.map((r) => r.name) });
+  if (!hit.is_active) {
+    db.transaction(() => {
+      db.prepare('UPDATE viewer_page_templates SET is_active = 0').run();
+      db.prepare('UPDATE viewer_page_templates SET is_active = 1 WHERE id = ?').run(hit.id);
+    })();
+    const io = req.app.get('io');
+    if (io) io.emit('viewerTemplateChanged', { templateId: hit.id });
+    console.log(`[viewer-page] switched to "${hit.name}" by the show player`);
+  }
+  res.json({ ok: true, name: hit.name, changed: !hit.is_active });
 });
 
 // ============================================================

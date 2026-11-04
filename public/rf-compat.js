@@ -162,6 +162,7 @@
     // Server explicitly flags code failures (v0.33.24+) — use the dedicated toast.
     if (data && data.invalidLocationCode) return MSG_IDS.invalidLocationCode;
     const msg = (error || '').toLowerCase();
+    if (msg.includes('miles of the show')) return MSG_IDS.invalidLocation;
     if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
     if (msg.includes('location')) return MSG_IDS.invalidLocation;
     if (msg.includes('already voted')) return MSG_IDS.alreadyVoted;
@@ -333,6 +334,111 @@
     try { window.dispatchEvent(new CustomEvent('showpilot:launcher-style')); } catch (_) {}
   }
 
+  // ---- Visitor messages (v0.33.250+) ----
+  // {MESSAGE_BOX} renders form[data-showpilot-message-box]; the optional
+  // {message-dynamic-container} marks [data-showpilot-container="messages"].
+  // Both are shown only while messages are open ({enabled, open, maxLength}
+  // from the bootstrap and every /api/state poll). Sending goes through
+  // buildBody(), so the access code / GPS checks match voting and requests.
+  // Results: the box's own status line always, plus the template's
+  // #messageSent / #messageFailed / #messageTooSoon when it has them.
+  let messagesCfg = null;
+  function applyMessagesState(m) {
+    if (!m || typeof m !== 'object') return;
+    messagesCfg = m;
+    const open = !!(m.enabled && m.open);
+    document.querySelectorAll('[data-showpilot-container="messages"], form[data-showpilot-message-box]').forEach(el => {
+      if (open) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
+    });
+    const max = Number(m.maxLength) || 280;
+    const hex = /^#[0-9a-f]{6}$/i;
+    document.querySelectorAll('form[data-showpilot-message-box]').forEach(form => {
+      const ta = form.querySelector('.sp-message-text');
+      if (ta && String(ta.maxLength) !== String(max)) { ta.maxLength = max; updateMessageCount(form); }
+      // Admin accent color: set on the form only when chosen, so a template's
+      // own --sp-message-accent applies otherwise.
+      if (m.customAccent && hex.test(m.accent || '') && hex.test(m.accentText || '')) {
+        form.style.setProperty('--sp-message-accent', m.accent);
+        form.style.setProperty('--sp-message-accent-text', m.accentText);
+      } else if ('customAccent' in m) {
+        form.style.removeProperty('--sp-message-accent');
+        form.style.removeProperty('--sp-message-accent-text');
+      }
+    });
+  }
+  function updateMessageCount(form) {
+    const ta = form.querySelector('.sp-message-text');
+    const cnt = form.querySelector('.sp-message-count');
+    if (!ta || !cnt) return;
+    const max = ta.maxLength > 0 ? ta.maxLength : ((messagesCfg && messagesCfg.maxLength) || 280);
+    cnt.textContent = ta.value.length + '/' + max;
+    if (ta.value.length >= max * 0.9) cnt.setAttribute('data-near', ''); else cnt.removeAttribute('data-near');
+  }
+  function setMessageStatus(form, text, kind) {
+    const st = form.querySelector('.sp-message-status');
+    if (!st) return;
+    st.textContent = text || '';
+    st.setAttribute('data-kind', kind || '');
+  }
+  function showTemplateMessage(id, text) {
+    if (!document.getElementById(id)) return;
+    showMessage(id, 5000, text || null);
+  }
+  async function sendVisitorMessage(form) {
+    const ta = form.querySelector('.sp-message-text');
+    const nameEl = form.querySelector('.sp-message-name');
+    const btn = form.querySelector('.sp-message-send');
+    const text = ta ? ta.value.trim() : '';
+    if (!text) { setMessageStatus(form, 'Please type a message first.', 'error'); if (ta) ta.focus(); return; }
+    if (form.__spSending) return;
+    form.__spSending = true;
+    if (btn) btn.disabled = true;
+    setMessageStatus(form, 'Sending…', '');
+    try {
+      let body;
+      try {
+        body = await buildBody({ message: text, name: nameEl ? nameEl.value.trim() : '' });
+      } catch (e) {
+        setMessageStatus(form, (e && e.help) || 'Location is needed to send a message.', 'error');
+        return;
+      }
+      const r = await postJson('/api/message', body);
+      if (r.ok) {
+        if (ta) ta.value = '';
+        updateMessageCount(form);
+        setMessageStatus(form, 'Thanks! Your message was sent to the show.', 'ok');
+        form.classList.remove('sp-message-sent');
+        void form.offsetWidth; // restart the animation
+        form.classList.add('sp-message-sent');
+        showTemplateMessage('messageSent');
+        return;
+      }
+      const err = (r.data && r.data.error) || 'Your message could not be sent.';
+      setMessageStatus(form, err, 'error');
+      const reason = r.data && r.data.reason;
+      if (reason === 'tooSoon') showTemplateMessage('messageTooSoon', err);
+      else if (reason === 'location') showMessage(mapErrorToId(err, r.data), 6000, null, err);
+      else showTemplateMessage('messageFailed', err);
+      if (reason === 'closed') refreshState();
+    } catch (_) {
+      setMessageStatus(form, 'Your message could not be sent. Please try again.', 'error');
+      showTemplateMessage('messageFailed');
+    } finally {
+      form.__spSending = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+  document.addEventListener('submit', (e) => {
+    const form = e.target && e.target.closest ? e.target.closest('form[data-showpilot-message-box]') : null;
+    if (!form) return;
+    e.preventDefault();
+    sendVisitorMessage(form);
+  });
+  document.addEventListener('input', (e) => {
+    const form = e.target && e.target.closest ? e.target.closest('form[data-showpilot-message-box]') : null;
+    if (form) updateMessageCount(form);
+  });
+
   function applyProgressBarConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     const key = JSON.stringify(cfg);
@@ -396,24 +502,57 @@
   }
   // Inline {NOW_PLAYING_PROGRESS} needs the styles even with the setting off.
   if (document.querySelector('[data-showpilot-progress]')) ensureProgressStyles();
+  if (boot.messages) {
+    if (document.body) applyMessagesState(boot.messages);
+    else document.addEventListener('DOMContentLoaded', () => applyMessagesState(boot.messages));
+  }
   if (boot.progressBar) {
     if (document.body) applyProgressBarConfig(boot.progressBar);
     else document.addEventListener('DOMContentLoaded', () => applyProgressBarConfig(boot.progressBar));
   }
 
   // ======= GPS =======
+  // Plain-language help when the phone won't give a location (v0.33.249+).
+  // iPhones have a second switch most people never see: Settings → Privacy &
+  // Security → Location Services → Safari Websites. When that is "Never",
+  // Safari doesn't even ask, it just refuses. In-app browsers (Facebook,
+  // Messenger, Instagram) often refuse too.
+  const UA = navigator.userAgent || '';
+  const IS_IOS = /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+  const IN_APP = /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger|Line\/|Snapchat|TikTok/i.test(UA);
+  function locationHelpText(code) {
+    if (IN_APP) return 'This app\'s built-in browser won\'t share your location. Open this page in ' + (IS_IOS ? 'Safari' : 'Chrome') + ' (use the menu, then "Open in browser") and try again.';
+    if (code === 1) {
+      return IS_IOS
+        ? 'Your iPhone blocked location for this page. Open Settings → Privacy & Security → Location Services, make sure it is on, tap Safari Websites and choose "While Using the App", then reload this page and allow location.'
+        : 'Location is blocked for this page. Allow location for this site in your browser settings (the icon next to the address), then reload the page.';
+    }
+    if (code === 3) return 'Finding your location took too long. Make sure Location is on for your phone, then try again.';
+    return IS_IOS
+      ? 'Your iPhone couldn\'t find your location. Make sure Location Services is on (Settings → Privacy & Security), then try again.'
+      : 'Your phone couldn\'t find your location. Make sure Location is on, then try again.';
+  }
+  // A reading this rough (meters) can put someone at the show "miles away":
+  // on iPhone it usually means Precise Location is off for Safari.
+  const ROUGH_FIX_M = 1500;
+  function roughLocationHint() {
+    if (!cachedLocation || !(cachedLocation.accuracy > ROUGH_FIX_M)) return '';
+    return IS_IOS
+      ? ' Your iPhone only shared an approximate location. Turn on Precise Location: Settings → Privacy & Security → Location Services → Safari Websites → Precise Location.'
+      : ' Your phone only shared an approximate location. Turn on precise location for your browser and try again.';
+  }
   async function getLocation() {
     if (cachedLocation) return cachedLocation;
     if (!navigator.geolocation) {
-      throw new Error('Location not supported');
+      throw Object.assign(new Error('Location not supported'), { help: 'This browser can\'t share your location. Try Safari or Chrome.' });
     }
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          cachedLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          cachedLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
           resolve(cachedLocation);
         },
-        () => reject(new Error('Location required but denied')),
+        (err) => reject(Object.assign(new Error('Location required but denied'), { help: locationHelpText(err && err.code) })),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
       );
     });
@@ -433,16 +572,13 @@
       }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
           cachedLocation = loc; // update cache for follow-up requests
           resolve(loc);
         },
         (err) => {
-          // Translate browser error codes to friendly messages
-          let msg = 'Location required to listen';
-          if (err.code === 1) msg = 'Location permission denied. Audio is restricted to listeners present at the show.';
-          else if (err.code === 2) msg = 'Could not determine your location.';
-          else if (err.code === 3) msg = 'Location lookup timed out.';
+          // Friendly, device-specific help (see locationHelpText).
+          const msg = 'Listening is only for people at the show, so your location is needed. ' + locationHelpText(err && err.code);
           reject(new Error(msg));
         },
         // maximumAge: 0 forces a brand-new GPS reading every tap.
@@ -501,7 +637,7 @@
         body.viewerLat = loc.lat;
         body.viewerLng = loc.lng;
       } catch (e) {
-        showMessage(MSG_IDS.invalidLocation);
+        showMessage(MSG_IDS.invalidLocation, 9000, e && e.help, e && e.help);
         throw e;
       }
     }
@@ -530,6 +666,7 @@
 
   // Globals exposed to template onclick handlers
   window.ShowPilotVote = async function (sequenceName) {
+    if (listenOnlyBlocked()) return;
     // If a tiebreak is in progress, route through the tiebreak path
     // instead. Voting for a candidate goes via /api/tiebreak-vote;
     // voting for a non-candidate is rejected with a clear message.
@@ -588,11 +725,34 @@
       // ShowPilotRequest's behavior, which has always done this.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
+      showFailure(result.data);
     }
   };
 
+  // Shows a failed vote/request. A "too far away" answer gets the server's
+  // wording plus, when the phone only gave a rough fix, how to turn on
+  // precise location (v0.33.249+).
+  function showFailure(data) {
+    const err = data && data.error;
+    const id = mapErrorToId(err, data);
+    if (id === MSG_IDS.invalidLocation && /miles of the show/i.test(err || '')) {
+      const hint = roughLocationHint();
+      showMessage(id, hint ? 9000 : undefined, hint ? err + hint : undefined, err + hint);
+      return;
+    }
+    showMessage(id, undefined, undefined, err);
+  }
+  // Listen Only (v0.33.249+): picking is closed, the page and audio stay up.
+  const LISTEN_MSG = 'Requests and voting are closed for now. You can still listen along!';
+  let listenOnly = !!boot.listenOnly;
+  function listenOnlyBlocked() {
+    if (!listenOnly) return false;
+    showMessage(MSG_IDS.failed, 4000, LISTEN_MSG, LISTEN_MSG);
+    return true;
+  }
+
   window.ShowPilotRequest = async function (sequenceName) {
+    if (listenOnlyBlocked()) return;
     let body;
     try { body = await buildBody({ sequenceName }); }
     catch { return; }
@@ -602,7 +762,7 @@
       showMessage(MSG_IDS.success);
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
+      showFailure(result.data);
     }
   };
 
@@ -644,7 +804,7 @@
     // 1) The song lists: each mode container's contents, in page order.
     //    (The access-code and after-hours blocks are left alone.)
     const pick = d => Array.from(d.querySelectorAll('[data-showpilot-container]'))
-      .filter(el => !/^(locationcode|afterhours)$/.test(el.getAttribute('data-showpilot-container')));
+      .filter(el => !/^(locationcode|afterhours|messages)$/.test(el.getAttribute('data-showpilot-container')));
     const cur = pick(document), next = pick(doc);
     if (cur.length === next.length) cur.forEach((el, i) => { el.innerHTML = next[i].innerHTML; });
     // 2) The race grid: remove, replace or insert where the server puts it.
@@ -775,6 +935,7 @@
     updateTimerFromState(data.nowPlayingStartedAtIso || null, data.nowPlayingDurationSeconds || null);
     if (data.progressBar) applyProgressBarConfig(data.progressBar);
     if (data.launcherColors) applyLauncherColors(data.launcherColors);
+    if (data.messages) applyMessagesState(data.messages);
 
     if (typeof data.currentVotingRound === 'number') {
       if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {
@@ -843,6 +1004,41 @@
         if (el.textContent !== nowDisplay) el.textContent = nowDisplay;
       });
     }
+
+    // --- NEXT_PLAYLIST_IMAGE (v0.33.249+): the Up Next song's cover ---
+    const nextImgEls = document.querySelectorAll('[data-showpilot-next-img]');
+    if (nextImgEls.length) {
+      const nextSeq = data.nextScheduled ? (data.sequences || []).find(s => s.name === data.nextScheduled) : null;
+      const nextImgUrl = nextSeq && nextSeq.image_url ? nextSeq.image_url
+        : (data.nextScheduled && data.nextScheduledImageUrl) || '';
+      nextImgEls.forEach(el => {
+        if (nextImgUrl) {
+          if (el.getAttribute('src') !== nextImgUrl) el.setAttribute('src', nextImgUrl);
+          if (el.style.display === 'none') el.style.display = '';
+        } else {
+          el.style.display = 'none';
+        }
+      });
+    }
+
+    // --- NOW_PLAYING_ARTIST (v0.33.249+) ---
+    if (data.nowPlayingArtist !== undefined) {
+      const artist = data.nowPlaying ? (data.nowPlayingArtist || '') : '';
+      document.querySelectorAll('[data-showpilot-now-artist]').forEach(el => {
+        if (el.textContent !== artist) el.textContent = artist;
+      });
+    }
+
+    // --- NEXT_PLAYLIST_ARTIST (v0.33.249+) ---
+    if (data.nextScheduledArtist !== undefined) {
+      const artist = data.nextScheduled ? (data.nextScheduledArtist || '') : '';
+      document.querySelectorAll('[data-showpilot-next-artist]').forEach(el => {
+        if (el.textContent !== artist) el.textContent = artist;
+      });
+    }
+
+    // --- Songs already in the request queue (v0.33.249+) ---
+    if (data.queue) markQueued(data.queue);
 
     // --- NOW_PLAYING_IMAGE (v0.32.13+) ---
     // Updates any <img data-showpilot-now-img> elements when the playing
@@ -963,12 +1159,16 @@
     if (data.viewerControlMode && (data.viewerControlMode === 'RACE') !== _pageIsRace && !_swapInFlight) {
       _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
     }
+    // Listen Only shows the last active mode's list (listDisplayMode).
+    const shownMode = data.listDisplayMode || data.viewerControlMode;
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
-      setVisible(el, data.viewerControlMode === 'JUKEBOX');
+      setVisible(el, shownMode === 'JUKEBOX');
     });
     document.querySelectorAll('[data-showpilot-container="voting"], [data-openfalcon-container="voting"]').forEach(el => {
-      setVisible(el, data.viewerControlMode === 'VOTING');
+      setVisible(el, shownMode === 'VOTING');
     });
+    if (data.viewerControlMode) setListenOnly(data.viewerControlMode === 'LISTEN');
+    if (data.viewerControlMode) setModeAttr(data.viewerControlMode);
     // After-hours: visible when viewer control is OFF. Mirror of the server-side
     // logic in viewer-renderer.js, so flipping the admin "Off" toggle propagates
     // to viewers within one poll without requiring a reload.
@@ -1422,7 +1622,7 @@
       // the tiebreakVoteUpdate socket event.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
+      showFailure(result.data);
     }
   };
 
@@ -1470,7 +1670,8 @@
         (s.display_name || '') + '|' +
         (s.artist || '') + '|' +
         (s.image_url || '') + '|' +
-        (s.category || '')
+        (s.category || '') + '|' +
+        (s.badge || '')
         // vote counts excluded — managed by the direct DOM update in applyStateUpdate
       );
     }
@@ -1508,6 +1709,56 @@
     return out;
   }
 
+  // Mirror of lib/viewer-renderer.js#badgeSlug.
+  function badgeSlug(b) {
+    return String(b).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'badge';
+  }
+
+  // Songs already in the request queue get the showpilot-queued class and
+  // data-queue-position (1 = next), the same as the server renders, so a
+  // template (or the "Dim songs already in the queue" setting) can style them.
+  let _lastQueued = null;
+  function markQueued(queue) {
+    const pos = {};
+    queue.forEach((q, i) => { if (!pos[q.sequence_name]) pos[q.sequence_name] = i + 1; });
+    document.querySelectorAll('.sequence-item[data-seq]').forEach(el => {
+      const p = pos[el.getAttribute('data-seq')];
+      el.classList.toggle('showpilot-queued', !!p);
+      if (p) { if (el.getAttribute('data-queue-position') !== String(p)) el.setAttribute('data-queue-position', String(p)); }
+      else if (el.hasAttribute('data-queue-position')) el.removeAttribute('data-queue-position');
+    });
+    _lastQueued = queue;
+  }
+
+  // data-showpilot-mode on <html> and <body> for template CSS (the server
+  // sets it on load; this keeps it current when the mode changes).
+  const MODE_SLUGS = { VOTING: 'voting', JUKEBOX: 'jukebox', RACE: 'race', LISTEN: 'listen-only', OFF: 'off' };
+  function setModeAttr(raw) {
+    const slug = MODE_SLUGS[raw] || 'off';
+    [document.documentElement, document.body].forEach(el => {
+      if (el && el.getAttribute('data-showpilot-mode') !== slug) el.setAttribute('data-showpilot-mode', slug);
+    });
+  }
+
+  // Listen Only: body class plus one notice above the song list.
+  function setListenOnly(on) {
+    listenOnly = on;
+    if (!document.body) return;
+    document.body.classList.toggle('showpilot-listen-only', on);
+    let note = document.getElementById('showpilot-listen-notice');
+    if (!on) { if (note) note.remove(); return; }
+    if (note) return;
+    const wrappers = findPlaylistWrappers().filter(w => w.offsetParent !== null);
+    const at = wrappers[0];
+    if (!at || !at.parentElement) return;
+    note = document.createElement('div');
+    note.id = 'showpilot-listen-notice';
+    note.className = 'showpilot-listen-notice';
+    note.setAttribute('role', 'status');
+    note.textContent = LISTEN_MSG;
+    at.parentElement.insertBefore(note, at);
+  }
+
   function renderRowsForMode(sequences, voteCountsByName, mode, catOpts) {
     return withCategoryHeaders(sequences, catOpts, seq => {
       const safeNameJs = escapeJsString(seq.name);
@@ -1522,10 +1773,15 @@
       const artImg = seq.image_url
         ? `<img class="sequence-image" data-seq-name="${safeNameAttr}" src="${escapeHtml(seq.image_url)}" alt="" width="40" loading="lazy" />`
         : '';
+      // Badge: same markup as the server (queued state is applied after by markQueued).
+      const badge = seq.badge ? String(seq.badge).trim() : '';
+      const extraCls = badge ? ` showpilot-badge showpilot-badge-${badgeSlug(badge)}` : '';
+      const extraAttr = badge ? ` data-badge="${escapeHtml(badge)}"` : '';
+      const badgeEl = badge ? `<span class="sequence-badge">${escapeHtml(badge)}</span>` : '';
       if (mode === 'VOTING') {
-        return `<div class="cell-vote-playlist sequence-item" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
+        return `<div class="cell-vote-playlist sequence-item${extraCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
       } else {
-        return `<div class="jukebox-list sequence-item" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"><div>${artImg}<span class="sequence-name">${safeDisplay}</span><div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
+        return `<div class="jukebox-list sequence-item${extraCls}" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
       }
     }).join('');
   }
@@ -1550,7 +1806,7 @@
 
   function rebuildPlaylistGridIfNeeded(data) {
     const sequences = data.sequences || [];
-    const mode = data.viewerControlMode || 'OFF';
+    const mode = data.listDisplayMode || data.viewerControlMode || 'OFF';
     // Only meaningful in JUKEBOX or VOTING; in OFF the mode containers
     // are hidden, so rebuilding their stale contents wastes work but
     // doesn't hurt. Skip to keep churn low.
@@ -1586,6 +1842,7 @@
 
       wrapper.innerHTML = renderRowsForMode(sequences, voteCountsByName, targetMode, catOpts);
       _gridSigCache.set(wrapper, desiredSig);
+      if (_lastQueued) markQueued(_lastQueued);
     }
   }
 
@@ -2689,6 +2946,11 @@
         --of-border: rgba(254,202,202,0.8);
         --of-glow: rgba(239,68,68,0.5);
       }
+      #of-listen-panel.of-theme-christmas-live {
+        --of-bg: linear-gradient(180deg, rgba(127,29,29,0.97), rgba(20,83,45,0.97));
+        --of-border: rgba(254,202,202,0.8);
+        --of-glow: rgba(239,68,68,0.5);
+            }
       #of-listen-panel.of-theme-halloween {
         --of-bg: linear-gradient(180deg, rgba(88,28,135,0.97), rgba(154,52,18,0.97));
         --of-border: rgba(253,186,116,0.8);
@@ -2734,6 +2996,11 @@
         --of-border: rgba(250,204,21,0.8);
         --of-glow: rgba(250,204,21,0.45);
       }
+      #of-listen-panel.of-theme-newyear-live {
+        --of-bg: linear-gradient(180deg, rgba(15,23,42,0.97), rgba(49,46,129,0.97));
+        --of-border: rgba(250,204,21,0.8);
+        --of-glow: rgba(250,204,21,0.45);
+            }
       #of-listen-panel.of-theme-dayofthedead {
         --of-bg: linear-gradient(180deg, rgba(157,23,77,0.97), rgba(76,29,149,0.97));
         --of-border: rgba(251,146,60,0.85);
@@ -2830,6 +3097,14 @@
     `;
     document.head.appendChild(themeStyle);
 
+    // Shown in the player when a song has no cover (or it fails to load).
+    const COVER_PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">' +
+      '<rect width="48" height="48" rx="6" fill="#333"/>' +
+      '<path d="M20 31.5V15l14-3v16.5" fill="none" stroke="#bbb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="16.5" cy="31.5" r="3.5" fill="none" stroke="#bbb" stroke-width="2.5"/>' +
+      '<circle cx="30.5" cy="28.5" r="3.5" fill="none" stroke="#bbb" stroke-width="2.5"/></svg>');
+
     // ---- Sticky-bottom panel ----
     const panel = document.createElement('div');
     panel.id = 'of-listen-panel';
@@ -2845,7 +3120,7 @@
     `;
     panel.innerHTML = `
       <div class="of-listen-row" style="max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: center; position: relative; z-index: 2;">
-        <img id="of-listen-cover" src="" alt=""
+        <img id="of-listen-cover" src="${COVER_PLACEHOLDER}" alt=""
              style="width: 48px; height: 48px; border-radius: 6px; object-fit: cover;
                     background: #333; flex-shrink: 0;" />
         <div class="of-listen-text" style="flex: 1; min-width: 0;">
@@ -2956,6 +3231,16 @@
     const artistEl = panel.querySelector('#of-listen-artist');
     const artistWrap = panel.querySelector('#of-listen-artist-wrap');
     const coverEl = panel.querySelector('#of-listen-cover');
+    // A cover that fails to load shows the music note instead of the
+    // browser's broken-image icon.
+    coverEl.addEventListener('error', () => {
+      if (coverEl.getAttribute('src') !== COVER_PLACEHOLDER) coverEl.src = COVER_PLACEHOLDER;
+    });
+    function setCover(url) {
+      const want = url || COVER_PLACEHOLDER;
+      if (coverEl.getAttribute('src') !== want) coverEl.src = want;
+      coverEl.style.visibility = 'visible';
+    }
     const statusEl = panel.querySelector('#of-listen-status');
     statusEl.textContent = _pt('Preparing…');
     // Only show the drift/calibration readout when player stats are enabled in admin
@@ -3039,11 +3324,11 @@
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
         if (gainNode) gainNode.gain.value = 1;
-        micPanel('Step 1 of 2 — listening with the phone playing (3 s)… keep the phone\'s volume up and stay still.');
-        const a = await micCapture(stream, 3);
+        micPanel('Step 1 of 2 — listening with the phone playing (5 s)… keep the phone\'s volume up and stay still.');
+        const a = await micCapture(stream, 5);
         if (gainNode) gainNode.gain.value = 0;
-        micPanel('Step 2 of 2 — listening to the show speakers only (3 s)…');
-        const b = await micCapture(stream, 3);
+        micPanel('Step 2 of 2 — listening to the show speakers only (5 s)…');
+        const b = await micCapture(stream, 5);
         if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
         stream.getTracks().forEach(tr => tr.stop()); stream = null;
         if (currentBuffer !== buf) { micPanel('The song changed during the measurement. Try again mid-song.'); return; }
@@ -3194,6 +3479,186 @@
       ltUpdateUi();
       console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
     }
+    // ---- Detect my delay (v0.33.238-beta) ----
+    // Records the microphone together with the player's own output (tapped
+    // from gainNode, i.e. what is being sent to the speakers) in the same
+    // ScriptProcessor blocks, so both share one clock. SPMicCore.roundTrip()
+    // finds where the mic hears that output again: output delay (Bluetooth,
+    // car stereo, phone buffers) + mic input delay. Subtracting the mic delay
+    // and what getOutputLatencySec() already covers gives the listener offset.
+    // Echo cancellation/noise suppression/AGC are off: with them on, Android
+    // treats the page like a phone call (and may switch Bluetooth to
+    // hands-free mode). The built-in mic is preferred over a Bluetooth one.
+    const LT_DETECT_SECS = 10;
+    const LT_MIC_ASSUMED_SEC = 0.02;
+    const LT_BT_RE = /bluetooth|headset|hands-?free|airpods|buds|car|sco|\bbt\b/i;
+    // Not offered on Android (v0.33.238-beta.2): Chrome switches the phone to
+    // call audio the moment a page opens the mic, which silenced the player
+    // in the first real test — a browser can't play and listen at once there.
+    // That measurement needs a native app.
+    const ltDetectOk = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
+      !/Android/i.test(navigator.userAgent || '');
+    let ltDetectBusy = false, ltDetectLast = null;
+    function ltDetectMsg(html) {
+      ltDetectLast = html;
+      const el = ltSheet && ltSheet.querySelector('.sp-lt-auto-msg');
+      if (el) el.innerHTML = html;
+    }
+    function ltLoadMicCore() {
+      if (window.SPMicCore && window.SPMicCore.roundTrip) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const sc = document.createElement('script');
+        sc.src = '/sp-mic.js?v=4';
+        sc.onload = () => (window.SPMicCore && window.SPMicCore.roundTrip ? resolve() : reject(new Error('measurement code missing')));
+        sc.onerror = () => reject(new Error('could not load the measurement code'));
+        document.head.appendChild(sc);
+      });
+    }
+    async function ltGetMic() {
+      const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+      let stream = await navigator.mediaDevices.getUserMedia({ audio: base });
+      let devices = [];
+      try {
+        devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+        const cur = stream.getAudioTracks()[0];
+        if (cur && LT_BT_RE.test(cur.label || '')) {
+          const alt = devices.find(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.label && !LT_BT_RE.test(d.label));
+          if (alt) {
+            const s2 = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, base, { deviceId: { exact: alt.deviceId } }) });
+            stream.getTracks().forEach(t => t.stop());
+            stream = s2;
+          }
+        }
+      } catch (_) { /* keep the first stream */ }
+      return { stream, devices: devices.map(d => d.label || '?') };
+    }
+    function ltCapture(stream, secs, onTick) {
+      return new Promise((resolve, reject) => {
+        const sr = audioCtx.sampleRate, need = Math.round(secs * sr);
+        const tapFrom = gainNode;
+        const src = audioCtx.createMediaStreamSource(stream);
+        const merger = audioCtx.createChannelMerger(2);   // each input is mixed down to mono
+        const proc = audioCtx.createScriptProcessor(4096, 2, 1);
+        const sink = audioCtx.createGain(); sink.gain.value = 0;
+        src.connect(merger, 0, 0);
+        tapFrom.connect(merger, 0, 1);
+        merger.connect(proc); proc.connect(sink); sink.connect(audioCtx.destination);
+        const mic = new Float32Array(need), tap = new Float32Array(need);
+        let o = 0, lastLeft = -1, done = false;
+        const cleanup = () => {
+          done = true; clearTimeout(timer); proc.onaudioprocess = null;
+          try { src.disconnect(); } catch (_) {}
+          try { tapFrom.disconnect(merger); } catch (_) {}
+          try { merger.disconnect(); proc.disconnect(); sink.disconnect(); } catch (_) {}
+        };
+        const timer = setTimeout(() => {
+          if (done) return;
+          const stalled = audioCtx && audioCtx.state !== 'running';
+          cleanup();
+          reject(new Error(stalled
+            ? 'the phone paused the audio when the microphone turned on (it may have switched Bluetooth to phone-call mode)'
+            : 'the microphone stopped sending sound'));
+        }, (secs + 6) * 1000);
+        proc.onaudioprocess = (e) => {
+          if (done) return;
+          const a = e.inputBuffer.getChannelData(0);
+          const b = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : a;
+          const n = Math.min(a.length, need - o);
+          mic.set(a.subarray(0, n), o); tap.set(b.subarray(0, n), o); o += n;
+          const left = Math.ceil((need - o) / sr);
+          if (left !== lastLeft) { lastLeft = left; if (onTick) onTick(left); }
+          if (o >= need) { cleanup(); resolve({ mic, tap, sr }); }
+        };
+      });
+    }
+    // Opening the mic can leave this AudioContext silent for good (Android
+    // call mode; iOS play-and-record). Rebuild the audio engine exactly like
+    // closing and reopening the player does, so sound always comes back.
+    function ltRestoreAudio() {
+      setTimeout(() => {
+        try { stopAudio(); } catch (_) {}
+        try { teardown(); } catch (_) {}
+        if (panelMode === 'closed' || _showNotPlaying) return;
+        try { startup(); } catch (_) {}
+        setTimeout(() => {
+          if (!audioCtx || audioCtx.state === 'running') return;
+          try { armResumeOnTap(); } catch (_) {}
+          ltDetectMsg((ltDetectLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">If the music doesn\'t come back, tap anywhere on the page.</div>');
+        }, 2000);
+      }, 400);
+    }
+    async function ltDetect() {
+      if (ltDetectBusy) return;
+      if (!audioCtx || !gainNode || !currentSource || audioCtx.state !== 'running') {
+        ltDetectMsg('Start listening first, then try this while a song plays.'); return;
+      }
+      if (isMuted) { ltDetectMsg('Unmute the player first — the microphone needs to hear the music.'); return; }
+      ltDetectBusy = true;
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+      if (btn) btn.disabled = true;
+      const prevMs = Math.round(listenerOffsetSec * 1000);
+      let stream = null, micOpened = false;
+      try {
+        await ltLoadMicCore();
+        ltDetectMsg('Allow the microphone if your phone asks…');
+        const got = await ltGetMic();
+        stream = got.stream;
+        micOpened = true;
+        const track = stream.getAudioTracks()[0];
+        const settings = (track && track.getSettings) ? track.getSettings() : {};
+        const reportedIn = Number(settings.latency);
+        const inSec = (isFinite(reportedIn) && reportedIn > 0 && reportedIn < 0.5) ? reportedIn : LT_MIC_ASSUMED_SEC;
+        const outLatBefore = audioCtx.outputLatency || 0;
+        const cap = await ltCapture(stream, LT_DETECT_SECS, (left) =>
+          ltDetectMsg('Listening… ' + left + ' s. Keep the volume up and stay still.'));
+        const outLatDuring = audioCtx.outputLatency || 0;
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltDetectMsg('Working it out…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.roundTrip(cap.mic, cap.tap, cap.sr);
+        const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
+        const info = {
+          ok: r.ok, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs,
+          micMs: Math.round(inSec * 1000), micReported: inSec !== LT_MIC_ASSUMED_SEC, coveredMs: Math.round(covered * 1000),
+          outputLatencyMs: [Math.round(outLatBefore * 1000), Math.round(outLatDuring * 1000)],
+          mic: track ? track.label : '', inputs: got.devices, sampleRate: cap.sr, strength: r.strength ? Math.round(r.strength) : null,
+        };
+        if (!r.ok) {
+          console.log('[ShowPilot] detect delay:', JSON.stringify(info));
+          ltDetectMsg('<b>No result:</b> ' + r.reason + '.');
+          return;
+        }
+        const needMs = Math.round((r.lagSec - inSec - covered) * 1000);
+        setListenerOffsetMs(needMs);
+        const appliedMs = Math.round(listenerOffsetSec * 1000);
+        info.neededMs = needMs; info.appliedMs = appliedMs; info.previousMs = prevMs;
+        console.log('[ShowPilot] detect delay:', JSON.stringify(info));
+        const headline = Math.abs(needMs) < 30
+          ? 'Your audio is already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
+          : needMs > 0
+            ? 'Your speakers play <b>' + needMs + ' ms late</b>. Fixed: the music now plays ' + appliedMs + ' ms earlier.'
+            : 'Your speakers play <b>' + (-needMs) + ' ms early</b>. Fixed: the music now plays ' + (-appliedMs) + ' ms later.';
+        const clampNote = appliedMs !== needMs && Math.abs(appliedMs - needMs) > 10 ? ' (that\'s as far as this show allows)' : '';
+        const esc = (t) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        ltDetectMsg(headline + clampNote +
+          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>' +
+          '<div class="sp-lt-auto-detail">Round trip ' + info.roundTripMs + ' ms (runs ' + r.runs.join(', ') + ') · mic ' + info.micMs + ' ms ' +
+          (info.micReported ? 'reported' : 'assumed') + ' · already covered ' + info.coveredMs + ' ms · mic: ' + esc(info.mic || 'unknown') + '</div>');
+      } catch (e) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltDetectMsg(e && e.name === 'NotAllowedError'
+          ? 'Microphone permission was denied. Allow it for this site in your browser settings, or set the timing by hand below.'
+          : '<b>No result:</b> ' + (e && e.message ? e.message : e) + '.');
+        console.log('[ShowPilot] detect delay failed:', e && e.message ? e.message : e);
+      } finally {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        if (micOpened) ltRestoreAudio();
+        ltDetectBusy = false;
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+        if (b2) b2.disabled = false;
+      }
+    }
     function ltEnsureStyles() {
       if (document.getElementById('sp-lt-styles')) return;
       const st = document.createElement('style');
@@ -3204,7 +3669,7 @@
         '#sp-lt-btn.sp-lt-active::after{content:"";position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--sp-lt-accent,#60a5fa);box-shadow:0 0 0 2px rgba(0,0,0,.6)}' +
         '#sp-lt-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.55)}' +
         '#sp-lt-sheet{position:fixed;left:0;right:0;bottom:0;z-index:10001;box-sizing:border-box;max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px;' +
-          'padding:10px 18px calc(22px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0;background:#161c2b;color:#f3f5fa;border-top:2px solid var(--sp-lt-accent,#60a5fa);' +
+          'max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;padding:10px 18px calc(22px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0;background:#161c2b;color:#f3f5fa;border-top:2px solid var(--sp-lt-accent,#60a5fa);' +
           'box-shadow:0 -10px 40px rgba(0,0,0,.5);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}' +
         '#sp-lt-sheet .sp-lt-grab{align-self:center;width:40px;height:5px;border-radius:999px;background:rgba(255,255,255,.25)}' +
         '#sp-lt-sheet .sp-lt-head{display:flex;align-items:center;gap:10px}' +
@@ -3228,6 +3693,14 @@
         '#sp-lt-sheet .sp-lt-foot{display:flex;align-items:center;gap:10px}#sp-lt-sheet .sp-lt-foot span{flex:1;color:#7d8699;font-size:13px}' +
         '#sp-lt-sheet .sp-lt-reset{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:transparent;font-weight:600}' +
         '#sp-lt-sheet .sp-lt-reset:disabled{color:#6b7385;cursor:default}' +
+        '#sp-lt-sheet .sp-lt-auto{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}' +
+        '#sp-lt-sheet .sp-lt-detect{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.08);font-weight:700}' +
+        '#sp-lt-sheet .sp-lt-detect:disabled{opacity:.6;cursor:default}' +
+        '#sp-lt-sheet .sp-lt-detect small{font-weight:600;color:#9aa3b5}' +
+        '#sp-lt-sheet .sp-lt-auto-msg{font-size:14px;color:#dfe3ec}#sp-lt-sheet .sp-lt-auto-msg:empty{display:none}' +
+        '#sp-lt-sheet .sp-lt-auto-msg b{color:#fff;font-weight:800}' +
+        '#sp-lt-sheet .sp-lt-undo{margin-left:6px;padding:2px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:transparent;font-size:13px;font-weight:600}' +
+        '#sp-lt-sheet .sp-lt-auto-detail{margin-top:4px;font-size:12px;color:#7d8699;overflow-wrap:anywhere}' +
         '#sp-lt-sheet :focus-visible,#sp-lt-btn:focus-visible{outline:2px solid var(--sp-lt-accent,#60a5fa);outline-offset:2px}';
       document.head.appendChild(st);
     }
@@ -3262,6 +3735,10 @@
           '<div class="sp-lt-scale"><span>music early</span><span>in sync</span><span>music late</span></div></div>' +
         // Second-device tip (v0.33.221+, admin switch listener_timing_tip).
         (ltTipEnabled ? '<div class="sp-lt-tip"><b>Tip:</b> play the show on another phone\u2019s speaker nearby, then adjust until the two sound together with no echo.</div>' : '') +
+        (ltDetectOk ? '<div class="sp-lt-auto">' +
+          '<button type="button" class="sp-lt-detect">\ud83c\udfa4 Detect my delay <small>(beta)</small></button>' +
+          '<p style="font-size:13px">Listens through the microphone for about ' + LT_DETECT_SECS + ' seconds to hear how late your Bluetooth, car or headphones play the music, then fixes it. Keep the volume up.</p>' +
+          '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
@@ -3270,6 +3747,18 @@
         setListenerOffsetMs(Math.round(listenerOffsetSec * 1000) + Number(b.dataset.ltNudge))));
       ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.addEventListener('click', () => setListenerOffsetMs(Number(b.dataset.ltPreset))));
       ltSheet.querySelector('.sp-lt-reset').addEventListener('click', () => setListenerOffsetMs(0));
+      const det = ltSheet.querySelector('.sp-lt-detect');
+      if (det) {
+        det.addEventListener('click', () => ltDetect());
+        if (ltDetectBusy) det.disabled = true;
+        if (ltDetectLast) ltSheet.querySelector('.sp-lt-auto-msg').innerHTML = ltDetectLast;
+        ltSheet.querySelector('.sp-lt-auto-msg').addEventListener('click', (e) => {
+          const u = e.target.closest('.sp-lt-undo');
+          if (!u) return;
+          setListenerOffsetMs(Number(u.dataset.prev) || 0);
+          ltDetectMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
+        });
+      }
       ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
       document.body.appendChild(ltBackdrop);
       document.body.appendChild(ltSheet);
@@ -4072,11 +4561,43 @@
       }
     }
 
+    // ---- Hidden output delay (v0.33.223-beta) ----
+    // Some browsers (notably Chrome on Android) report outputLatency as 0 and
+    // can quietly grow the output buffer mid-playback, so sound comes out later
+    // than the audio clock says. getOutputTimestamp() tells us which point on
+    // the audio clock is reaching the speaker right now; the distance to
+    // currentTime (both expressed "now") is the real output delay. Sampled
+    // 5x/s, median of the last 25. Shown in the debug overlay (outDelay:);
+    // with Settings → Debug → "Compensate hidden output delay"
+    // (boot.outputDelayComp) the measured delay is used whenever it's larger
+    // than the reported one (max 800 ms).
+    const outDelaySamples = [];
+    let outDelayMs = null;
+    const outDelayCompOn = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.outputDelayComp);
+    function sampleOutputDelay() {
+      if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.getOutputTimestamp !== 'function') return;
+      let ts;
+      try { ts = audioCtx.getOutputTimestamp(); } catch (_) { return; }
+      if (!ts || !(ts.contextTime > 0) || !(ts.performanceTime > 0)) return;
+      const d = (audioCtx.currentTime - ts.contextTime) - (performance.now() - ts.performanceTime) / 1000;
+      if (!isFinite(d) || d < -0.05 || d > 1.5) return;
+      outDelaySamples.push(d);
+      if (outDelaySamples.length > 25) outDelaySamples.shift();
+      const s = outDelaySamples.slice().sort((a, b) => a - b);
+      outDelayMs = Math.round(s[Math.floor(s.length / 2)] * 1000);
+    }
+    setInterval(sampleOutputDelay, 200);
+
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
+      let base = (l > 0 && l < 0.4) ? l : 0;
+      if (outDelayCompOn && outDelayMs !== null && outDelaySamples.length >= 10) {
+        const measured = Math.min(0.8, Math.max(0, outDelayMs / 1000));
+        if (measured > base) base = measured;
+      }
       // + the listener's own timing offset (v0.33.213+), which covers the
       // Bluetooth / car delay the browser can't see.
-      return ((l > 0 && l < 0.4) ? l : 0) + listenerOffsetSec;
+      return base + listenerOffsetSec;
     }
 
     // ---- Smooth correction (v0.33.204+) ----
@@ -4863,10 +5384,31 @@
         // early-return below so it's never skipped.
         updateLanguagePicker(data.languages || []);
 
+        // Apply decoration theme (cheap — only does work if it changed).
+        // Before the no-audio return below, so the player is decorated while
+        // the show is stopped or playing a sequence without audio too; it
+        // used to stay plain until a song with audio played.
+        applyDecoration(data.playerDecoration, data.playerDecorationAnimated, data.playerCustomColor);
+
         if (!data.playing || !data.hasAudio) {
           if (currentSource) stopAudio();
           titleEl.textContent = data.playing ? _pt('No audio for this sequence') : _pt('Show is not playing');
           artistEl.textContent = '';
+          // The playing song's own cover when it has one (sent since
+          // v0.33.249); otherwise none. Before, the last song's art stayed up
+          // or the image showed as broken.
+          const art = (data.playing && data.imageUrl) || '';
+          setCover(art);
+          // Name the song too, with the no-audio note underneath.
+          if (data.playing && (data.displayName || data.sequenceName)) {
+            titleEl.textContent = data.displayName || data.sequenceName;
+            artistEl.textContent = (data.artist ? data.artist + ' · ' : '') + _pt('No audio for this sequence');
+            setupMarquee(titleEl, titleWrap);
+            setupMarquee(artistEl, artistWrap);
+          }
+          // Song changes are noticed by name; forget the last one so a song
+          // with audio after this one loads normally.
+          if (data.playing && data.sequenceName) { currentSequence = null; }
           setupMarquee(titleEl, titleWrap);
           setupMarquee(artistEl, artistWrap);
           statusEl.textContent = '';
@@ -4886,8 +5428,6 @@
           clockOffset = data.serverNowMs - reqEnd + oneWayLatency;
         }
 
-        // Apply decoration theme (cheap — only does work if it changed)
-        applyDecoration(data.playerDecoration, data.playerDecorationAnimated, data.playerCustomColor);
 
         // Append ?lang= to streamUrl/publicStreamUrl if a non-default language
         // is selected. This is done here (not in handleTrackChange) so every
@@ -4943,7 +5483,7 @@
             livePosition = data.livePosition;
           }
           // Refresh metadata in case admin changed it
-          if (data.imageUrl && coverEl.src !== data.imageUrl) coverEl.src = data.imageUrl;
+          if (data.imageUrl && coverEl.getAttribute('src') !== data.imageUrl) setCover(data.imageUrl);
         }
 
         // Update minimized pill text
@@ -5000,8 +5540,7 @@
       artistEl.textContent = data.artist || '';
       setupMarquee(titleEl, titleWrap);
       setupMarquee(artistEl, artistWrap);
-      coverEl.src = data.imageUrl || '';
-      coverEl.style.visibility = data.imageUrl ? 'visible' : 'hidden';
+      setCover(data.imageUrl);
       // v0.33.246: listener paused — show the new song's details but don't
       // load or play it. Play rebuilds from scratch (currentSequence reset).
       if (userPaused) {
@@ -5677,6 +6216,7 @@
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
+            `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured${outDelayCompOn ? ' (compensating)' : ''}`,
             `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
             ...probeLines(),
           ].join('\n');
@@ -5877,6 +6417,132 @@
     let currentCustomColor = null;
     let decoLayer = null;
 
+    // ---- "Live" decorations (v0.33.225-beta) ----
+    // Theme 'christmas-live': while this listener's audio plays, an
+    // AnalyserNode tapped off gainNode (after mute) splits the sound into one
+    // log-spaced band per bulb (45 Hz - 9 kHz). Each bulb gets --lvl 0..1 with
+    // a quick flare and an incandescent-like fade, auto-levelled per band so
+    // quiet songs still animate. Frames are shown when they're HEARD: delayed
+    // by getOutputLatencySec() (output delay + the listener's timing offset).
+    // Paused / muted / hidden page / no phone audio: .ofd-live-on is removed
+    // and the bulbs fall back to their normal twinkle. ~30 fps; stops when the
+    // theme changes or animations are off.
+    let liveOn = false, liveRaf = 0, liveAnalyser = null, liveBuf = null, liveBands = null;
+    let liveEls = [], liveLvls = [], livePeaks = [], liveMeans = [], liveQueue = [], liveLastT = 0;
+    // Modes: 'bands' (christmas-live: one band per bulb) and 'party'
+    // (newyear-live, v0.33.226-beta: bass/mid/treble + energy -> --beat,
+    // --energy, --treble on #of-deco, plus confetti bursts on big jumps).
+    let liveMode = null, liveParty = null;
+    function liveDecoUpdate(theme, animate) {
+      liveMode = !animate ? null : theme === 'christmas-live' ? 'bands' : theme === 'newyear-live' ? 'party' : null;
+      liveOn = !!liveMode;
+      liveEls = (liveMode === 'bands' && decoLayer) ? Array.from(decoLayer.querySelectorAll('.ofd-lb'))
+        : (liveMode === 'party' && decoLayer && decoLayer.querySelector('.ofd-nyball')) ? [0, 1, 2] : [];
+      liveParty = liveMode === 'party' ? { beat: 0, treble: 0, energy: 0, ePeak: 0.05, eSlow: -1, lastBurst: 0 } : null;
+      liveLvls = liveEls.map(() => 0);
+      livePeaks = liveEls.map(() => 0);
+      liveMeans = liveEls.map(() => -1);
+      liveQueue = []; liveBands = null;
+      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      if (liveOn && !liveRaf) liveRaf = requestAnimationFrame(liveFrame);
+    }
+    function liveEnsureAnalyser() {
+      if (!audioCtx || !gainNode) return false;
+      if (liveAnalyser && liveAnalyser.context === audioCtx) return true;   // re-attach after the engine is rebuilt
+      try {
+        liveAnalyser = audioCtx.createAnalyser();
+        liveAnalyser.fftSize = 1024;
+        liveAnalyser.smoothingTimeConstant = 0.35;
+        gainNode.connect(liveAnalyser);
+        liveBuf = new Uint8Array(liveAnalyser.frequencyBinCount);
+        liveBands = null;
+        return true;
+      } catch (_) { liveAnalyser = null; return false; }
+    }
+    function liveBins(ranges) {
+      const nyq = audioCtx.sampleRate / 2, bins = liveAnalyser.frequencyBinCount;
+      return ranges.map(([f0, f1]) => {
+        const b0 = Math.max(1, Math.floor((f0 / nyq) * bins));
+        return [b0, Math.min(bins, Math.max(b0 + 1, Math.ceil((f1 / nyq) * bins)))];
+      });
+    }
+    function liveComputeBands(n) {
+      if (liveMode === 'party') return liveBins([[45, 180], [180, 2000], [4000, 11000]]);
+      const lo = 45, hi = 9000, ranges = [];
+      for (let i = 0; i < n; i++) ranges.push([lo * Math.pow(hi / lo, i / n), lo * Math.pow(hi / lo, (i + 1) / n)]);
+      return liveBins(ranges);
+    }
+    // One-shot confetti burst for New Year's Live (removed when done).
+    function liveConfettiBurst() {
+      const host = decoLayer && decoLayer.querySelector('.ofd-nyburst');
+      if (!host) return;
+      const div = document.createElement('div');
+      div.innerHTML = decoConfetti(' ofd-anim', ['#facc15', '#fef3c7', '#e5e7eb', '#f59e0b'], 12, (Date.now() & 0xffff) + 1, 'ofdny');
+      div.querySelectorAll('.ofdny-bit').forEach(el => { el.style.setProperty('--delay', (Math.random() * 0.3).toFixed(2) + 's'); el.style.setProperty('--dur', (2 + Math.random() * 1.2).toFixed(2) + 's'); });
+      host.appendChild(div);
+      setTimeout(() => div.remove(), 3800);
+    }
+    function liveFrame(t) {
+      liveRaf = 0;
+      if (!liveOn) return;
+      liveRaf = requestAnimationFrame(liveFrame);
+      if (t - liveLastT < 30) return;
+      liveLastT = t;
+      const playing = !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
+      if (!playing || !liveEls.length || !liveEnsureAnalyser()) {
+        if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+        liveQueue = [];
+        return;
+      }
+      if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
+      liveAnalyser.getByteFrequencyData(liveBuf);
+      const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
+      const now = performance.now();
+      liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      let frame = null;
+      while (liveQueue.length && liveQueue[0][0] <= now) frame = liveQueue.shift()[1];
+      if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);
+      if (!frame) return;
+      decoLayer.classList.add('ofd-live-on');
+      if (liveMode === 'party') {
+        const P = liveParty;
+        const onset = (i, x) => {           // same change-detection as the bulbs
+          if (liveMeans[i] < 0) liveMeans[i] = x;
+          liveMeans[i] = liveMeans[i] * 0.97 + x * 0.03;
+          livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
+          return x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
+        };
+        P.beat = Math.max(onset(0, frame[0]), P.beat * 0.8);
+        P.treble = Math.max(onset(2, frame[2]), P.treble * 0.85);
+        const overall = (frame[0] + frame[1] + frame[2]) / 3;
+        // Energy is loudness against the song's peak, with a floor at typical
+        // loud-music level (0.3) and a slow fade (~45 s half-life), so a quiet
+        // intro reads as a fraction instead of "full" just because it's all
+        // there is so far.
+        P.ePeak = Math.max(overall, P.ePeak * 0.9995, 0.3);
+        P.energy = P.energy * 0.85 + Math.min(1, overall / P.ePeak) * 0.15;
+        P.eSlow = P.eSlow < 0 ? overall : P.eSlow * 0.985 + overall * 0.015;
+        if (overall > P.eSlow * 1.6 && overall > 0.15 && now - P.lastBurst > 4000) { P.lastBurst = now; liveConfettiBurst(); }
+        decoLayer.style.setProperty('--beat', P.beat.toFixed(3));
+        decoLayer.style.setProperty('--treble', P.treble.toFixed(3));
+        decoLayer.style.setProperty('--energy', P.energy.toFixed(3));
+        return;
+      }
+      for (let i = 0; i < liveEls.length; i++) {
+        // React to CHANGE, not loudness: each band tracks its running average
+        // (~1 s) and lights by how far it rises above it, relative to its
+        // recent peak excursion. Steady sound (hiss, a held note) settles to a
+        // calm glow; hits (drums, new notes, cymbals) flare. Near-silence stays dark.
+        const x = frame[i];
+        if (liveMeans[i] < 0) liveMeans[i] = x;
+        liveMeans[i] = liveMeans[i] * 0.97 + x * 0.03;
+        livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
+        const v = x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
+        liveLvls[i] = Math.max(v, liveLvls[i] * 0.84);
+        liveEls[i].style.setProperty('--lvl', liveLvls[i].toFixed(3));
+      }
+    }
+
     function applyDecoration(theme, animated, customColor) {
       theme = theme || 'none';
       animated = (animated !== false);
@@ -5937,6 +6603,7 @@
       const animate = animated && !prefersReduced;
 
       decoLayer.innerHTML = renderDecoration(theme, animate);
+      liveDecoUpdate(theme, animate);
       // Reset panel padding-top in case previous decoration needed extra room
       panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
 
@@ -6017,6 +6684,7 @@
       const A = animate ? ' ofd-anim' : '';
       switch (theme) {
         case 'christmas':    return decoChristmas(A);
+        case 'christmas-live': return decoChristmas(A, true);   // v0.33.225-beta: reacts to the music
         case 'halloween':    return decoHalloween(A);
         case 'easter':       return decoEaster(A);
         case 'stpatricks':   return decoStPatricks(A);
@@ -6026,6 +6694,7 @@
         case 'thanksgiving': return decoThanksgiving(A);
         case 'snow':         return decoSnow(A);
         case 'newyear':      return decoNewYear(A);
+        case 'newyear-live': return decoNewYear(A, true);     // v0.33.226-beta: music-driven
         case 'dayofthedead': return decoDayOfDead(A);
         case 'diwali':       return decoDiwali(A);
         case 'kwanzaa':      return decoKwanzaa(A);
@@ -6046,7 +6715,7 @@
     `;
 
     // ---------- Christmas: C9 bulbs on a scalloped green wire ----------
-    function decoChristmas(A) {
+    function decoChristmas(A, live) {
       const N = 16;
       const palette = [
         ['#ff3b3b', '#b91c1c'], ['#22c55e', '#15803d'], ['#3b82f6', '#1d4ed8'],
@@ -6067,7 +6736,7 @@
         const twinkle = (i % 5 === 2) ? ' ofd-twinkle' : '';
         const tilt = ((r() - 0.5) * 16).toFixed(1);
         bulbs += `
-          <div class="ofd ofd-bulb${A}${twinkle}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;transform:translateX(-50%) rotate(${tilt}deg)">
+          <div class="ofd ofd-bulb${A}${twinkle}${live ? ' ofd-lb' : ''}" style="left:${((i + 0.5) / N) * 100}%;--c:${hi};--dur:${dur}s;--delay:${delay}s;--lvl:0;transform:translateX(-50%) rotate(${tilt}deg)">
             <div class="ofd-halo"></div>
             <svg viewBox="0 0 20 36" width="15" height="27" aria-hidden="true">
               <defs><linearGradient id="ofdB${i}" x1="0" x2="1">
@@ -6094,6 +6763,9 @@
         @keyframes ofdGlow { from { opacity:.38; transform:scale(.85); } to { opacity:.75; transform:scale(1.08); } }
         @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
         @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
+        /* "Live": while music plays, each bulb follows its frequency band (--lvl, set by the player). */
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity: calc(.14 + var(--lvl) * .86); transform: scale(calc(.72 + var(--lvl) * .62)); }
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity: calc(.03 + var(--lvl) * .52); }
       </style>
       <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
         <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
@@ -6496,45 +7168,78 @@
         @keyframes ${prefix}Spin { from { transform: rotateX(0) rotateY(0) rotate(0); } to { transform: rotateX(360deg) rotateY(180deg) rotate(180deg); } }`;
     }
 
-    // ---------- New Year's: confetti, a glittering ball, sparkle bursts ----------
-    function decoNewYear(A) {
+    // ---------- New Year's: a spinning mirror ball throwing light, confetti ----------
+    // The ball is rows of mirror tiles; each row scrolls sideways at a speed
+    // proportional to its width (equator fastest, poles slowest, tiles shrink
+    // toward the poles), under a fixed highlight and edge shading, so it reads
+    // as a turning sphere. Light spots sweep across the page area above the
+    // player like reflections on a ceiling. "Live" (newyear-live): the player
+    // sets --beat, --energy and --treble on #of-deco while music plays.
+    function decoNewYear(A, live) {
       const confetti = decoConfetti(A, ['#facc15', '#e5e7eb', '#fde68a', '#f59e0b', '#cbd5e1', '#fef3c7'], 18, 101, 'ofdny');
-      let facets = '';
-      for (let row = 0; row < 7; row++) {
-        for (let col = 0; col < 8; col++) {
-          const x = 6 + col * 5.2 - (row % 2) * 2.6, y = 6 + row * 4.6;
-          if ((x - 24) ** 2 + (y - 22) ** 2 > 16.5 ** 2) continue;
-          facets += `<rect class="ofd-facet" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="4.4" height="3.8" rx=".5" style="--fa:${((row * 3 + col * 5) % 9) * 0.22}s" fill="${(row + col) % 3 ? '#e2e8f0' : '#fef3c7'}"/>`;
+      const R = 17, CX = 24, CY = 22, r = decoRand(66);
+      let rows = '';
+      for (let row = 0; row < 8; row++) {
+        const y = CY - R + 0.6 + row * 4.2, mid = y + 2;
+        const half = Math.sqrt(Math.max(0, R * R - (mid - CY) ** 2));
+        if (half < 2) continue;
+        const pitch = Math.max(1.8, half * 0.42), tw = pitch - 0.6, n = Math.ceil((2 * half) / pitch) + 1;
+        let tiles = '';
+        for (let k = -n; k <= n; k++) {
+          const x = CX - half + k * pitch, bright = r() < 0.18;
+          tiles += `<rect class="${bright ? 'ofd-nyglint' : 'ofd-nytile'}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${tw.toFixed(2)}" height="3.6" rx=".4" fill="${bright ? '#fffbeb' : ['#e2e8f0', '#cbd5e1', '#f1f5f9', '#fef3c7'][k & 3]}"/>`;
         }
+        rows += `<g class="ofd-nyrow" style="--rw:${(pitch * n).toFixed(2)}px">${tiles}</g>`;
       }
       const ball = `
         <svg viewBox="0 0 48 46" aria-hidden="true">
-          <defs><radialGradient id="ofdNyBall" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#94a3b8"/><stop offset="1" stop-color="#1e293b"/></radialGradient>
-            <clipPath id="ofdNyClip"><circle cx="24" cy="22" r="17"/></clipPath></defs>
+          <defs>
+            <radialGradient id="ofdNyBase" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#1e293b"/></radialGradient>
+            <radialGradient id="ofdNyShade" cx="42%" cy="38%" r="62%"><stop offset=".55" stop-color="rgba(15,23,42,0)"/><stop offset="1" stop-color="rgba(15,23,42,.85)"/></radialGradient>
+            <radialGradient id="ofdNyHalo"><stop offset="0" stop-color="rgba(254,243,199,.95)"/><stop offset="1" stop-color="rgba(250,204,21,0)"/></radialGradient>
+            <clipPath id="ofdNyClip"><circle cx="${CX}" cy="${CY}" r="${R}"/></clipPath>
+          </defs>
+          <circle class="ofd-nyhalo" cx="${CX}" cy="${CY}" r="${R + 9}" fill="url(#ofdNyHalo)"/>
           <path d="M24,0 V5" stroke="#cbd5e1" stroke-width="1.2"/>
-          <circle cx="24" cy="22" r="17" fill="url(#ofdNyBall)"/>
-          <g clip-path="url(#ofdNyClip)" opacity=".85">${facets}</g>
-          <circle cx="18" cy="15" r="3.4" fill="#fff" opacity=".8"/>
+          <circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#ofdNyBase)"/>
+          <g clip-path="url(#ofdNyClip)"><g class="ofd-nytiles">${rows}</g></g>
+          <circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#ofdNyShade)"/>
+          <circle cx="18" cy="15" r="3.2" fill="#fff" opacity=".85"/><circle cx="16.4" cy="13.6" r="1.1" fill="#fff"/>
         </svg>`;
-      const r = decoRand(66);
-      let sparks = '';
-      for (let i = 0; i < 5; i++) {
-        sparks += `<div class="ofd ofd-nyspark${A}" style="left:${(10 + i * 19 + r() * 6).toFixed(1)}%;top:${(-30 + r() * 20).toFixed(0)}px;--delay:${(-r() * 3.5).toFixed(2)}s">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><g stroke="${i % 2 ? '#fde68a' : '#f8fafc'}" stroke-width="1.4" stroke-linecap="round">
-            <path d="M12,2 V7 M12,17 V22 M2,12 H7 M17,12 H22 M5,5 L8.5,8.5 M15.5,15.5 L19,19 M19,5 L15.5,8.5 M8.5,15.5 L5,19"/></g></svg></div>`;
+      // Light spots: one scattered set, drawn twice side by side so the sweep loops seamlessly.
+      let spots = '';
+      for (let copy = 0; copy < 2; copy++) {
+        const rs = decoRand(404);
+        for (let i = 0; i < 14; i++) {
+          const size = 3 + Math.round(rs() * 6);
+          spots += `<i style="left:${(copy * 50 + rs() * 50).toFixed(2)}%;top:${(4 + rs() * 80).toFixed(1)}%;width:${size}px;height:${size}px;opacity:${(0.45 + rs() * 0.5).toFixed(2)};background:${rs() < 0.3 ? '#fde68a' : '#fff'}"></i>`;
+        }
       }
       return `<style>${decoBase}${decoConfettiCss('ofdny')}
-        #of-deco .ofd-nyball { right:18%; bottom:100%; margin-bottom:6px; width:40px; filter: drop-shadow(0 0 8px rgba(250,204,21,.45)); }
+        #of-deco .ofd-nyball { right:18%; bottom:100%; margin-bottom:6px; width:40px; }
         #of-deco .ofd-nyball svg { width:100%; height:auto; }
+        #of-deco .ofd-nyball .ofd-nyhalo { opacity:.35; transform-box: view-box; transform-origin: 24px 22px; }
+        #of-deco .ofd-nyrow { transform-box: view-box; }
         #of-deco .ofd-nyball.ofd-anim { transform-origin: 50% 0; animation: ofdNySwing 5s ease-in-out infinite alternate; }
-        #of-deco .ofd-nyball.ofd-anim .ofd-facet { animation: ofdNyFacet 2s ease-in-out var(--fa) infinite; }
-        @keyframes ofdNySwing { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
-        @keyframes ofdNyFacet { 0%,100% { opacity:.55; } 50% { opacity:1; fill:#fff; } }
-        #of-deco .ofd-nyspark { opacity:.8; }
-        #of-deco .ofd-nyspark.ofd-anim { animation: ofdNySpark 3.5s ease-out var(--delay) infinite; }
-        @keyframes ofdNySpark { 0%,60% { opacity:0; transform: scale(.2) rotate(0); } 70% { opacity:1; } 90% { opacity:0; transform: scale(1.2) rotate(30deg); } 100% { opacity:0; } }
+        #of-deco .ofd-nyball.ofd-anim .ofd-nyrow { animation: ofdNyRow 7s linear infinite; }
+        #of-deco .ofd-nyball.ofd-anim .ofd-nyglint { animation: ofdNyGlint 2.6s ease-in-out infinite; }
+        @keyframes ofdNySwing { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
+        @keyframes ofdNyRow { from { transform: translateX(0); } to { transform: translateX(var(--rw)); } }
+        @keyframes ofdNyGlint { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+        #of-deco .ofd-nyspots { left:0; right:0; bottom:100%; height:96px; overflow:hidden; opacity:.55; }
+        #of-deco .ofd-nyspots-in { position:absolute; top:0; left:0; width:200%; height:100%; }
+        #of-deco .ofd-nyspots-in i { position:absolute; border-radius:50%; }
+        #of-deco .ofd-nyspots.ofd-anim .ofd-nyspots-in { animation: ofdNySpots 16s linear infinite; }
+        @keyframes ofdNySpots { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        /* Live: the music drives the light (variables set by the player). */
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity: calc(.12 + var(--beat, 0) * .88); transform: scale(calc(.85 + var(--beat, 0) * .45)); }
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity: calc(.3 + var(--treble, 0) * .7); }
+        #of-deco.ofd-live-on .ofd-nyspots { opacity: calc(.18 + var(--energy, 0) * .55 + var(--beat, 0) * .27); }
+        #of-deco .ofd-nyburst .ofdny-bit { animation-iteration-count: 1 !important; }
       </style>
-      <div class="ofd ofd-nyball${A}">${ball}</div>${sparks}${confetti}`;
+      <div class="ofd ofd-nyspots${A}"><div class="ofd-nyspots-in">${spots}</div></div>
+      <div class="ofd ofd-nyball${A}">${ball}</div>${confetti}
+      <div class="ofd ofd-nyburst" style="left:0;right:0;top:0;height:0"></div>`;
     }
 
     // ---------- Día de los Muertos: papel picado banner + marigold petals ----------

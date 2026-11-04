@@ -25,3 +25,6 @@ data
 DEPLOY.md
 *.md
 !README.md
+
+# Scenario tests (not needed to run ShowPilot)
+tests

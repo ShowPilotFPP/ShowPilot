@@ -193,7 +193,9 @@ router.put('/me/cockpit-layout', requireAdmin, (req, res) => {
     if (![1, 2, 4].includes(size)) return res.status(400).json({ error: 'Invalid tile size' });
     if (seen.has(id)) continue;
     seen.add(id);
-    clean.push({ id, size });
+    // Spacers (v0.33.249) also have a height in rows, 1-4.
+    const rows = Number(t.rows);
+    clean.push(Number.isInteger(rows) && rows >= 1 && rows <= 4 && rows !== 1 ? { id, size, rows } : { id, size });
   }
   require('../lib/db').setUserCockpitLayout(req.user.id, JSON.stringify(clean));
   res.json({ ok: true, layout: clean });
@@ -279,6 +281,11 @@ router.put('/config', requireAdmin, (req, res) => {
     // Sequence categories — display options only. The category list itself
     // (config.sequence_categories) is managed via /api/admin/categories.
     'viewer_show_categories',
+    'viewer_dim_queued',
+    'viewer_show_badges',
+    'viewer_badge_position',
+    'viewer_badge_bg',
+    'viewer_badge_color',
     'uncategorized_label',
     'viewer_progress_bar',
     'viewer_progress_bar_position',
@@ -317,6 +324,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'player_tall_layout',
     'debug_sync_probe',
     'debug_mic_measure',
+    'debug_output_delay_comp',
     'pwa_admin_enabled',
     'pwa_viewer_enabled',
     'pwa_viewer_name',
@@ -333,11 +341,21 @@ router.put('/config', requireAdmin, (req, res) => {
     'launcher_size',
     'launcher_bg_color',
     'launcher_fg_color',
+    // Visitor messages (v0.33.250+, lib/visitor-messages.js)
+    'visitor_messages_enabled',
+    'visitor_messages_when',
+    'visitor_messages_max_length',
+    'visitor_messages_cooldown_minutes',
+    'visitor_messages_nightly_limit',
+    'visitor_messages_filter_enabled',
+    'visitor_messages_filter_words',
+    'visitor_messages_accent',
   ];
   const updates = {};
   for (const k of allowed) {
     if (k in req.body) updates[k] = req.body[k];
   }
+  require('../lib/visitor-messages').sanitizeSettings(updates);
 
   // Sanitize psa_trigger_mode (v0.30.0+) to one of two allowed values.
   // Anything else falls back to 'interactions' (the default + safe option).
@@ -345,18 +363,29 @@ router.put('/config', requireAdmin, (req, res) => {
     updates.psa_trigger_mode = 'interactions';
   }
 
-  // When admin sets viewer_control_mode to something other than OFF, remember it
-  // so the FPP "Turn On" command (and admin's Turn On toggle) can restore it later.
-  if (updates.viewer_control_mode && updates.viewer_control_mode !== 'OFF') {
-    updates.last_active_mode = updates.viewer_control_mode;
+  // Badge look: these go into the viewer page's CSS, so only plain colors and
+  // the two known positions are accepted.
+  if ('viewer_badge_position' in updates && !['corner', 'inline'].includes(updates.viewer_badge_position)) {
+    return res.status(400).json({ error: 'Badge position must be corner or inline' });
   }
-
-  // When admin sets mode to OFF, stash the CURRENT (pre-change) mode so we can restore it
-  if (updates.viewer_control_mode === 'OFF') {
-    const cfg = getConfig();
-    if (cfg.viewer_control_mode && cfg.viewer_control_mode !== 'OFF') {
-      updates.last_active_mode = cfg.viewer_control_mode;
+  for (const k of ['viewer_badge_bg', 'viewer_badge_color']) {
+    if (k in updates && !/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(updates[k]))) {
+      return res.status(400).json({ error: 'Badge colors must be like #dc2626' });
     }
+  }
+  if ('viewer_control_mode' in updates && !['VOTING', 'JUKEBOX', 'RACE', 'LISTEN', 'OFF'].includes(updates.viewer_control_mode)) {
+    return res.status(400).json({ error: 'Unknown viewer mode' });
+  }
+  // When admin sets Voting, Jukebox or Race, remember it so the FPP "Turn On"
+  // command (and admin's Turn On toggle) can restore it later. OFF and LISTEN
+  // (Listen Only) are never remembered: switching to them keeps the last
+  // active mode, which Listen Only also uses for its song list layout.
+  const { RESTORABLE_MODES } = require('../lib/db');
+  if (RESTORABLE_MODES.includes(updates.viewer_control_mode)) {
+    updates.last_active_mode = updates.viewer_control_mode;
+  } else if (updates.viewer_control_mode) {
+    const cfg = getConfig();
+    if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) updates.last_active_mode = cfg.viewer_control_mode;
   }
 
   updateConfig(updates);
@@ -540,12 +569,13 @@ function updateSequence(req, res) {
   const id = Number(req.params.id);
   const fields = ['display_name', 'artist', 'category', 'image_url',
                   'duration_seconds', 'visible', 'votable', 'jukeboxable',
-                  'is_psa', 'display_order', 'cooldown_minutes'];
+                  'is_psa', 'display_order', 'cooldown_minutes', 'badge'];
   const updates = {};
   for (const k of fields) {
     if (k in req.body) updates[k] = req.body[k];
   }
   if (Object.keys(updates).length === 0) return res.json({ ok: true });
+  if ('badge' in updates) updates.badge = cleanBadge(updates.badge);
   if ('category' in updates) {
     // Empty → uncategorized. Otherwise register + canonicalize spelling.
     updates.category = updates.category
@@ -597,6 +627,26 @@ router.post('/categories/delete', requireAdmin, (req, res) => {
 router.post('/categories/reorder', requireAdmin, (req, res) => {
   categoryResult(req, res, require('../lib/categories').reorderCategories((req.body || {}).names));
 });
+// Song badge (v0.33.249+): short label for the viewer page, or null.
+function cleanBadge(v) {
+  const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, 24);
+  return s || null;
+}
+
+// POST { ids: [..], badge: "New" | "" } — set or clear the badge on several
+// sequences at once (the Sequences page's selection toolbar).
+router.post('/sequences/bulk-badge', requireAdmin, (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (!ids.length) return res.status(400).json({ error: 'No sequences selected' });
+  const badge = cleanBadge(req.body.badge);
+  const upd = db.prepare(`UPDATE sequences SET badge = ? WHERE id = ?`);
+  let n = 0;
+  db.transaction(() => { for (const id of ids) n += upd.run(badge, id).changes; })();
+  const io = req.app.get('io');
+  if (io) io.emit('sequencesReordered');
+  res.json({ ok: true, updated: n });
+});
+
 router.post('/sequences/bulk-category', requireAdmin, (req, res) => {
   const { ids, category } = req.body || {};
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
@@ -732,6 +782,8 @@ router.get('/stats', requireAdmin, (req, res) => {
     WHERE last_seen > datetime('now', '-${config.viewer.activeWindowSeconds} seconds')
   `).get().n;
   const totalVotes = db.prepare(`SELECT COUNT(*) AS n FROM votes WHERE round_id = ?`).get(cfg.current_voting_round).n;
+  // Phones playing the show audio right now, and today's numbers (v0.33.249+).
+  const listeners = require('../lib/listeners').todayStats();
   // queueLength excludes the in-flight (handed-off, currently-playing) entry —
   // those are tracked with handed_off_at IS NOT NULL.
   const queueLength = db.prepare(`
@@ -753,6 +805,18 @@ router.get('/stats', requireAdmin, (req, res) => {
     ORDER BY plays DESC
     LIMIT 10
   `).all();
+  // Same list without PSAs, for the "Hide PSAs" box on the Top Sequences card.
+  // A play counts as a PSA if it was handed out as one or the sequence is
+  // currently flagged as a PSA.
+  const topSequencesNoPsa = db.prepare(`
+    SELECT ph.sequence_name, COUNT(*) AS plays
+    FROM play_history ph
+    LEFT JOIN sequences s ON s.name = ph.sequence_name
+    WHERE ph.source IN ('vote', 'request') AND COALESCE(s.is_psa, 0) = 0
+    GROUP BY ph.sequence_name
+    ORDER BY plays DESC
+    LIMIT 10
+  `).all();
 
   // Now playing + next up — bundled into stats so admin only needs one poll
   const nowPlaying = db.prepare(`SELECT * FROM now_playing WHERE id = 1`).get() || {};
@@ -771,11 +835,78 @@ router.get('/stats', requireAdmin, (req, res) => {
     queueLength,
     totalPlays,
     topSequences,
+    topSequencesNoPsa,
     currentRound: cfg.current_voting_round,
     nowPlaying: nowPlayingName,
     nextUp,
     nextUpSource,
+    listenersNow: listeners.now,
+    listenersPeakToday: listeners.peakToday,
+    listenersToday: listeners.uniqueToday,
+    // Visitor messages (v0.33.250+): unread count for the dashboard / tab badge.
+    messagesEnabled: cfg.visitor_messages_enabled === 1,
+    unreadMessages: require('../lib/visitor-messages').unreadCount(),
   });
+});
+
+// ---- Visitor messages (v0.33.250+, lib/visitor-messages.js) ----
+// GET ?filter=all|unread&limit=&offset= → { messages, total, unread }
+router.get('/messages', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  res.json(vm.list({ filter: req.query.filter === 'unread' ? 'unread' : 'all', limit: req.query.limit, offset: req.query.offset }));
+});
+// POST { ids: [..] } or { all: true }, with read: true|false (default true)
+router.post('/messages/read', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const b = req.body || {};
+  const changed = vm.setRead({ ids: b.ids, all: b.all === true, read: b.read !== false });
+  res.json({ ok: true, changed, unread: vm.unreadCount() });
+});
+// POST { ids: [..] } | { allRead: true } | { all: true }
+router.post('/messages/delete', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const b = req.body || {};
+  const deleted = vm.remove({ ids: b.ids, allRead: b.allRead === true, all: b.all === true });
+  res.json({ ok: true, deleted, unread: vm.unreadCount() });
+});
+router.get('/messages/export', requireAdmin, (req, res) => {
+  const csv = require('../lib/visitor-messages').toCsv();
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="visitor-messages-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send('\uFEFF' + csv);
+});
+// Live preview of the message box for the admin (same markup and CSS as the
+// viewer page). ?accent=%23rrggbb (optional), ?bg=dark|light, ?max=N.
+router.get('/messages/preview', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const accent = /^#[0-9a-f]{6}$/i.test(String(req.query.accent || '')) ? String(req.query.accent).toLowerCase() : '';
+  const max = Math.min(1000, Math.max(20, parseInt(req.query.max, 10) || 280));
+  const light = req.query.bg === 'light';
+  const state = { open: true, maxLength: max, accent: accent || vm.DEFAULT_ACCENT, customAccent: !!accent };
+  const bg = light
+    ? 'linear-gradient(135deg,#fdf6ec,#f3e7d3)'
+    : 'radial-gradient(ellipse at top,#1d2a4d 0%,#0b1020 70%)';
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<style>html,body{margin:0}body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;' +
+    'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:' + (light ? '#2b2118' : '#e8eef7') + ';background:' + bg + '}' +
+    vm.BOX_CSS + '</style></head><body>' + vm.boxHtml(state) +
+    '<script>document.querySelector("form").addEventListener("submit",function(e){e.preventDefault();var s=this.querySelector(".sp-message-status");' +
+    's.textContent="Thanks! Your message was sent to the show.";s.setAttribute("data-kind","ok");});' +
+    'document.querySelector("textarea").addEventListener("input",function(){var c=document.querySelector(".sp-message-count");c.textContent=this.value.length+"/"+this.maxLength;' +
+    'if(this.value.length>=this.maxLength*0.9)c.setAttribute("data-near","");else c.removeAttribute("data-near");});</script></body></html>');
+});
+// The built-in word list, for the admin's "Reset to the built-in list" button.
+router.get('/messages/default-words', requireAdmin, (req, res) => {
+  res.json({ words: require('../lib/visitor-messages').DEFAULT_FILTER_WORDS });
+});
+
+// Phone listeners per day for the Stats page (v0.33.249+): most at once and
+// how many different phones. ?from=&to= are YYYY-MM-DD (show time zone).
+router.get('/stats/listeners', requireAdmin, (req, res) => {
+  const L = require('../lib/listeners');
+  res.json({ today: L.todayStats(), days: L.byDay(req.query.from ? String(req.query.from) : '', req.query.to ? String(req.query.to) : '') });
 });
 
 router.get('/history', requireAdmin, (req, res) => {
@@ -830,8 +961,12 @@ router.post('/race/reset', requireAdmin, (req, res) => {
 });
 
 // Purge jukebox queue
+// Only requests that haven't played yet; the played ones stay so the Queue
+// page's "Recently played requests" list survives a purge.
 router.post('/purge-queue', requireAdmin, (req, res) => {
   db.prepare(`DELETE FROM jukebox_queue WHERE played = 0`).run();
+  const io = req.app.get('io');
+  if (io) io.emit('queueUpdated');
   res.json({ ok: true });
 });
 
@@ -844,6 +979,9 @@ router.get('/plugin-status', requireAdmin, (req, res) => {
     lastSyncAt: pluginStatus.lastSyncAt,
     lastSyncPlaylist: pluginStatus.lastSyncPlaylist,
     lastSyncCount: pluginStatus.lastSyncCount,
+    lastSyncDuplicates: pluginStatus.lastSyncDuplicates || [],
+    // Out-of-date show player, for the Dashboard banner (beta.18+); null when up to date.
+    update: require('../lib/show-player-update').status(getConfig()),
   });
 });
 
@@ -1405,6 +1543,76 @@ router.post('/templates/:id/toggle-lock', requireAdmin, (req, res) => {
   res.json({ ok: true, locked: newLocked });
 });
 
+// ---- Server log (v0.33.249+) ----
+// GET /server-log?lines=300&filter=queue  -> { lines: [...], startedAt }
+// GET /server-log/download                -> the whole log as a text file
+router.get('/server-log', requireAdmin, (req, res) => {
+  const sl = require('../lib/server-log');
+  const n = Math.max(1, Math.min(3000, parseInt(req.query.lines, 10) || 300));
+  res.json({ lines: sl.recent(n, String(req.query.filter || '').slice(0, 100)), ...sl.info() });
+});
+router.get('/server-log/download', requireAdmin, (req, res) => {
+  const sl = require('../lib/server-log');
+  const cfg = getConfig();
+  const pkg = require('../package.json');
+  const header = [
+    `ShowPilot server log`,
+    `Version: ${pkg.version}`,
+    `Node: ${process.version} on ${process.platform}/${process.arch}`,
+    `Downloaded: ${new Date().toISOString()}  (server up since ${sl.info().startedAt})`,
+    `Server time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown'}${cfg.show_timezone ? `, show time zone: ${cfg.show_timezone}` : ''}`,
+    `Viewer mode: ${cfg.viewer_control_mode}, interrupt schedule: ${cfg.interrupt_schedule ? 'on' : 'off'}`,
+    `Show player: ${cfg.plugin_version ? 'plugin v' + cfg.plugin_version : 'unknown'}, last seen ${cfg.plugin_last_seen_at || 'never'} (UTC)`,
+    `Times in the log are UTC.`,
+    '-'.repeat(60),
+    '',
+  ].join('\n');
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="showpilot-log-${stamp}.txt"`);
+  res.set('Cache-Control', 'no-store');
+  res.send(header + sl.redact(sl.fullText()));
+});
+
+// ---- Global CSS (v0.33.249+, GitHub #36) ----
+// PUT takes { css?, enabled? }. Saving new css keeps the old one as the
+// "previous" version; restore swaps the two, so a restore can be undone.
+const GLOBAL_CSS_MAX = 512 * 1024;
+function globalCssInfo() {
+  const c = getConfig();
+  return { css: c.viewer_global_css || '', enabled: c.viewer_global_css_enabled === 0 ? 0 : 1, hasPrevious: !!(c.viewer_global_css_prev || '') };
+}
+router.get('/global-css', requireAdmin, (req, res) => res.json(globalCssInfo()));
+router.put('/global-css', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const c = getConfig();
+  const updates = {};
+  if ('css' in b) {
+    if (typeof b.css !== 'string') return res.status(400).json({ error: 'css must be text' });
+    if (Buffer.byteLength(b.css) > GLOBAL_CSS_MAX) return res.status(400).json({ error: 'The global CSS is over 512 KB' });
+    if (b.css !== (c.viewer_global_css || '')) {
+      updates.viewer_global_css = b.css;
+      updates.viewer_global_css_prev = c.viewer_global_css || '';
+    }
+  }
+  if ('enabled' in b) updates.viewer_global_css_enabled = b.enabled ? 1 : 0;
+  if (Object.keys(updates).length) {
+    updates.viewer_global_css_rev = (Number(c.viewer_global_css_rev) || 0) + 1;
+    updateConfig(updates);
+  }
+  res.json({ ok: true, ...globalCssInfo() });
+});
+router.post('/global-css/restore', requireAdmin, (req, res) => {
+  const c = getConfig();
+  if (!(c.viewer_global_css_prev || '')) return res.status(400).json({ error: 'There is no previous version to restore' });
+  updateConfig({
+    viewer_global_css: c.viewer_global_css_prev,
+    viewer_global_css_prev: c.viewer_global_css || '',
+    viewer_global_css_rev: (Number(c.viewer_global_css_rev) || 0) + 1,
+  });
+  res.json({ ok: true, ...globalCssInfo() });
+});
+
 router.post('/templates/:id/activate', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare(`SELECT id FROM viewer_page_templates WHERE id = ?`).get(id);
@@ -1763,11 +1971,12 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
       missingNames: missing.slice(0, 8).map((r) => r.name) });
   }
   const categories = require('../lib/categories');
-  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes'];
+  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes', 'badge'];
   const pick = (r) => {
     const u = {};
     for (const k of FIELDS) if (k in r) u[k] = r[k];
     if ('category' in u) u.category = categories.ensureCategory(u.category);
+    if ('badge' in u) u.badge = cleanBadge(u.badge);
     return u;
   };
   let updated = 0, added = 0;
@@ -1781,15 +1990,15 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
     if (addMissing) {
       let order = (db.prepare(`SELECT MAX(display_order) AS m FROM sequences`).get().m || 0);
       const ins = db.prepare(`
-        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, active, sort_order, display_order)
-        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, 0, 0, @display_order)`);
+        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, badge, active, sort_order, display_order)
+        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, @badge, 0, 0, @display_order)`);
       for (const r of missing) {
         const u = pick(r);
         added += ins.run({
           name: r.name, display_name: u.display_name || r.name, artist: u.artist || null,
           image_url: u.image_url || null, category: u.category || null,
           visible: u.visible ?? 1, votable: u.votable ?? 1, jukeboxable: u.jukeboxable ?? 1,
-          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, display_order: ++order,
+          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, badge: u.badge || null, display_order: ++order,
         }).changes;
       }
     }
@@ -2071,10 +2280,14 @@ router.get('/queue', requireAdmin, (req, res) => {
     FROM jukebox_queue q
     LEFT JOIN sequences s ON s.name = q.sequence_name
     WHERE q.played = 0
-    ORDER BY q.requested_at ASC
+    ORDER BY q.requested_at ASC, q.id ASC
   `).all();
 
-  const recentlyPlayed = db.prepare(`
+  // Jukebox mode lists the last played REQUESTS. Other modes have no
+  // requests, so they list the last songs played from the play history
+  // (vote winners, PSAs and the show's own schedule), each with its source.
+  const recentMode = getConfig().viewer_control_mode === 'JUKEBOX' ? 'requests' : 'plays';
+  const recentlyPlayed = recentMode === 'requests' ? db.prepare(`
     SELECT q.id, q.sequence_name, q.requested_at, q.played_at,
            s.display_name, s.artist, s.image_url
     FROM jukebox_queue q
@@ -2082,9 +2295,16 @@ router.get('/queue', requireAdmin, (req, res) => {
     WHERE q.played = 1
     ORDER BY q.played_at DESC
     LIMIT 20
+  `).all() : db.prepare(`
+    SELECT ph.id, ph.sequence_name, ph.played_at, ph.source,
+           s.display_name, s.artist, s.image_url
+    FROM play_history ph
+    LEFT JOIN sequences s ON s.name = ph.sequence_name
+    ORDER BY ph.played_at DESC, ph.id DESC
+    LIMIT 20
   `).all();
 
-  res.json({ pending, recentlyPlayed });
+  res.json({ pending, recentlyPlayed, recentMode });
 });
 
 router.delete('/queue/:id', requireAdmin, (req, res) => {

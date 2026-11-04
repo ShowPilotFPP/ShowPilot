@@ -14,6 +14,11 @@ body.ui-new {
   padding-left: var(--rail-collapsed);
 }
 body.ui-new.rail-pinned { padding-left: var(--rail-expanded); }
+/* Signed out (logged out, or the session expired): only the login form shows (beta.20). */
+body.ui-new:has(#loginView:not(.hidden)) { padding-left: 0 !important; }
+body.ui-new:has(#loginView:not(.hidden)) .spn-rail,
+body.ui-new:has(#loginView:not(.hidden)) .spn-backdrop,
+body.ui-new:has(#loginView:not(.hidden)) .spn-menu-btn { display: none !important; }
 
 /* The classic chrome is replaced by the rail and the top bar. The elements
    stay in the page (hidden) so every existing script keeps working. */
@@ -125,7 +130,7 @@ body.ui-new .stat-value, body.ui-new .num { font-family: var(--font-mono); font-
 body.ui-new :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- New dashboard (replaces the classic dashboard content) ---------- */
-body.ui-new .tab-pane[data-pane="dashboard"] > :not(#spnDash) { display: none !important; }
+body.ui-new .tab-pane[data-pane="dashboard"] > :not(#spnDash):not(.dash-banner) { display: none !important; }
 #spnDash { display: flex; flex-direction: column; gap: 20px; }
 body:not(.ui-new) #spnDash { display: none; }
 .spn-strip { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; padding: 12px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-card); }
@@ -256,3 +261,8 @@ body.ui-new.spn-drawer .spn-rail:hover,
 body.ui-new.spn-drawer .spn-rail:has(:focus-visible) { width: min(300px, 86vw); overflow-y: hidden; box-shadow: none; }
 body.ui-new.spn-drawer.spn-drawer-open .spn-rail:hover { box-shadow: 8px 0 32px rgba(0,0,0,.45); }
 @media (prefers-reduced-motion: reduce) { body.ui-new.spn-drawer .spn-rail { transition: none; } }
+
+/* Unread visitor messages on the rail (v0.33.250+): a dot on the icon when
+   the rail is collapsed, a count pill next to the label when expanded. */
+.spn-item[data-unread] { position: relative; }
+.spn-item[data-unread]::after { content: attr(data-unread); position: absolute; top: 4px; left: 26px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-text, #fff); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; pointer-events: none; }

@@ -1927,7 +1927,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.254</span>
+        <span class="app-version">v0.33.255</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2436,6 +2436,7 @@
           </div>
           <div style="margin-top: 0.5rem;">
             <label for="cfg_visitor_messages_filter_words">Words to hide, one per line (end with * to also catch longer words, e.g. <code>fudge*</code>)</label>
+            <p class="muted" style="font-size: 0.78rem; margin: 0.2rem 0 0.4rem;">Look-alike spellings are caught automatically: numbers and symbols for letters (<code>sh1t</code>, <code>f@ck</code>, <code>$hit</code>), stretched or split-up letters (<code>fuuuck</code>, <code>f.u.c.k</code>, <code>f u c k</code>), and accented or fancy letters. List each word once, spelled normally.</p>
             <textarea id="cfg_visitor_messages_filter_words" rows="6" style="width: 100%; font-family: ui-monospace, monospace; font-size: 0.85rem;" spellcheck="false"></textarea>
             <div class="row" style="gap: 0.5rem; margin: 0.4rem 0 0;">
               <button class="secondary" type="button" onclick="saveMessageWords()">Save word list</button>

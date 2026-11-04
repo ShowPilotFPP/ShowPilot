@@ -362,6 +362,7 @@ router.post('/message', (req, res) => {
       name: typeof body.name === 'string' ? body.name : '',
       viewerToken: token,
       ip,
+      allowPublic: body.public === true, // "show my message on this page" (message wall)
     });
   } catch (e) {
     console.error('[messages] submit failed:', e && e.message);
@@ -373,7 +374,7 @@ router.post('/message', (req, res) => {
   }
   // No socket broadcast: there's no admin-only room, and the count is
   // private. Admin pages pick it up from /api/admin/stats (polled every 5 s).
-  res.json({ ok: true });
+  res.json({ ok: true, onWall: !!result.onWall, needsApproval: !!result.needsApproval });
 });
 
 router.post('/heartbeat', (req, res) => {

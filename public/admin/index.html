@@ -1927,7 +1927,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.251</span>
+        <span class="app-version">v0.33.252</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2342,6 +2342,8 @@
               <select id="msgFilter" onchange="loadMessagesTab()" aria-label="Show" style="width: auto;">
                 <option value="all">All messages</option>
                 <option value="unread">Unread only</option>
+                <option value="pending">Waiting for the wall</option>
+                <option value="public">On the wall</option>
               </select>
               <button class="secondary" onclick="loadMessagesTab()">Refresh</button>
               <button class="secondary" onclick="markAllMessagesRead()">Mark all read</button>
@@ -2359,7 +2361,7 @@
         <div class="card">
           <h2>Settings</h2>
           <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
-            Visitors send a short message from the viewer page. Messages are private: only you see them here, never on the public page.
+            Visitors send a short message from the viewer page. Messages are private (only you see them here) unless you turn on the Message wall below.
             Put <code>{MESSAGE_BOX}</code> in your template where the message box should go; wrap a section in an element with
             <code>{message-dynamic-container}</code> to show it only while messages are open. Templates can style
             <code>#messageSent</code>, <code>#messageFailed</code> and <code>#messageTooSoon</code>.
@@ -2397,7 +2399,12 @@
                 <option value="show">Only while the show is on</option>
                 <option value="always">Any time</option>
               </select>
-              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">"While the show is on" means viewer control isn't Off and a song played in the last 15 minutes.</p>
+              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">"While the show is on" means viewer control isn't Off and a song is playing or started recently (below).</p>
+            </div>
+            <div>
+              <label for="cfg_visitor_messages_idle_minutes">Close the box this many minutes after the last song</label>
+              <input type="number" id="cfg_visitor_messages_idle_minutes" min="1" max="120" onchange="saveSetting('visitor_messages_idle_minutes', this.value)" />
+              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">Only for "Only while the show is on". Covers the gaps between songs; 15 is a good start.</p>
             </div>
             <div>
               <label for="cfg_visitor_messages_max_length">Longest message (characters)</label>
@@ -2428,6 +2435,43 @@
               <button class="secondary" type="button" onclick="resetMessageWords()">Reset to the built-in list</button>
             </div>
           </div>
+        </div>
+
+        <div class="card">
+          <h2>Message wall</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            Show visitors' messages on the viewer page. Put <code>{MESSAGE_WALL}</code> in your template where they should go.
+            While the wall is on, the message box gets a "Show my message on this page" checkbox; only messages that box was ticked for can ever appear.
+            The wall hides itself while there's nothing on it.
+          </p>
+          <div class="row">
+            <input type="checkbox" id="cfg_visitor_messages_wall" onchange="saveSetting('visitor_messages_wall', this.checked ? 1 : 0); refreshMessagePreview();" />
+            <label for="cfg_visitor_messages_wall" style="margin: 0;">Show messages on the viewer page</label>
+          </div>
+          <div class="grid-2" style="margin: 0.75rem 0;">
+            <div>
+              <label for="cfg_visitor_messages_wall_approve">Before a message shows</label>
+              <select id="cfg_visitor_messages_wall_approve" onchange="saveSetting('visitor_messages_wall_approve', this.value === '1' ? 1 : 0)">
+                <option value="1">I approve each one first (recommended)</option>
+                <option value="0">Show it automatically</option>
+              </select>
+              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">Automatic still hides words from your list. You can take any message off the wall below.</p>
+            </div>
+            <div>
+              <label for="cfg_visitor_messages_wall_style">Layout</label>
+              <select id="cfg_visitor_messages_wall_style" onchange="saveSetting('visitor_messages_wall_style', this.value); msgPreviewWallStyle = this.value; refreshMessagePreview();">
+                <option value="cards">Cards</option>
+                <option value="bubbles">Chat bubbles</option>
+                <option value="ticker">Scrolling ticker</option>
+              </select>
+            </div>
+            <div>
+              <label for="cfg_visitor_messages_wall_count">How many to show</label>
+              <input type="number" id="cfg_visitor_messages_wall_count" min="1" max="30" onchange="saveSetting('visitor_messages_wall_count', this.value)" />
+              <p class="muted" style="font-size: 0.78rem; margin: 0.3rem 0 0;">Newest first.</p>
+            </div>
+          </div>
+          <p class="muted" style="font-size: 0.78rem; margin: 0;">The preview above shows the wall in the layout you pick, with sample messages.</p>
         </div>
       </div>
 
@@ -6388,6 +6432,12 @@
       setVal('cfg_visitor_messages_max_length', c.visitor_messages_max_length || 280);
       setVal('cfg_visitor_messages_cooldown_minutes', c.visitor_messages_cooldown_minutes ?? 2);
       setVal('cfg_visitor_messages_nightly_limit', c.visitor_messages_nightly_limit ?? 5);
+      setVal('cfg_visitor_messages_idle_minutes', c.visitor_messages_idle_minutes || 15);
+      setChk('cfg_visitor_messages_wall', c.visitor_messages_wall === 1);
+      setVal('cfg_visitor_messages_wall_approve', c.visitor_messages_wall_approve === 0 ? '0' : '1');
+      msgPreviewWallStyle = ['cards', 'bubbles', 'ticker'].includes(c.visitor_messages_wall_style) ? c.visitor_messages_wall_style : 'cards';
+      setVal('cfg_visitor_messages_wall_style', msgPreviewWallStyle);
+      setVal('cfg_visitor_messages_wall_count', c.visitor_messages_wall_count || 8);
       setChk('cfg_visitor_messages_filter_enabled', c.visitor_messages_filter_enabled !== 0);
       msgPreviewAccent = /^#[0-9a-f]{6}$/i.test(c.visitor_messages_accent || '') ? c.visitor_messages_accent : '';
       setVal('cfg_visitor_messages_accent', msgPreviewAccent || '#e11d48');
@@ -10882,12 +10932,15 @@
       const filter = (document.getElementById('msgFilter') || {}).value || 'all';
       const r = await api('/messages?filter=' + encodeURIComponent(filter) + '&limit=' + msgShown);
       if (!r.ok) return;
-      const { messages, total, unread } = r.data;
+      const { messages, total, unread, pending } = r.data;
       updateMessageBadge({ unreadMessages: unread, messagesEnabled: !!(document.getElementById('cfg_visitor_messages_enabled') || {}).checked });
       const enabled = (document.getElementById('cfg_visitor_messages_enabled') || {}).checked;
+      const emptyText = { unread: 'No unread messages.', pending: 'Nothing waiting for the wall.', public: 'Nothing on the wall yet.' }[filter] || 'No messages yet.';
+      const countText = { unread: ' unread', pending: ' waiting for the wall', public: ' on the wall' }[filter]
+        || (' message' + (total === 1 ? '' : 's') + ', ' + unread + ' unread');
       document.getElementById('msgSummary').textContent =
-        (total === 0 ? (filter === 'unread' ? 'No unread messages.' : 'No messages yet.') :
-          total + (filter === 'unread' ? ' unread' : ' message' + (total === 1 ? '' : 's') + ', ' + unread + ' unread') + '. Newest first.') +
+        (total === 0 ? emptyText : total + countText + '. Newest first.') +
+        (pending && filter !== 'pending' ? ' ' + pending + ' waiting for the wall.' : '') +
         (enabled ? '' : ' Messages are turned off (see Settings below).');
       const list = document.getElementById('msgList');
       list.textContent = '';
@@ -10901,6 +10954,14 @@
         meta.className = 'muted';
         meta.style.cssText = 'font-size:0.8rem;margin-bottom:0.2rem;';
         meta.textContent = fmtMsgTime(m.created_at) + ' · ' + (m.name || 'No name') + (m.filtered ? ' · words hidden' : '') + (m.is_read ? '' : ' · new');
+        // Message wall status (v0.33.252+)
+        if (m.allow_public) {
+          const pill = document.createElement('span');
+          pill.textContent = m.is_public ? 'On the wall' : 'Wants to be on the wall';
+          pill.style.cssText = 'display:inline-block;margin-left:0.5rem;padding:0 0.45rem;border-radius:999px;font-size:0.72rem;font-weight:700;line-height:1.5rem;' +
+            (m.is_public ? 'background:var(--status-success-soft);color:var(--status-success);' : 'background:var(--status-warning-soft);color:var(--status-warning);');
+          meta.appendChild(pill);
+        }
         const text = document.createElement('div');
         text.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;';
         text.textContent = m.message;
@@ -10924,6 +10985,18 @@
           await api('/messages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [m.id] }) });
           loadMessagesTab();
         });
+        if (m.allow_public) {
+          const wallBtn = document.createElement('button');
+          wallBtn.className = m.is_public ? 'secondary' : '';
+          wallBtn.style.fontSize = '0.8rem';
+          wallBtn.textContent = m.is_public ? 'Take off wall' : 'Show on wall';
+          wallBtn.addEventListener('click', async () => {
+            await api('/messages/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [m.id], show: !m.is_public }) });
+            if (!m.is_read) await api('/messages/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [m.id] }) });
+            loadMessagesTab();
+          });
+          acts.appendChild(wallBtn);
+        }
         acts.appendChild(readBtn); acts.appendChild(delBtn);
         row.appendChild(body); row.appendChild(acts);
         list.appendChild(row);
@@ -10943,12 +11016,20 @@
       window.location.href = '/api/admin/messages/export';
     }
     // Message box look (accent + live preview).
-    let msgPreviewBg = 'dark', msgPreviewAccent = '', msgPreviewMax = 280;
+    let msgPreviewBg = 'dark', msgPreviewAccent = '', msgPreviewMax = 280, msgPreviewWallStyle = 'cards';
     function refreshMessagePreview() {
       const f = document.getElementById('msgPreview');
       if (!f) return;
       const qs = new URLSearchParams({ bg: msgPreviewBg, max: String(msgPreviewMax) });
       if (msgPreviewAccent) qs.set('accent', msgPreviewAccent);
+      // The wall preview follows the Layout choice while the wall is on.
+      if ((document.getElementById('cfg_visitor_messages_wall') || {}).checked) qs.set('wall', msgPreviewWallStyle);
+      if (!f.__spAutoHeight) {
+        f.__spAutoHeight = true;
+        f.addEventListener('load', () => {
+          try { f.style.height = Math.max(380, f.contentDocument.documentElement.scrollHeight + 4) + 'px'; } catch (_) {}
+        });
+      }
       const src = '/api/admin/messages/preview?' + qs.toString();
       if (f.getAttribute('src') !== src) f.setAttribute('src', src);
       const d = document.getElementById('msgPreviewDark'), l = document.getElementById('msgPreviewLight');
@@ -10979,6 +11060,7 @@
     // banner. Fed by /stats (polled every 5 s) and by the Messages tab itself.
     function updateMessageBadge(d) {
       const n = Number(d && d.unreadMessages) || 0;
+      const waiting = Number(d && d.pendingMessages) || 0;
       const label = n > 99 ? '99+' : String(n);
       document.querySelectorAll('.tab-btn[data-tab="messages"], .spn-item[data-tab="messages"]').forEach(b => {
         if (n > 0) b.setAttribute('data-unread', label); else b.removeAttribute('data-unread');
@@ -10988,7 +11070,8 @@
         if (n > 0) {
           banner.textContent = '';
           const t = document.createElement('span');
-          t.textContent = '✉ ' + n + ' unread visitor message' + (n === 1 ? '' : 's') + '. ';
+          t.textContent = '✉ ' + n + ' unread visitor message' + (n === 1 ? '' : 's') +
+            (waiting ? ' (' + waiting + ' waiting for the wall)' : '') + '. ';
           const a = document.createElement('a');
           a.href = '#';
           a.textContent = 'Read them';

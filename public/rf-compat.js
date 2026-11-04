@@ -364,8 +364,111 @@
         form.style.removeProperty('--sp-message-accent');
         form.style.removeProperty('--sp-message-accent-text');
       }
+      // Message wall on/off (v0.33.252+): the "show my message" box and the
+      // matching sub-heading.
+      const wallOn = !!(m.wall && m.wall.enabled);
+      form.querySelectorAll('.sp-message-public, [data-sp-sub-public]').forEach(el => { el.hidden = !wallOn; });
+      form.querySelectorAll('[data-sp-sub-private]').forEach(el => { el.hidden = wallOn; });
     });
+    renderMessageWalls(m);
   }
+  // ---- Message wall (v0.33.252+) ----
+  // Same markup as lib/visitor-messages.js wallHtml(), built with DOM APIs
+  // (textContent) so visitor text can never become markup.
+  const WALL_STYLES = ['cards', 'bubbles', 'ticker'];
+  const wallSeenIds = new Set();
+  let wallFirstPaint = true;
+  function wallTimeAgo(iso) {
+    const ms = Date.parse(iso || '');
+    if (!Number.isFinite(ms)) return '';
+    const s = Math.max(0, Math.round((serverNowMs() - ms) / 1000));
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    if (s < 86400) return Math.floor(s / 3600) + ' hr ago';
+    const d = new Date(ms);
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getDate();
+  }
+  function wallHue(name) {
+    let h = 0;
+    const s = String(name || '?');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+  function wallItemEl(m, isNew) {
+    const li = document.createElement('li');
+    li.className = 'sp-wall-item' + (isNew ? ' sp-wall-new' : '');
+    li.dataset.id = String(m.id);
+    const av = document.createElement('span');
+    av.className = 'sp-wall-avatar';
+    av.setAttribute('aria-hidden', 'true');
+    av.style.setProperty('--sp-wall-hue', String(wallHue(m.name)));
+    av.textContent = (String(m.name || '♥').trim().charAt(0).toUpperCase()) || '♥';
+    const body = document.createElement('div');
+    body.className = 'sp-wall-body';
+    const text = document.createElement('div');
+    text.className = 'sp-wall-text';
+    text.textContent = m.message || '';
+    const meta = document.createElement('div');
+    meta.className = 'sp-wall-meta';
+    const nm = document.createElement('span');
+    nm.className = 'sp-wall-name';
+    nm.textContent = m.name || 'A visitor';
+    const tm = document.createElement('time');
+    tm.className = 'sp-wall-time';
+    tm.setAttribute('datetime', m.at || '');
+    tm.textContent = wallTimeAgo(m.at);
+    meta.appendChild(nm); meta.appendChild(tm);
+    body.appendChild(text); body.appendChild(meta);
+    li.appendChild(av); li.appendChild(body);
+    return li;
+  }
+  function renderMessageWalls(m) {
+    const walls = document.querySelectorAll('[data-showpilot-message-wall]');
+    if (!walls.length) return;
+    const w = (m && m.wall) || {};
+    const items = Array.isArray(w.items) ? w.items : [];
+    const style = WALL_STYLES.indexOf(w.style) !== -1 ? w.style : 'cards';
+    const key = style + '|' + items.map(i => i.id).join(',');
+    const hex = /^#[0-9a-f]{6}$/i;
+    walls.forEach(wall => {
+      if (m.customAccent && hex.test(m.accent || '') && hex.test(m.accentText || '')) {
+        wall.style.setProperty('--sp-message-accent', m.accent);
+        wall.style.setProperty('--sp-message-accent-text', m.accentText);
+      } else if ('customAccent' in m) {
+        wall.style.removeProperty('--sp-message-accent');
+        wall.style.removeProperty('--sp-message-accent-text');
+      }
+      wall.hidden = !(w.enabled && items.length);
+      if (wall.dataset.spWallKey === key) return;
+      wall.dataset.spWallKey = key;
+      wall.setAttribute('data-style', style);
+      const track = wall.querySelector('.sp-wall-track');
+      if (!track) return;
+      track.textContent = '';
+      const ul = document.createElement('ul');
+      ul.className = 'sp-wall-list';
+      items.forEach(it => ul.appendChild(wallItemEl(it, !wallFirstPaint && !wallSeenIds.has(it.id))));
+      track.appendChild(ul);
+      if (style === 'ticker' && items.length) {
+        const dup = ul.cloneNode(true);
+        dup.classList.add('sp-wall-list--dup');
+        dup.setAttribute('aria-hidden', 'true');
+        track.appendChild(dup);
+        // Same reading speed whatever the length: about 6 characters a second.
+        const chars = items.reduce((n, it) => n + String(it.message || '').length + String(it.name || '').length + 8, 0);
+        wall.style.setProperty('--sp-wall-duration', Math.max(18, Math.round(chars / 6)) + 's');
+      }
+    });
+    items.forEach(it => wallSeenIds.add(it.id));
+    wallFirstPaint = false;
+  }
+  // Keep "5 min ago" current.
+  setInterval(() => {
+    document.querySelectorAll('[data-showpilot-message-wall] time.sp-wall-time').forEach(t => {
+      t.textContent = wallTimeAgo(t.getAttribute('datetime'));
+    });
+  }, 30000);
+
   function updateMessageCount(form) {
     const ta = form.querySelector('.sp-message-text');
     const cnt = form.querySelector('.sp-message-count');
@@ -397,7 +500,9 @@
     try {
       let body;
       try {
-        body = await buildBody({ message: text, name: nameEl ? nameEl.value.trim() : '' });
+        const pub = form.querySelector('.sp-message-public');
+        const pubBox = pub && !pub.hidden ? pub.querySelector('input[type="checkbox"]') : null;
+        body = await buildBody({ message: text, name: nameEl ? nameEl.value.trim() : '', public: !!(pubBox && pubBox.checked) });
       } catch (e) {
         setMessageStatus(form, (e && e.help) || 'Location is needed to send a message.', 'error');
         return;
@@ -406,7 +511,11 @@
       if (r.ok) {
         if (ta) ta.value = '';
         updateMessageCount(form);
-        setMessageStatus(form, 'Thanks! Your message was sent to the show.', 'ok');
+        setMessageStatus(form,
+          r.data && r.data.onWall ? 'Thanks! Your message is on the page.'
+            : r.data && r.data.needsApproval ? "Thanks! Your message was sent. It'll appear on the page once the show approves it."
+            : 'Thanks! Your message was sent to the show.', 'ok');
+        if (r.data && r.data.onWall) refreshState();
         form.classList.remove('sp-message-sent');
         void form.offsetWidth; // restart the animation
         form.classList.add('sp-message-sent');

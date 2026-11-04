@@ -350,6 +350,11 @@ router.put('/config', requireAdmin, (req, res) => {
     'visitor_messages_filter_enabled',
     'visitor_messages_filter_words',
     'visitor_messages_accent',
+    'visitor_messages_idle_minutes',
+    'visitor_messages_wall',
+    'visitor_messages_wall_approve',
+    'visitor_messages_wall_style',
+    'visitor_messages_wall_count',
   ];
   const updates = {};
   for (const k of allowed) {
@@ -846,6 +851,7 @@ router.get('/stats', requireAdmin, (req, res) => {
     // Visitor messages (v0.33.250+): unread count for the dashboard / tab badge.
     messagesEnabled: cfg.visitor_messages_enabled === 1,
     unreadMessages: require('../lib/visitor-messages').unreadCount(),
+    pendingMessages: require('../lib/visitor-messages').pendingCount(), // waiting to go on the message wall
   });
 });
 
@@ -853,7 +859,8 @@ router.get('/stats', requireAdmin, (req, res) => {
 // GET ?filter=all|unread&limit=&offset= → { messages, total, unread }
 router.get('/messages', requireAdmin, (req, res) => {
   const vm = require('../lib/visitor-messages');
-  res.json(vm.list({ filter: req.query.filter === 'unread' ? 'unread' : 'all', limit: req.query.limit, offset: req.query.offset }));
+  const f = ['unread', 'pending', 'public'].includes(req.query.filter) ? req.query.filter : 'all';
+  res.json(vm.list({ filter: f, limit: req.query.limit, offset: req.query.offset }));
 });
 // POST { ids: [..] } or { all: true }, with read: true|false (default true)
 router.post('/messages/read', requireAdmin, (req, res) => {
@@ -861,6 +868,14 @@ router.post('/messages/read', requireAdmin, (req, res) => {
   const b = req.body || {};
   const changed = vm.setRead({ ids: b.ids, all: b.all === true, read: b.read !== false });
   res.json({ ok: true, changed, unread: vm.unreadCount() });
+});
+// Message wall (v0.33.252+): POST { ids: [..], show: true|false }. Only
+// messages the visitor agreed to share can be shown.
+router.post('/messages/public', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const b = req.body || {};
+  const changed = vm.setPublic({ ids: b.ids, show: b.show !== false });
+  res.json({ ok: true, changed, pending: vm.pendingCount() });
 });
 // POST { ids: [..] } | { allRead: true } | { all: true }
 router.post('/messages/delete', requireAdmin, (req, res) => {
@@ -876,13 +891,23 @@ router.get('/messages/export', requireAdmin, (req, res) => {
   res.send('\uFEFF' + csv);
 });
 // Live preview of the message box for the admin (same markup and CSS as the
-// viewer page). ?accent=%23rrggbb (optional), ?bg=dark|light, ?max=N.
+// viewer page). ?accent=%23rrggbb (optional), ?bg=dark|light, ?max=N,
+// ?wall=cards|bubbles|ticker to also show the message wall with sample messages.
 router.get('/messages/preview', requireAdmin, (req, res) => {
   const vm = require('../lib/visitor-messages');
   const accent = /^#[0-9a-f]{6}$/i.test(String(req.query.accent || '')) ? String(req.query.accent).toLowerCase() : '';
   const max = Math.min(1000, Math.max(20, parseInt(req.query.max, 10) || 280));
   const light = req.query.bg === 'light';
-  const state = { open: true, maxLength: max, accent: accent || vm.DEFAULT_ACCENT, customAccent: !!accent };
+  const wallStyle = vm.WALL_STYLES.includes(req.query.wall) ? req.query.wall : '';
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const sample = [
+    { id: 1, name: 'Sam', message: 'Loved the Mariah song! Best show on the block 🎄', at: ago(2) },
+    { id: 2, name: 'The Garcia family', message: 'We drive by every year. The kids say thank you!', at: ago(9) },
+    { id: 3, name: '', message: 'Can you add Feliz Navidad next year?', at: ago(24) },
+    { id: 4, name: 'Jo', message: 'That finale gave me chills ✨', at: ago(47) },
+  ];
+  const state = { open: true, maxLength: max, accent: accent || vm.DEFAULT_ACCENT, customAccent: !!accent,
+    wall: { enabled: !!wallStyle, style: wallStyle || 'cards', items: wallStyle ? sample : [] } };
   const bg = light
     ? 'linear-gradient(135deg,#fdf6ec,#f3e7d3)'
     : 'radial-gradient(ellipse at top,#1d2a4d 0%,#0b1020 70%)';
@@ -891,7 +916,8 @@ router.get('/messages/preview', requireAdmin, (req, res) => {
   res.send('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>html,body{margin:0}body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;' +
     'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:' + (light ? '#2b2118' : '#e8eef7') + ';background:' + bg + '}' +
-    vm.BOX_CSS + '</style></head><body>' + vm.boxHtml(state) +
+    'body{flex-direction:column;gap:4px}' +
+    vm.BOX_CSS + '</style></head><body>' + vm.boxHtml(state) + (wallStyle ? vm.wallHtml(state) : '') +
     '<script>document.querySelector("form").addEventListener("submit",function(e){e.preventDefault();var s=this.querySelector(".sp-message-status");' +
     's.textContent="Thanks! Your message was sent to the show.";s.setAttribute("data-kind","ok");});' +
     'document.querySelector("textarea").addEventListener("input",function(){var c=document.querySelector(".sp-message-count");c.textContent=this.value.length+"/"+this.maxLength;' +

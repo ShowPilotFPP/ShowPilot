@@ -1723,6 +1723,21 @@ router.get('/designer/defaults', requireAdmin, (req, res) => {
   res.json({ settings: DEFAULT_SETTINGS });
 });
 
+// Sections editor (beta, v0.33.258-beta.1): HTML for one library block,
+// with its default content, to insert into a hand-built template. Wrapped
+// in one <div> (so a block made of several parts moves as one section) with
+// a comment naming it, which the Sections tab shows as the section's name.
+router.post('/designer/render-block', requireAdmin, (req, res) => {
+  const { BLOCK_TYPES } = require('../lib/visual-designer');
+  const type = String((req.body && req.body.type) || '');
+  const def = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, type) ? BLOCK_TYPES[type] : null;
+  if (!def) return res.status(400).json({ error: 'Unknown block' });
+  let inner;
+  try { inner = def.render({ ...def.defaultProps }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
+  const name = String(def.label || type).replace(/--+|[<>]/g, '');
+  res.json({ html: '<div class="sp-added-block"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
+});
+
 // PATCH a draft for the active template (or one specified by ?id=).
 // Body: { mode: 'settings'|'blocks'|'code', settings, blocks, html }
 // Returns the rendered draft HTML so the client can refresh the preview.

@@ -13,6 +13,7 @@
   <script src="/admin/ui-new.js"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=1"></script>
+  <script src="/admin/sections.js?v=1"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -544,6 +545,41 @@
       background: var(--accent);
       color: #fff;
     }
+    /* Sections editor (beta) */
+    .sec-beta { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px; background: #7c3aed; color: #fff; vertical-align: middle; }
+    .sec-intro { font-size: 0.85rem; color: var(--text-muted); background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; line-height: 1.45; }
+    .sec-intro strong { color: var(--text); }
+    .sec-toolbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .sec-toolbar button { font-size: 0.8rem; padding: 0.3rem 0.6rem; }
+    .sec-count { font-size: 0.78rem; color: var(--text-muted); }
+    .sec-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--text-muted); margin: 0; cursor: pointer; }
+    .sec-check input { width: auto; margin: 0; }
+    #sectionsList { max-height: 640px; overflow-y: auto; padding-right: 2px; }
+    .sec-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); margin: 0; }
+    .sec-card.hidden-sec { opacity: 0.55; border-style: dashed; }
+    .sec-card.fixed-sec { opacity: 0.7; }
+    .sec-card.open { border-color: var(--accent, #7c3aed); }
+    .sec-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; }
+    .sec-num { flex: 0 0 auto; width: 1.6rem; height: 1.6rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; background: var(--border); color: var(--text); }
+    .sec-name { flex: 1; min-width: 0; font-weight: 600; font-size: 0.9rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .sec-tag { font-size: 0.68rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--border); color: var(--text-muted); margin-left: 0.35rem; vertical-align: middle; }
+    .sec-tag.live { background: rgba(16,185,129,0.18); color: #10b981; }
+    .sec-tag.off { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .sec-btns { display: flex; gap: 2px; flex: 0 0 auto; }
+    .sec-btns button { padding: 0.2rem 0.45rem; font-size: 0.8rem; min-width: 1.9rem; margin: 0; }
+    .sec-body { border-top: 1px solid var(--border); padding: 0.6rem 0.7rem 0.7rem; }
+    .sec-body label { display: block; font-size: 0.72rem; color: var(--text-muted); margin: 0.45rem 0 0.15rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .sec-body input[type=text], .sec-body textarea { width: 100%; box-sizing: border-box; }
+    .sec-body textarea.sec-html { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; min-height: 180px; }
+    .sec-note { font-size: 0.78rem; color: var(--text-muted); margin: 0.3rem 0; }
+    .sec-gap { display: flex; justify-content: center; height: 14px; align-items: center; position: relative; }
+    .sec-gap button { opacity: 0.3; transition: opacity 0.12s; font-size: 0.7rem; padding: 0 0.5rem; line-height: 1.3; border-radius: 999px; margin: 0; }
+    .sec-gap:hover button, .sec-gap.open button, .sec-gap button:focus-visible { opacity: 1; }
+    .sec-gap.always button { opacity: 0.85; }
+    .sec-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.35rem; padding: 0.5rem; margin: 0.25rem 0 0.5rem; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg-input); }
+    .sec-picker button { text-align: left; font-size: 0.8rem; padding: 0.35rem 0.5rem; margin: 0; }
+    .sec-picker button small { display: block; font-weight: 400; opacity: 0.7; font-size: 0.7rem; }
+    .sec-error { padding: 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text); font-size: 0.9rem; }
     .designer-tab {
       background: transparent;
       color: var(--text-muted);
@@ -1932,7 +1968,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.257</span>
+        <span class="app-version">v0.33.258-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2693,6 +2729,7 @@
                 <button class="designer-tab active of-tpl-bypass-lock" data-designer-tab="settings" onclick="switchDesignerTab('settings')">⚙️ Settings</button>
                 <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="blocks" onclick="switchDesignerTab('blocks')">🧱 Blocks</button>
                 <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="code" onclick="switchDesignerTab('code')">⌨️ Code</button>
+                <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="sections" id="designerTabSections" onclick="switchDesignerTab('sections')" style="display:none;" title="Move, hide and edit the parts of a hand-built page without touching its code">🧩 Sections <span class="sec-beta">BETA</span></button>
                 <button class="secondary" onclick="document.getElementById('tplUploadFile').click()" id="tplUploadBtn" title="Replace this page's code with an .html file from your computer (you still Save Changes to make it live)">📄 Load from file…</button>
                 <input type="file" id="tplUploadFile" accept=".html,.htm,.txt,text/html,text/plain" style="display:none;" onchange="loadTemplateFromFile(this)" />
                 <span style="flex: 1;"></span>
@@ -2768,6 +2805,20 @@
                         <div id="blocksCanvas" style="border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; min-height: 400px; background: var(--bg-input);"></div>
                       </div>
                     </div>
+                  </div>
+
+                  <!-- SECTIONS sub-tab (beta, v0.33.258-beta.1): hand-built templates only -->
+                  <div class="designer-pane" data-designer-pane="sections" id="designerPaneSections" style="display:none;">
+                    <div class="sec-intro">
+                      <strong>Sections</strong> <span class="sec-beta">BETA</span> — the parts of your page, top to bottom. Move, hide or remove them, change their text, or add a ready-made block in between. Your page's own code and styles are kept exactly as they are; changes show in the preview and go live when you click <em>Save Changes</em>.
+                    </div>
+                    <div class="sec-toolbar">
+                      <button class="secondary" id="secUndoBtn" onclick="secUndo()" disabled>↶ Undo</button>
+                      <span class="sec-count" id="secCount"></span>
+                      <span style="flex:1;"></span>
+                      <label class="sec-check"><input type="checkbox" id="secShowFixed" onchange="secRender()"> Show scripts &amp; pop-ups</label>
+                    </div>
+                    <div id="sectionsList"></div>
                   </div>
 
                   <!-- CODE sub-tab (existing Monaco) -->
@@ -9912,6 +9963,7 @@
           _suppressMonacoChange = false;
         }
       }
+      setSectionsTabVisible(mode === 'code');
       switchDesignerTab(mode);
 
       // Show the live preview
@@ -10126,7 +10178,7 @@
     //
     // State machine:
     //  - selectedTplId: which template row we're editing
-    //  - currentMode: 'settings' | 'blocks' | 'code'
+    //  - currentMode: 'settings' | 'blocks' | 'code' | 'sections' (beta; saves as code)
     //  - currentSettings: form state (mirrors DEFAULT_SETTINGS)
     //  - currentBlocks: array of {type, props}
     //  - hasDraft: true when there are unsaved changes
@@ -10157,6 +10209,7 @@
       document.querySelectorAll('.designer-pane').forEach(p => {
         p.style.display = p.dataset.designerPane === name ? '' : 'none';
       });
+      if (name === 'sections') secLoad();
       if (name === 'code') {
         initMonacoIfNeeded().then(() => {
           // Monaco needs a layout call after its container goes from
@@ -10170,6 +10223,257 @@
       // a user just clicked through tabs to peek at the layout. Edits within
       // each pane (form inputs, block changes, Monaco edits) are what mark
       // dirty and trigger draft saves.
+    }
+
+    // ============================================================
+    // SECTIONS EDITOR (beta, v0.33.258-beta.1)
+    // For hand-built (Code) templates only; the Settings and Blocks builders
+    // are untouched. public/admin/sections.js splits the page's code into its
+    // top-level parts without rewriting anything else, and rebuilds it after
+    // each change; the result is saved as an ordinary Code draft.
+    // ============================================================
+    let secModel = null;        // { prefix, sections, suffix } or { error }
+    let secOpen = -1;           // index of the expanded section
+    let secPicker = -1;         // gap index with the block picker open
+    let secUndoStack = [];
+    let secRuns = null;         // text runs of the open section (kept while typing)
+    let secTypingSnap = false;  // one undo step per field focus
+
+    function setSectionsTabVisible(on) {
+      const b = document.getElementById('designerTabSections');
+      if (b) b.style.display = on ? '' : 'none';
+      if (!on && currentMode === 'sections') switchDesignerTab('code');
+    }
+    function secCurrentCode() {
+      return monacoEditor ? monacoEditor.getValue() : (_editorCode || '');
+    }
+    function secLoad() {
+      secModel = window.SPSections ? SPSections.split(secCurrentCode()) : { error: 'The Sections editor did not load. Reload the page.' };
+      secOpen = -1; secPicker = -1; secRuns = null; secUndoStack = [];
+      secRender();
+    }
+    function secSnapshot() {
+      secUndoStack.push(JSON.stringify(secModel));
+      if (secUndoStack.length > 60) secUndoStack.shift();
+    }
+    function secUndo() {
+      if (!secUndoStack.length) return;
+      secModel = JSON.parse(secUndoStack.pop());
+      secRuns = null;
+      secApply();
+      secRender();
+    }
+    // Rebuild the page from the sections and save it as the draft.
+    function secApply() {
+      const html = SPSections.build(secModel);
+      _editorCode = html;
+      if (monacoEditor && monacoEditor.getValue() !== html) {
+        _suppressMonacoChange = true;
+        monacoEditor.setValue(html);
+        _suppressMonacoChange = false;
+      }
+      saveDraftSoon();
+    }
+    function secEditable(i) { const x = secModel.sections[i]; return x && !x.fixed; }
+    // Neighbouring section in the list as shown (skips fixed ones unless shown).
+    function secNeighbour(i, dir) {
+      const showFixed = document.getElementById('secShowFixed')?.checked;
+      for (let k = i + dir; k >= 0 && k < secModel.sections.length; k += dir) {
+        if (showFixed || !secModel.sections[k].fixed) return k;
+      }
+      return -1;
+    }
+    function secLocked() {
+      if (_isLocked) { showAlert('This template is locked. Unlock it first.'); return true; }
+      return false;
+    }
+    function secMove(i, dir) {
+      if (secLocked()) return;
+      const j = secNeighbour(i, dir);
+      if (j < 0) return;
+      secSnapshot();
+      const a = secModel.sections;
+      // Swap the elements but keep each slot's leading whitespace/comments
+      // where it was, so the page's formatting stays tidy.
+      const ai = a[i], aj = a[j];
+      [ai.lead, aj.lead] = [aj.lead, ai.lead];
+      a[i] = aj; a[j] = ai;
+      if (secOpen === i) secOpen = j; else if (secOpen === j) secOpen = i;
+      secRuns = null;
+      secApply(); secRender();
+    }
+    function secToggleHidden(i) {
+      if (secLocked() || !secEditable(i)) return;
+      secSnapshot();
+      secModel.sections[i].hidden = !secModel.sections[i].hidden;
+      secApply(); secRender();
+    }
+    function secDuplicate(i) {
+      if (secLocked() || !secEditable(i)) return;
+      secSnapshot();
+      const x = secModel.sections[i];
+      const lead = /\n[ \t]*$/.exec(x.lead);
+      secModel.sections.splice(i + 1, 0, { lead: lead ? lead[0] : '\n', src: x.src, hidden: x.hidden, fixed: false });
+      secRuns = null; if (secOpen > i) secOpen++;
+      secApply(); secRender();
+    }
+    async function secDelete(i) {
+      if (secLocked() || !secEditable(i)) return;
+      const name = SPSections.label(secModel.sections[i].src);
+      if (!await showConfirm('Remove the section “' + name + '” from this page? You can Undo, or Discard Changes before saving.', { danger: true, okLabel: 'Remove' })) return;
+      secSnapshot();
+      const x = secModel.sections[i];
+      // Keep comments that sat above it; drop only its own element.
+      const next = secModel.sections[i + 1];
+      if (next) next.lead = x.lead.replace(/\s+$/, '') + next.lead; else secModel.suffix = x.lead.replace(/\s+$/, '') + secModel.suffix;
+      secModel.sections.splice(i, 1);
+      if (secOpen === i) secOpen = -1; else if (secOpen > i) secOpen--;
+      secRuns = null;
+      secApply(); secRender();
+    }
+    function secToggleOpen(i) {
+      secOpen = secOpen === i ? -1 : i;
+      secRuns = null; secPicker = -1;
+      secRender();
+    }
+    function secTogglePicker(gap) {
+      if (secLocked()) return;
+      secPicker = secPicker === gap ? -1 : gap;
+      secRender();
+    }
+    // gap = index the new section is inserted at.
+    async function secAddBlock(gap, type) {
+      if (secLocked()) return;
+      const r = await api('/designer/render-block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }) });
+      if (!r.ok || typeof r.data?.html !== 'string') { showAlert(r.data?.error || 'Could not add that block'); return; }
+      secSnapshot();
+      const ref = secModel.sections[Math.min(gap, secModel.sections.length - 1)];
+      const indent = ref ? (/\n[ \t]*$/.exec(ref.lead) || ['\n'])[0] : '\n';
+      secModel.sections.splice(gap, 0, { lead: indent, src: r.data.html, hidden: false, fixed: false });
+      secPicker = -1; secOpen = gap; secRuns = null;
+      secApply(); secRender();
+      const el = document.querySelector('.sec-card[data-i="' + gap + '"]');
+      if (el) el.scrollIntoView({ block: 'nearest' });
+    }
+    // Text field typing: patch just that piece of text in the section's code.
+    function secOnText(i, k, el) {
+      if (_isLocked || !secRuns) return;
+      if (!secTypingSnap) { secSnapshot(); secTypingSnap = true; }
+      const x = secModel.sections[i];
+      const run = secRuns[k];
+      const val = el.value;
+      const enc = run.isRaw ? val : SPSections.encode(val);
+      const delta = enc.length - (run.end - run.start);
+      x.src = x.src.slice(0, run.start) + enc + x.src.slice(run.end);
+      run.end = run.start + enc.length;
+      run.text = val;
+      for (let m = k + 1; m < secRuns.length; m++) { secRuns[m].start += delta; secRuns[m].end += delta; }
+      const ta = document.getElementById('secHtml');
+      if (ta) ta.value = x.src;
+      secApply();
+    }
+    function secOnHtml(i, el) {
+      if (_isLocked) return;
+      if (!secTypingSnap) { secSnapshot(); secTypingSnap = true; }
+      secModel.sections[i].src = el.value;
+      secRuns = null;
+      secApply();
+    }
+    function secFieldBlur() { secTypingSnap = false; }
+    function secHtmlBlur() {
+      secTypingSnap = false;
+      // Text fields follow the code just typed.
+      secRender();
+    }
+
+    function secRender() {
+      const list = document.getElementById('sectionsList');
+      if (!list) return;
+      const undo = document.getElementById('secUndoBtn');
+      if (undo) undo.disabled = !secUndoStack.length;
+      const count = document.getElementById('secCount');
+      if (!secModel) { list.innerHTML = ''; return; }
+      if (secModel.error) {
+        if (count) count.textContent = '';
+        list.innerHTML = '<div class="sec-error">' + escapeHtml(secModel.error) + '</div>';
+        return;
+      }
+      const showFixed = document.getElementById('secShowFixed')?.checked;
+      const A = secModel.sections;
+      const editable = A.filter((x) => !x.fixed).length;
+      const hiddenN = A.filter((x) => x.hidden).length;
+      if (count) count.textContent = editable + ' section' + (editable === 1 ? '' : 's') + (hiddenN ? ' · ' + hiddenN + ' hidden' : '');
+      const picker = (gap) => {
+        const gapCls = 'sec-gap' + (secPicker === gap ? ' open' : '');
+        let h = '<div class="' + gapCls + '"><button class="secondary" onclick="secTogglePicker(' + gap + ')" title="Add a ready-made block here">＋ Add block here</button></div>';
+        if (secPicker === gap) {
+          h += '<div class="sec-picker">' + blockTypes.map((b) =>
+            '<button class="secondary" onclick="secAddBlock(' + gap + ', \'' + escapeHtml(b.type) + '\')">' + escapeHtml(b.label) + '<small>' + escapeHtml(b.description || '') + '</small></button>').join('') +
+            '</div><p class="sec-note" style="text-align:center;">Added blocks use their own simple styling; change their text in the section, or their look under Edit HTML.</p>';
+        }
+        return h;
+      };
+      let html = '';
+      let num = 0;
+      let shownAny = false;
+      A.forEach((x, i) => {
+        if (x.fixed && !showFixed) return;
+        if (!shownAny) { html += picker(i); shownAny = true; }
+        if (!x.fixed) num++;
+        const name = x.fixed ? fixedName(x.src) : SPSections.label(x.src);
+        const tags = [];
+        if (x.hidden) tags.push('<span class="sec-tag off">Hidden</span>');
+        if (/\{(jukebox|playlist-voting|playlist-standard|location-code)-dynamic-container\}|\{after-hours-message\}/.test(x.src)) {
+          const which = /\{after-hours-message\}/.test(x.src) ? 'Show off only' : /voting/.test(x.src) && /jukebox/.test(x.src) ? 'Voting / jukebox only' : /voting/.test(x.src) ? 'Voting only' : /location-code/.test(x.src) ? 'When code is on' : 'Jukebox only';
+          tags.push('<span class="sec-tag">' + which + '</span>');
+        } else if (/\{[A-Z_]+\}/.test(x.src)) tags.push('<span class="sec-tag live">Live info</span>');
+        const open = secOpen === i && !x.fixed;
+        const btn = (label, title, fn, dis) => '<button class="secondary" title="' + title + '" onclick="' + fn + '"' + (dis ? ' disabled' : '') + '>' + label + '</button>';
+        html += '<div class="sec-card' + (x.hidden ? ' hidden-sec' : '') + (x.fixed ? ' fixed-sec' : '') + (open ? ' open' : '') + '" data-i="' + i + '">' +
+          '<div class="sec-head">' +
+            '<span class="sec-num">' + (x.fixed ? '·' : num) + '</span>' +
+            '<span class="sec-name"' + (x.fixed ? '' : ' onclick="secToggleOpen(' + i + ')" title="Edit this section"') + '>' + escapeHtml(name) + tags.join('') + '</span>' +
+            '<span class="sec-btns">' +
+              btn('↑', 'Move up', 'secMove(' + i + ',-1)', secNeighbour(i, -1) < 0) +
+              btn('↓', 'Move down', 'secMove(' + i + ',1)', secNeighbour(i, 1) < 0) +
+              (x.fixed ? '' :
+                btn(x.hidden ? '🙈' : '👁', x.hidden ? 'Hidden from visitors. Click to show it again' : 'Hide from visitors (kept in the page so you can show it again)', 'secToggleHidden(' + i + ')') +
+                btn('✎', 'Edit text', 'secToggleOpen(' + i + ')') +
+                btn('⧉', 'Duplicate', 'secDuplicate(' + i + ')') +
+                btn('🗑', 'Remove', 'secDelete(' + i + ')')) +
+            '</span>' +
+          '</div>';
+        if (open) html += secBodyHtml(i);
+        html += '</div>';
+        html += picker(i + 1);
+      });
+      if (!shownAny) html = picker(A.length);
+      list.innerHTML = html;
+    }
+    function fixedName(src) {
+      const t = (/^<\s*([a-z0-9-]+)/i.exec(src) || [])[1] || '';
+      const id = (/\bid\s*=\s*["']?([^"'\s>]+)/i.exec(src.slice(0, 300)) || [])[1];
+      if (t.toLowerCase() === 'script') return 'Script (kept in place)';
+      if (t.toLowerCase() === 'style') return 'Styles (kept in place)';
+      if (id) return 'Pop-up message: ' + id;
+      return 'Decoration <' + t.toLowerCase() + '> (kept in place)';
+    }
+    function secBodyHtml(i) {
+      const x = secModel.sections[i];
+      if (!secRuns) secRuns = SPSections.textRuns(x.src);
+      let h = '<div class="sec-body">';
+      if (!secRuns.length) h += '<p class="sec-note">No plain text to change here (it may be pictures or live show info). Use Edit HTML below for anything else.</p>';
+      secRuns.forEach((r, k) => {
+        const long = r.text.length > 70;
+        const hint = { h1: 'Big title', h2: 'Heading', h3: 'Heading', h4: 'Heading', p: 'Paragraph', a: 'Link text', button: 'Button', li: 'List item', b: 'Bold', strong: 'Bold', em: 'Italic', i: 'Italic', span: 'Text', div: 'Text', td: 'Table cell', label: 'Label', small: 'Small text' }[r.tag] || 'Text';
+        h += '<label>' + hint + (r.isRaw ? ' (contains special codes)' : '') + '</label>';
+        const attrs = ' oninput="secOnText(' + i + ',' + k + ',this)" onblur="secFieldBlur()"' + (_isLocked ? ' disabled' : '');
+        h += long ? '<textarea rows="3"' + attrs + '>' + escapeHtml(r.text) + '</textarea>' : '<input type="text" value="' + escapeHtml(r.text).replace(/"/g, '&quot;') + '"' + attrs + '>';
+      });
+      h += '<details style="margin-top:0.6rem;"><summary class="sec-note" style="cursor:pointer;">Edit HTML of this section</summary>' +
+        '<textarea id="secHtml" class="sec-html" spellcheck="false" oninput="secOnHtml(' + i + ',this)" onblur="secHtmlBlur()"' + (_isLocked ? ' disabled' : '') + '>' + escapeHtml(x.src) + '</textarea>' +
+        '<p class="sec-note">Words in {CURLY_BRACKETS} are filled in with live show info; leave them as they are.</p></details>';
+      return h + '</div>';
     }
 
     async function loadDesignerMeta() {
@@ -10449,6 +10753,11 @@
         body.settings = currentSettings; // shell uses settings for body bg/colors
       } else if (currentMode === 'code') {
         if (monacoEditor) body.html = monacoEditor.getValue();
+      } else if (currentMode === 'sections') {
+        // Sections edits are saved as an ordinary Code draft.
+        if (!secModel || secModel.error) return;
+        body.mode = 'code';
+        body.html = SPSections.build(secModel);
       }
       const r = await api('/templates/' + selectedTplId + '/draft', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -10456,6 +10765,8 @@
       });
       if (r.ok) {
         if (typeof r.data?.html === 'string') _editorCode = r.data.html;
+        // A page saved from the Code tab can be edited as Sections (beta).
+        setSectionsTabVisible(body.mode === 'code');
         // Mirror the generated HTML into Monaco so switching to Code tab
         // shows what Settings/Blocks produced. Skip if user is currently
         // typing in Code (to avoid clobbering their cursor position).

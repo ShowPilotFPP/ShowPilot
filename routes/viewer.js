@@ -13,6 +13,8 @@ const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, g
 const { bustCoverUrl } = require('../lib/cover-art');
 const categories = require('../lib/categories');
 const { progressBarConfig } = require('../lib/progress-bar');
+const { launcherColors } = require('../lib/launcher-style');
+const visitorMessages = require('../lib/visitor-messages');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -289,6 +291,8 @@ router.get('/state', (req, res) => {
     // bar settings, so admin changes reach open pages without a reload.
     serverNowMs: Date.now(),
     progressBar: progressBarConfig(cfg),
+    launcherColors: launcherColors(cfg), // v0.33.249: Listen-on-Phone button colors
+    messages: visitorMessages.viewerState(cfg, nowPlaying), // v0.33.250: visitor message box
     nextScheduled: nextUp,
     activeViewers,
     sequences,
@@ -332,6 +336,45 @@ router.get('/state', (req, res) => {
       tapCounts: getRaceTapCounts(),
     } : null,
   });
+});
+
+// POST /api/message (v0.33.250+, lib/visitor-messages.js)
+// A visitor's message to the show owner. Body: { message, name?, locationCode?,
+// viewerLat?, viewerLng? }. Same IP block list and access code / GPS checks as
+// voting and requests (when those are on); the module applies the on/off and
+// show-hours setting, rate limits and the word filter. Messages are never
+// shown on any public page.
+router.post('/message', (req, res) => {
+  const cfg = getConfig();
+  const ip = getClientIp(req);
+  if (ipIsBlocked(cfg, ip)) return res.status(403).json({ error: 'Your IP has been blocked', reason: 'failed' });
+  if (cfg.visitor_messages_enabled !== 1) return res.status(400).json({ error: 'Messages are closed right now.', reason: 'closed' });
+  const presence = viewerPresenceCheck(req, cfg);
+  if (!presence.ok) {
+    return res.status(403).json({ error: presence.error, invalidLocationCode: !!presence.invalidLocationCode, reason: 'location' });
+  }
+  const token = ensureViewerToken(req, res);
+  const body = req.body || {};
+  let result;
+  try {
+    result = visitorMessages.submit(cfg, getNowPlaying(), {
+      text: typeof body.message === 'string' ? body.message : '',
+      name: typeof body.name === 'string' ? body.name : '',
+      viewerToken: token,
+      ip,
+      allowPublic: body.public === true, // "show my message on this page" (message wall)
+    });
+  } catch (e) {
+    console.error('[messages] submit failed:', e && e.message);
+    return res.status(500).json({ error: 'Could not send your message. Please try again.', reason: 'failed' });
+  }
+  if (!result.ok) {
+    if (result.retryAfterSeconds) res.set('Retry-After', String(result.retryAfterSeconds));
+    return res.status(result.status).json({ error: result.error, reason: result.reason, retryAfterSeconds: result.retryAfterSeconds });
+  }
+  // No socket broadcast: there's no admin-only room, and the count is
+  // private. Admin pages pick it up from /api/admin/stats (polled every 5 s).
+  res.json({ ok: true, onWall: !!result.onWall, needsApproval: !!result.needsApproval });
 });
 
 router.post('/heartbeat', (req, res) => {

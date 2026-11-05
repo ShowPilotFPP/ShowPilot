@@ -261,3 +261,8 @@ body.ui-new.spn-drawer .spn-rail:hover,
 body.ui-new.spn-drawer .spn-rail:has(:focus-visible) { width: min(300px, 86vw); overflow-y: hidden; box-shadow: none; }
 body.ui-new.spn-drawer.spn-drawer-open .spn-rail:hover { box-shadow: 8px 0 32px rgba(0,0,0,.45); }
 @media (prefers-reduced-motion: reduce) { body.ui-new.spn-drawer .spn-rail { transition: none; } }
+
+/* Unread visitor messages on the rail (v0.33.250+): a dot on the icon when
+   the rail is collapsed, a count pill next to the label when expanded. */
+.spn-item[data-unread] { position: relative; }
+.spn-item[data-unread]::after { content: attr(data-unread); position: absolute; top: 4px; left: 26px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-text, #fff); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; pointer-events: none; }

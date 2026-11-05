@@ -339,11 +339,29 @@ router.put('/config', requireAdmin, (req, res) => {
     'launcher_icon_data',
     'launcher_show_chrome',
     'launcher_size',
+    'launcher_bg_color',
+    'launcher_fg_color',
+    // Visitor messages (v0.33.250+, lib/visitor-messages.js)
+    'visitor_messages_enabled',
+    'visitor_messages_when',
+    'visitor_messages_max_length',
+    'visitor_messages_cooldown_minutes',
+    'visitor_messages_nightly_limit',
+    'visitor_messages_filter_enabled',
+    'visitor_messages_filter_words',
+    'visitor_messages_accent',
+    'visitor_messages_idle_minutes',
+    'visitor_messages_theme',
+    'visitor_messages_wall',
+    'visitor_messages_wall_approve',
+    'visitor_messages_wall_style',
+    'visitor_messages_wall_count',
   ];
   const updates = {};
   for (const k of allowed) {
     if (k in req.body) updates[k] = req.body[k];
   }
+  require('../lib/visitor-messages').sanitizeSettings(updates);
 
   // Sanitize psa_trigger_mode (v0.30.0+) to one of two allowed values.
   // Anything else falls back to 'interactions' (the default + safe option).
@@ -831,7 +849,86 @@ router.get('/stats', requireAdmin, (req, res) => {
     listenersNow: listeners.now,
     listenersPeakToday: listeners.peakToday,
     listenersToday: listeners.uniqueToday,
+    // Visitor messages (v0.33.250+): unread count for the dashboard / tab badge.
+    messagesEnabled: cfg.visitor_messages_enabled === 1,
+    unreadMessages: require('../lib/visitor-messages').unreadCount(),
+    pendingMessages: require('../lib/visitor-messages').pendingCount(), // waiting to go on the message wall
   });
+});
+
+// ---- Visitor messages (v0.33.250+, lib/visitor-messages.js) ----
+// GET ?filter=all|unread&limit=&offset= → { messages, total, unread }
+router.get('/messages', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const f = ['unread', 'pending', 'public'].includes(req.query.filter) ? req.query.filter : 'all';
+  res.json(vm.list({ filter: f, limit: req.query.limit, offset: req.query.offset }));
+});
+// POST { ids: [..] } or { all: true }, with read: true|false (default true)
+router.post('/messages/read', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const b = req.body || {};
+  const changed = vm.setRead({ ids: b.ids, all: b.all === true, read: b.read !== false });
+  res.json({ ok: true, changed, unread: vm.unreadCount() });
+});
+// Message wall (v0.33.252+): POST { ids: [..], show: true|false }. Only
+// messages the visitor agreed to share can be shown.
+router.post('/messages/public', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const b = req.body || {};
+  const changed = vm.setPublic({ ids: b.ids, show: b.show !== false });
+  res.json({ ok: true, changed, pending: vm.pendingCount() });
+});
+// POST { ids: [..] } | { allRead: true } | { all: true }
+router.post('/messages/delete', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const b = req.body || {};
+  const deleted = vm.remove({ ids: b.ids, allRead: b.allRead === true, all: b.all === true });
+  res.json({ ok: true, deleted, unread: vm.unreadCount() });
+});
+router.get('/messages/export', requireAdmin, (req, res) => {
+  const csv = require('../lib/visitor-messages').toCsv();
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="visitor-messages-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send('\uFEFF' + csv);
+});
+// Live preview of the message box for the admin (same markup and CSS as the
+// viewer page). ?accent=%23rrggbb (optional), ?bg=dark|light, ?max=N,
+// ?wall=cards|bubbles|ticker to also show the message wall with sample messages,
+// ?theme=dark|light for the box style.
+router.get('/messages/preview', requireAdmin, (req, res) => {
+  const vm = require('../lib/visitor-messages');
+  const accent = /^#[0-9a-f]{6}$/i.test(String(req.query.accent || '')) ? String(req.query.accent).toLowerCase() : '';
+  const max = Math.min(1000, Math.max(20, parseInt(req.query.max, 10) || 280));
+  const light = req.query.bg === 'light';
+  const wallStyle = vm.WALL_STYLES.includes(req.query.wall) ? req.query.wall : '';
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const sample = [
+    { id: 1, name: 'Sam', message: 'Loved the Mariah song! Best show on the block 🎄', at: ago(2) },
+    { id: 2, name: 'The Garcia family', message: 'We drive by every year. The kids say thank you!', at: ago(9) },
+    { id: 3, name: '', message: 'Can you add Feliz Navidad next year?', at: ago(24) },
+    { id: 4, name: 'Jo', message: 'That finale gave me chills ✨', at: ago(47) },
+  ];
+  const theme = req.query.theme === 'light' ? 'light' : 'dark';
+  const state = { open: true, maxLength: max, accent: accent || vm.DEFAULT_ACCENT, customAccent: !!accent, theme,
+    wall: { enabled: !!wallStyle, style: wallStyle || 'cards', items: wallStyle ? sample : [] } };
+  const bg = light
+    ? 'linear-gradient(135deg,#fdf6ec,#f3e7d3)'
+    : 'radial-gradient(ellipse at top,#1d2a4d 0%,#0b1020 70%)';
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<style>html,body{margin:0}body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;' +
+    'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:' + (light ? '#2b2118' : '#e8eef7') + ';background:' + bg + '}' +
+    'body{flex-direction:column;gap:4px}' +
+    vm.BOX_CSS + '</style></head><body>' + vm.boxHtml(state) + (wallStyle ? vm.wallHtml(state) : '') +
+    '<script>document.querySelector("form").addEventListener("submit",function(e){e.preventDefault();var s=this.querySelector(".sp-message-status");' +
+    's.textContent="Thanks! Your message was sent to the show.";s.setAttribute("data-kind","ok");});' +
+    'document.querySelector("textarea").addEventListener("input",function(){var c=document.querySelector(".sp-message-count");c.textContent=this.value.length+"/"+this.maxLength;' +
+    'if(this.value.length>=this.maxLength*0.9)c.setAttribute("data-near","");else c.removeAttribute("data-near");});</script></body></html>');
+});
+// The built-in word list, for the admin's "Reset to the built-in list" button.
+router.get('/messages/default-words', requireAdmin, (req, res) => {
+  res.json({ words: require('../lib/visitor-messages').DEFAULT_FILTER_WORDS });
 });
 
 // Phone listeners per day for the Stats page (v0.33.249+): most at once and
@@ -1624,6 +1721,21 @@ router.get('/designer/blocks', requireAdmin, (req, res) => {
 router.get('/designer/defaults', requireAdmin, (req, res) => {
   const { DEFAULT_SETTINGS } = require('../lib/visual-designer');
   res.json({ settings: DEFAULT_SETTINGS });
+});
+
+// Sections editor (beta, v0.33.258-beta.1): HTML for one library block,
+// with its default content, to insert into a hand-built template. Wrapped
+// in one <div> (so a block made of several parts moves as one section) with
+// a comment naming it, which the Sections tab shows as the section's name.
+router.post('/designer/render-block', requireAdmin, (req, res) => {
+  const { BLOCK_TYPES } = require('../lib/visual-designer');
+  const type = String((req.body && req.body.type) || '');
+  const def = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, type) ? BLOCK_TYPES[type] : null;
+  if (!def) return res.status(400).json({ error: 'Unknown block' });
+  let inner;
+  try { inner = def.render({ ...def.defaultProps }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
+  const name = String(def.label || type).replace(/--+|[<>]/g, '');
+  res.json({ html: '<div class="sp-added-block"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
 });
 
 // PATCH a draft for the active template (or one specified by ?id=).

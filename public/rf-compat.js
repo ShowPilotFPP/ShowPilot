@@ -258,7 +258,7 @@
       '.sp-progress--edge .sp-progress-time{position:absolute;bottom:calc(100% + 6px);padding:4px 9px;border-radius:999px;' +
         'font-size:12px;background:rgba(10,10,14,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}' +
       '.sp-progress--onplayer{position:absolute;top:0;z-index:3}' +
-      '.sp-progress--onplayer .sp-progress-time{right:12px}' +
+      '.sp-progress--onplayer .sp-progress-time{left:12px}' +
       '.sp-progress--screenbottom{position:fixed;bottom:env(safe-area-inset-bottom,0px);z-index:9990}' +
       '.sp-progress--screenbottom .sp-progress-time{left:10px}' +
       '.sp-progress--no-time .sp-progress-time{display:none}' +
@@ -308,6 +308,248 @@
   }
   window.addEventListener('showpilot:player-mode', () => placeProgressBar());
   window.addEventListener('showpilot:player-theme', () => placeProgressBar());
+
+  // ---- Listen-on-Phone launcher colors (v0.33.249+) ----
+  // Admin colors ({bg, fg}, each '#rrggbb' or '') arrive in the bootstrap and
+  // every /api/state poll. They're set as --sp-launcher-bg / --sp-launcher-fg
+  // on #of-listen-btn itself; the button's styles read those variables with
+  // the built-in red / white as fallback. An empty value removes the inline
+  // variable, so a template's own --sp-launcher-* (e.g. on :root) applies.
+  let launcherColorCfg = null;
+  let lastLauncherColorKey = '';
+  function applyLauncherColors(cfg) {
+    if (cfg && typeof cfg === 'object') launcherColorCfg = cfg;
+    const c = launcherColorCfg;
+    const btn = document.getElementById('of-listen-btn');
+    if (!c || !btn) return;
+    const key = (c.bg || '') + '|' + (c.fg || '');
+    if (key === lastLauncherColorKey && btn.dataset.spLauncherColors === key) return;
+    lastLauncherColorKey = key;
+    btn.dataset.spLauncherColors = key;
+    const hex = /^#[0-9a-f]{6}$/i;
+    if (hex.test(c.bg || '')) btn.style.setProperty('--sp-launcher-bg', c.bg);
+    else btn.style.removeProperty('--sp-launcher-bg');
+    if (hex.test(c.fg || '')) btn.style.setProperty('--sp-launcher-fg', c.fg);
+    else btn.style.removeProperty('--sp-launcher-fg');
+    try { window.dispatchEvent(new CustomEvent('showpilot:launcher-style')); } catch (_) {}
+  }
+
+  // ---- Visitor messages (v0.33.250+) ----
+  // {MESSAGE_BOX} renders form[data-showpilot-message-box]; the optional
+  // {message-dynamic-container} marks [data-showpilot-container="messages"].
+  // Both are shown only while messages are open ({enabled, open, maxLength}
+  // from the bootstrap and every /api/state poll). Sending goes through
+  // buildBody(), so the access code / GPS checks match voting and requests.
+  // Results: the box's own status line always, plus the template's
+  // #messageSent / #messageFailed / #messageTooSoon when it has them.
+  let messagesCfg = null;
+  function applyMessagesState(m) {
+    if (!m || typeof m !== 'object') return;
+    messagesCfg = m;
+    const open = !!(m.enabled && m.open);
+    document.querySelectorAll('[data-showpilot-container="messages"], form[data-showpilot-message-box]').forEach(el => {
+      if (open) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
+    });
+    const max = Number(m.maxLength) || 280;
+    const hex = /^#[0-9a-f]{6}$/i;
+    document.querySelectorAll('form[data-showpilot-message-box]').forEach(form => {
+      const ta = form.querySelector('.sp-message-text');
+      if (ta && String(ta.maxLength) !== String(max)) { ta.maxLength = max; updateMessageCount(form); }
+      // Admin accent color: set on the form only when chosen, so a template's
+      // own --sp-message-accent applies otherwise.
+      if (m.customAccent && hex.test(m.accent || '') && hex.test(m.accentText || '')) {
+        form.style.setProperty('--sp-message-accent', m.accent);
+        form.style.setProperty('--sp-message-accent-text', m.accentText);
+      } else if ('customAccent' in m) {
+        form.style.removeProperty('--sp-message-accent');
+        form.style.removeProperty('--sp-message-accent-text');
+      }
+      form.setAttribute('data-sp-theme', m.theme === 'light' ? 'light' : 'dark'); // box style (v0.33.254+)
+      // Message wall on/off (v0.33.252+): the "show my message" box and the
+      // matching sub-heading.
+      const wallOn = !!(m.wall && m.wall.enabled);
+      form.querySelectorAll('.sp-message-public, [data-sp-sub-public]').forEach(el => { el.hidden = !wallOn; });
+      form.querySelectorAll('[data-sp-sub-private]').forEach(el => { el.hidden = wallOn; });
+    });
+    renderMessageWalls(m);
+  }
+  // ---- Message wall (v0.33.252+) ----
+  // Same markup as lib/visitor-messages.js wallHtml(), built with DOM APIs
+  // (textContent) so visitor text can never become markup.
+  const WALL_STYLES = ['cards', 'bubbles', 'ticker'];
+  const wallSeenIds = new Set();
+  let wallFirstPaint = true;
+  function wallTimeAgo(iso) {
+    const ms = Date.parse(iso || '');
+    if (!Number.isFinite(ms)) return '';
+    const s = Math.max(0, Math.round((serverNowMs() - ms) / 1000));
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    if (s < 86400) return Math.floor(s / 3600) + ' hr ago';
+    const d = new Date(ms);
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getDate();
+  }
+  function wallHue(name) {
+    let h = 0;
+    const s = String(name || '?');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+  function wallItemEl(m, isNew) {
+    const li = document.createElement('li');
+    li.className = 'sp-wall-item' + (isNew ? ' sp-wall-new' : '');
+    li.dataset.id = String(m.id);
+    const av = document.createElement('span');
+    av.className = 'sp-wall-avatar';
+    av.setAttribute('aria-hidden', 'true');
+    av.style.setProperty('--sp-wall-hue', String(wallHue(m.name)));
+    av.textContent = (String(m.name || '♥').trim().charAt(0).toUpperCase()) || '♥';
+    const body = document.createElement('div');
+    body.className = 'sp-wall-body';
+    const text = document.createElement('div');
+    text.className = 'sp-wall-text';
+    text.textContent = m.message || '';
+    const meta = document.createElement('div');
+    meta.className = 'sp-wall-meta';
+    const nm = document.createElement('span');
+    nm.className = 'sp-wall-name';
+    nm.textContent = m.name || 'A visitor';
+    const tm = document.createElement('time');
+    tm.className = 'sp-wall-time';
+    tm.setAttribute('datetime', m.at || '');
+    tm.textContent = wallTimeAgo(m.at);
+    meta.appendChild(nm); meta.appendChild(tm);
+    body.appendChild(text); body.appendChild(meta);
+    li.appendChild(av); li.appendChild(body);
+    return li;
+  }
+  function renderMessageWalls(m) {
+    const walls = document.querySelectorAll('[data-showpilot-message-wall]');
+    if (!walls.length) return;
+    const w = (m && m.wall) || {};
+    const items = Array.isArray(w.items) ? w.items : [];
+    const style = WALL_STYLES.indexOf(w.style) !== -1 ? w.style : 'cards';
+    const key = style + '|' + items.map(i => i.id).join(',');
+    const hex = /^#[0-9a-f]{6}$/i;
+    walls.forEach(wall => {
+      if (m.customAccent && hex.test(m.accent || '') && hex.test(m.accentText || '')) {
+        wall.style.setProperty('--sp-message-accent', m.accent);
+        wall.style.setProperty('--sp-message-accent-text', m.accentText);
+      } else if ('customAccent' in m) {
+        wall.style.removeProperty('--sp-message-accent');
+        wall.style.removeProperty('--sp-message-accent-text');
+      }
+      wall.hidden = !(w.enabled && items.length);
+      wall.setAttribute('data-sp-theme', m.theme === 'light' ? 'light' : 'dark');
+      if (wall.dataset.spWallKey === key) return;
+      wall.dataset.spWallKey = key;
+      wall.setAttribute('data-style', style);
+      const track = wall.querySelector('.sp-wall-track');
+      if (!track) return;
+      track.textContent = '';
+      const ul = document.createElement('ul');
+      ul.className = 'sp-wall-list';
+      items.forEach(it => ul.appendChild(wallItemEl(it, !wallFirstPaint && !wallSeenIds.has(it.id))));
+      track.appendChild(ul);
+      if (style === 'ticker' && items.length) {
+        const dup = ul.cloneNode(true);
+        dup.classList.add('sp-wall-list--dup');
+        dup.setAttribute('aria-hidden', 'true');
+        track.appendChild(dup);
+        // Same reading speed whatever the length: about 6 characters a second.
+        const chars = items.reduce((n, it) => n + String(it.message || '').length + String(it.name || '').length + 8, 0);
+        wall.style.setProperty('--sp-wall-duration', Math.max(18, Math.round(chars / 6)) + 's');
+      }
+    });
+    items.forEach(it => wallSeenIds.add(it.id));
+    wallFirstPaint = false;
+  }
+  // Keep "5 min ago" current.
+  setInterval(() => {
+    document.querySelectorAll('[data-showpilot-message-wall] time.sp-wall-time').forEach(t => {
+      t.textContent = wallTimeAgo(t.getAttribute('datetime'));
+    });
+  }, 30000);
+
+  function updateMessageCount(form) {
+    const ta = form.querySelector('.sp-message-text');
+    const cnt = form.querySelector('.sp-message-count');
+    if (!ta || !cnt) return;
+    const max = ta.maxLength > 0 ? ta.maxLength : ((messagesCfg && messagesCfg.maxLength) || 280);
+    cnt.textContent = ta.value.length + '/' + max;
+    if (ta.value.length >= max * 0.9) cnt.setAttribute('data-near', ''); else cnt.removeAttribute('data-near');
+  }
+  function setMessageStatus(form, text, kind) {
+    const st = form.querySelector('.sp-message-status');
+    if (!st) return;
+    st.textContent = text || '';
+    st.setAttribute('data-kind', kind || '');
+  }
+  function showTemplateMessage(id, text) {
+    if (!document.getElementById(id)) return;
+    showMessage(id, 5000, text || null);
+  }
+  async function sendVisitorMessage(form) {
+    const ta = form.querySelector('.sp-message-text');
+    const nameEl = form.querySelector('.sp-message-name');
+    const btn = form.querySelector('.sp-message-send');
+    const text = ta ? ta.value.trim() : '';
+    if (!text) { setMessageStatus(form, 'Please type a message first.', 'error'); if (ta) ta.focus(); return; }
+    if (form.__spSending) return;
+    form.__spSending = true;
+    if (btn) btn.disabled = true;
+    setMessageStatus(form, 'Sending…', '');
+    try {
+      let body;
+      try {
+        const pub = form.querySelector('.sp-message-public');
+        const pubBox = pub && !pub.hidden ? pub.querySelector('input[type="checkbox"]') : null;
+        body = await buildBody({ message: text, name: nameEl ? nameEl.value.trim() : '', public: !!(pubBox && pubBox.checked) });
+      } catch (e) {
+        setMessageStatus(form, (e && e.help) || 'Location is needed to send a message.', 'error');
+        return;
+      }
+      const r = await postJson('/api/message', body);
+      if (r.ok) {
+        if (ta) ta.value = '';
+        updateMessageCount(form);
+        setMessageStatus(form,
+          r.data && r.data.onWall ? 'Thanks! Your message is on the page.'
+            : r.data && r.data.needsApproval ? "Thanks! Your message was sent. It'll appear on the page once the show approves it."
+            : 'Thanks! Your message was sent to the show.', 'ok');
+        if (r.data && r.data.onWall) refreshState();
+        form.classList.remove('sp-message-sent');
+        void form.offsetWidth; // restart the animation
+        form.classList.add('sp-message-sent');
+        showTemplateMessage('messageSent');
+        return;
+      }
+      const err = (r.data && r.data.error) || 'Your message could not be sent.';
+      setMessageStatus(form, err, 'error');
+      const reason = r.data && r.data.reason;
+      if (reason === 'tooSoon') showTemplateMessage('messageTooSoon', err);
+      else if (reason === 'location') showMessage(mapErrorToId(err, r.data), 6000, null, err);
+      else showTemplateMessage('messageFailed', err);
+      if (reason === 'closed') refreshState();
+    } catch (_) {
+      setMessageStatus(form, 'Your message could not be sent. Please try again.', 'error');
+      showTemplateMessage('messageFailed');
+    } finally {
+      form.__spSending = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+  document.addEventListener('submit', (e) => {
+    const form = e.target && e.target.closest ? e.target.closest('form[data-showpilot-message-box]') : null;
+    if (!form) return;
+    e.preventDefault();
+    sendVisitorMessage(form);
+  });
+  document.addEventListener('input', (e) => {
+    const form = e.target && e.target.closest ? e.target.closest('form[data-showpilot-message-box]') : null;
+    if (form) updateMessageCount(form);
+  });
+
   function applyProgressBarConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     const key = JSON.stringify(cfg);
@@ -371,6 +613,10 @@
   }
   // Inline {NOW_PLAYING_PROGRESS} needs the styles even with the setting off.
   if (document.querySelector('[data-showpilot-progress]')) ensureProgressStyles();
+  if (boot.messages) {
+    if (document.body) applyMessagesState(boot.messages);
+    else document.addEventListener('DOMContentLoaded', () => applyMessagesState(boot.messages));
+  }
   if (boot.progressBar) {
     if (document.body) applyProgressBarConfig(boot.progressBar);
     else document.addEventListener('DOMContentLoaded', () => applyProgressBarConfig(boot.progressBar));
@@ -669,7 +915,7 @@
     // 1) The song lists: each mode container's contents, in page order.
     //    (The access-code and after-hours blocks are left alone.)
     const pick = d => Array.from(d.querySelectorAll('[data-showpilot-container]'))
-      .filter(el => !/^(locationcode|afterhours)$/.test(el.getAttribute('data-showpilot-container')));
+      .filter(el => !/^(locationcode|afterhours|messages)$/.test(el.getAttribute('data-showpilot-container')));
     const cur = pick(document), next = pick(doc);
     if (cur.length === next.length) cur.forEach((el, i) => { el.innerHTML = next[i].innerHTML; });
     // 2) The race grid: remove, replace or insert where the server puts it.
@@ -799,6 +1045,8 @@
     // both (even if null — that's how we know to render --:--).
     updateTimerFromState(data.nowPlayingStartedAtIso || null, data.nowPlayingDurationSeconds || null);
     if (data.progressBar) applyProgressBarConfig(data.progressBar);
+    if (data.launcherColors) applyLauncherColors(data.launcherColors);
+    if (data.messages) applyMessagesState(data.messages);
 
     if (typeof data.currentVotingRound === 'number') {
       if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {
@@ -2746,10 +2994,11 @@
     // image itself is the affordance. We still keep cursor:pointer and a
     // subtle drop-shadow so it reads as tappable on light backgrounds.
     const chromeStyles = showChrome
-      ? `background: rgba(220,38,38,0.95); color: white;
+      ? `background: var(--sp-launcher-bg, rgba(220,38,38,0.95));
+         color: var(--sp-launcher-fg, white);
          border: 2px solid rgba(255,255,255,0.4);
          box-shadow: 0 4px 12px rgba(0,0,0,0.4);`
-      : `background: transparent; color: white;
+      : `background: transparent; color: var(--sp-launcher-fg, white);
          border: 0;
          filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));`;
 
@@ -3083,6 +3332,7 @@
     document.head.appendChild(style);
 
     document.body.appendChild(btn);
+    applyLauncherColors(boot.launcherColors); // v0.33.249+
     document.body.appendChild(panel);
     document.body.appendChild(minimizedPill);
 
@@ -3667,6 +3917,7 @@
       mirrorListenIcon();
       setTimeout(mirrorListenIcon, 1500);
       window.addEventListener('showpilot:player-theme', mirrorListenIcon);
+      window.addEventListener('showpilot:launcher-style', mirrorListenIcon);
       // The dot takes the player theme's accent; refresh it when the theme changes.
       window.addEventListener('showpilot:player-theme', () => ltUpdateUi());
     }

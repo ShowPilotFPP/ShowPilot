@@ -1095,7 +1095,12 @@ router.post('/sync-sequences', (req, res) => {
   let inserted = 0;
   const firstAt = new Map();      // name -> index into duplicates or -1
   const duplicates = [];          // [{ name, positions: [first, ...later] }]
+  let renamed = [];
   const tx = db.transaction((items) => {
+    // v0.33.256: a song stored under a garbled name ("Idina Menzel â€“ …")
+    // that the show player now sends correctly keeps its row (display name,
+    // artist, cover, category, history) instead of becoming a new song.
+    renamed = require('../lib/mojibake').adoptRenamed(db, items.map((s) => s && s.name));
     items.forEach((seq, index) => {
       const name = String(seq.name || '').trim();
       if (!name) return;
@@ -1120,6 +1125,7 @@ router.post('/sync-sequences', (req, res) => {
     });
   });
   tx(sequences);
+  if (renamed.length) console.log(`[sync] fixed garbled sequence name${renamed.length === 1 ? '' : 's'}: ${renamed.map((r) => `"${r.from}" -> "${r.to}"`).join(', ')}`);
 
   // Mark sequences no longer in the playlist inactive (v0.33.247+) — kept
   // with all their customizations, but out of the viewer page, voting and

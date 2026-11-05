@@ -693,6 +693,11 @@
       padding: 2rem 1rem;
       font-size: 0.85rem;
     }
+    /* Viewers · listening (v0.33.257): the wrapper adds no box, so its dot and
+       count are spaced by the surrounding flex gap, the same on both sides of
+       the dot (header-meta here, the top-bar chip in the new layout). */
+    #headerListenerWrap { display: contents; }
+    .header-sep { opacity: 0.6; }
     .header-meta {
       font-size: 0.78rem;
       color: var(--text-muted);
@@ -1927,13 +1932,13 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.256</span>
+        <span class="app-version">v0.33.257</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
         <span id="headerViewerCount"><strong>0</strong> viewers</span>
-        <span id="headerListenerWrap" title="Phones playing the show audio right now"> · <span id="headerListenerCount"><strong>0</strong> listening</span></span>
+        <span id="headerListenerWrap"><span class="header-sep" aria-hidden="true">·</span><span id="headerListenerCount" title="Phones playing the show audio right now"><strong>0</strong> listening</span></span>
         <span>·</span>
         <span><span id="headerPluginDot" class="plugin-dot offline"></span> <span id="headerPluginText">plugin</span></span>
       </span>

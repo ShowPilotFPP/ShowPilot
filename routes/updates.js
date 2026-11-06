@@ -52,7 +52,8 @@ async function buildStatusResponse({ force }) {
   return {
     currentVersion: current,
     latestVersion: latestTag,
-    latestRelease: check.latest,
+    latestRelease: check.latest ? { ...check.latest, notes: undefined } : null,
+    whatsNew: updateAvailable ? whatsNew(check.latest && check.latest.notes, current, latestTag) : [],
     updateAvailable,
     updaterAvailable: updater.isUpdaterAvailable(),
     supervisor: supervisor.detectSupervisor(),
@@ -84,6 +85,33 @@ async function buildStatusResponse({ force }) {
 // Dashboard banner (beta.19+): is a newer ShowPilot out? Answers at once
 // from the last check (see updater.notice()). Docker installs are told to
 // pull the new image; demo mode never shows it.
+// "What's new" (v0.33.259): the changelog of every release newer than this
+// install, up to the one it would update to, newest first. Each release body
+// is its changelog (title line, "- " bullets, then Source / credit lines);
+// only the title and the bullets are shown.
+const NOTE_SKIP = /^(source:|co-authored-by:|claude-session:|signed-off-by:|mirrored to |main only|🤖|https?:\/\/)/i;
+function parseReleaseNote(n) {
+  const lines = String(n.body || '').split(/\r?\n/).map(l => l.trim());
+  let title = '';
+  const items = [];
+  for (const l of lines) {
+    if (!l || NOTE_SKIP.test(l)) continue;
+    const bullet = /^[-*•]\s+(.*)$/.exec(l);
+    if (bullet) { items.push(bullet[1]); continue; }
+    if (!title) { title = l.replace(/^v?\d+\.\d+\.\d+\s*[—–-]\s*/, ''); continue; }
+    if (items.length) items[items.length - 1] += ' ' + l; // wrapped bullet
+  }
+  return { version: String(n.tag).replace(/^v/, ''), title: title.slice(0, 200), items: items.slice(0, 25).map(s => s.slice(0, 600)), url: n.url, publishedAt: n.publishedAt };
+}
+function whatsNew(notes, current, latest) {
+  if (!Array.isArray(notes) || !latest) return [];
+  return notes
+    .filter(n => updater.compareVersions(n.tag, current) > 0 && updater.compareVersions(n.tag, latest) <= 0)
+    .slice(0, 15)
+    .map(parseReleaseNote)
+    .filter(n => n.title || n.items.length);
+}
+
 router.get('/notice', (req, res) => {
   if (config.demoMode) return res.json({ notice: null });
   const n = updater.notice();

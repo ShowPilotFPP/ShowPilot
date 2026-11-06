@@ -1788,10 +1788,25 @@ router.post('/designer/render-block', requireAdmin, (req, res) => {
   const type = String((req.body && req.body.type) || '');
   const def = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, type) ? BLOCK_TYPES[type] : null;
   if (!def) return res.status(400).json({ error: 'Unknown block' });
+  // Settings for the block (v0.33.268+): only the block's own settings, as
+  // plain values or lists of plain values. They're kept on the wrapper so
+  // the Sections tab can show the block's settings again later.
+  const props = {};
+  const given = (req.body && typeof req.body.props === 'object' && req.body.props) || {};
+  const known = new Set([...Object.keys(def.defaultProps || {}), ...Object.keys(def.propTypes || {})]);
+  const plain = (v) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
+  for (const [k, v] of Object.entries(given)) {
+    if (!known.has(k)) continue;
+    if (plain(v)) props[k] = typeof v === 'string' ? v.slice(0, 5000) : v;
+    else if (Array.isArray(v) && v.length <= 100 && v.every(r => r && typeof r === 'object' && !Array.isArray(r) && Object.values(r).every(plain))) {
+      props[k] = v.map(r => Object.fromEntries(Object.entries(r).slice(0, 10).map(([a, b]) => [String(a).slice(0, 40), typeof b === 'string' ? b.slice(0, 2000) : b])));
+    }
+  }
   let inner;
-  try { inner = def.render({ ...def.defaultProps }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
+  try { inner = def.render({ ...def.defaultProps, ...props }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
   const name = String(def.label || type).replace(/--+|[<>]/g, '');
-  res.json({ html: '<div class="sp-added-block"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  res.json({ html: '<div class="sp-added-block" data-sp-block="' + esc(type) + '" data-sp-props="' + esc(JSON.stringify(props)) + '"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
 });
 
 // PATCH a draft for the active template (or one specified by ?id=).

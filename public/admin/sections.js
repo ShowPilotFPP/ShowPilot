@@ -126,6 +126,9 @@
   }
   function isFixed(node, src) {
     if (node.kind !== 'el') return true;
+    // A block added from the library stays editable even while it's empty
+    // (e.g. Social Links before any links are added).
+    if (/\bclass\s*=\s*["']sp-added-block["']/.test(node.open)) return false;
     if (['script', 'style', 'link', 'meta', 'noscript', 'template', 'base', 'title'].includes(node.name)) return node.name !== 'template' || !isHidden(src);
     const id = /\bid\s*=\s*["']?([^"'\s>]+)/i.exec(node.open);
     if (id && TOAST_IDS.has(id[1])) return true;

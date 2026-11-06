@@ -13,7 +13,9 @@
   <script src="/admin/ui-new.js?v=258"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=1"></script>
-  <script src="/admin/sections.js?v=2"></script>
+  <script src="/admin/sections.js?v=3"></script>
+  <script src="/admin/social-icons.js?v=1"></script>
+  <script src="/admin/block-editors.js?v=1"></script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -769,6 +771,29 @@
       width: 100%;
       font-size: 0.85rem;
     }
+    /* List settings editor (v0.33.268+, public/admin/block-editors.js) */
+    .spbe { display: flex; flex-direction: column; gap: 0.5rem; }
+    .spbe-row { border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg-elevated, rgba(255,255,255,.03)); }
+    .spbe-row-head { display: flex; align-items: center; gap: 0.45rem; }
+    .spbe-row-head select { flex: 1; min-width: 0; width: auto; font-size: 0.85rem; }
+    .spbe-num { font-weight: 700; font-size: 0.8rem; color: var(--text-muted); flex: 1; }
+    .spbe-ctl { display: inline-flex; gap: 0.2rem; margin-left: auto; }
+    .spbe-ctl button { padding: 0.15rem 0.45rem; font-size: 0.8rem; line-height: 1.2; }
+    .spbe-del { color: #ef4444 !important; }
+    .spbe label.spbe-lbl, .spbe .spbe-lbl { font-size: 0.75rem; color: var(--text-muted); display: block; margin: 0.4rem 0 0.15rem; }
+    .spbe input[type="text"], .spbe textarea { width: 100%; font-size: 0.85rem; box-sizing: border-box; }
+    .spbe-add { align-self: flex-start; font-size: 0.85rem; }
+    .spbe-empty { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+    .spbe-ico, .spbe-noicon { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+    .spbe-noicon { border: 1px dashed var(--text-muted); color: var(--text-muted); font-size: 0.8rem; }
+    .spbe-iconbtn, .spbe-iconbtn:hover { background: transparent !important; }
+    .spbe-iconbtn { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 2px 4px; cursor: pointer; color: var(--text-muted); }
+    .spbe-iconbtn:hover { border-color: var(--border, rgba(255,255,255,.2)); }
+    .spbe-iconbtn small { font-size: 0.65rem; }
+    .spbe-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; margin-top: 0.5rem; padding: 0.4rem; border-radius: 8px; background: var(--bg, rgba(0,0,0,.2)); }
+    .spbe-picker button { background: transparent; border: 2px solid transparent; border-radius: 50%; padding: 2px; cursor: pointer; display: inline-flex; justify-content: center; }
+    .spbe-picker button:hover { border-color: var(--text-muted); }
+    .spbe-picker button.on { border-color: var(--accent, #dc2626); }
     #blocksCanvas:empty::before {
       content: 'Drag blocks from the library to start building. Or click + on a block.';
       display: block;
@@ -2036,7 +2061,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.267</span>
+        <span class="app-version">v0.33.268</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -10926,6 +10951,16 @@
       });
       if (!shownAny) html = picker(A.length);
       list.innerHTML = html;
+      // List settings of an open block section (v0.33.268+).
+      list.querySelectorAll('.sp-list-editor').forEach((el) => {
+        const i = Number(String(el.dataset.ctx).slice(4)), key = el.dataset.key;
+        const blk = secBlockInfo(secModel.sections[i] && secModel.sections[i].src);
+        if (!blk || !window.SPBlockEditors) return;
+        SPBlockEditors.mount(el, blk.def.propTypes[key], blk.props[key], (v) => {
+          secBlockProp(i, key, v);
+          if (blk.def.type === 'socialLinks' && key === 'links') for (const k of ['facebook', 'instagram', 'youtube']) if (blk.props[k]) secBlockProp(i, k, '');
+        }, blk.props);
+      });
     }
     function fixedName(src) {
       const t = (/^<\s*([a-z0-9-]+)/i.exec(src) || [])[1] || '';
@@ -10935,8 +10970,63 @@
       if (id) return 'Pop-up message: ' + id;
       return 'Decoration <' + t.toLowerCase() + '> (kept in place)';
     }
+    // A block added from the library (v0.33.268+): its type and settings
+    // live on the wrapper <div class="sp-added-block" data-sp-block
+    // data-sp-props>. Blocks added before that only carry the
+    // <!-- sp-added: Label --> comment; they get the block's default
+    // settings, and changing one rebuilds the section.
+    function secBlockInfo(src) {
+      const m = /^\s*<div class="sp-added-block"([^>]*)>\s*<!--\s*sp-added:\s*([^>]*?)\s*-->/.exec(src || '');
+      if (!m) return null;
+      const t = /data-sp-block="([^"]*)"/.exec(m[1]);
+      const pr = /data-sp-props="([^"]*)"/.exec(m[1]);
+      const type = t ? SPSections.decode(t[1]) : (blockTypes.find((b) => b.label === m[2]) || {}).type;
+      const def = blockTypes.find((b) => b.type === type);
+      if (!def) return null;
+      let props = {};
+      if (pr) { try { props = JSON.parse(SPSections.decode(pr[1])) || {}; } catch (_) { props = {}; } }
+      const keys = Object.keys(def.defaultProps || {}).filter((k) => !(def.propTypes && def.propTypes[k] && def.propTypes[k].type === 'hidden'));
+      if (!keys.length) return null;
+      return { def, props: { ...(def.defaultProps || {}), ...props }, saved: !!pr };
+    }
+    let secBlkPending = null;   // { i, props, timer } while a rebuild is waiting
+    function secBlockProp(i, key, value) {
+      if (_isLocked) return;
+      const x = secModel.sections[i];
+      const info = secBlockInfo(x && x.src);
+      if (!info) return;
+      if (!secBlkPending || secBlkPending.i !== i) secBlkPending = { i, props: { ...info.props }, timer: null };
+      secBlkPending.props[key] = value;
+      clearTimeout(secBlkPending.timer);
+      secBlkPending.timer = setTimeout(async () => {
+        const pend = secBlkPending; secBlkPending = null;
+        if (!pend) return;
+        const r = await api('/designer/render-block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: info.def.type, props: pend.props }) });
+        if (!r.ok || typeof r.data?.html !== 'string') { showAlert(r.data?.error || 'Could not update that block'); return; }
+        const sec = secModel.sections[pend.i];
+        if (!sec) return;
+        if (!secTypingSnap) { secSnapshot(); secTypingSnap = true; }
+        sec.src = r.data.html;
+        secRuns = null;
+        const ta = document.getElementById('secHtml');
+        if (ta && secOpen === pend.i) ta.value = sec.src;
+        secApply();
+      }, 350);
+    }
     function secBodyHtml(i) {
       const x = secModel.sections[i];
+      const blk = secBlockInfo(x.src);
+      if (blk) {
+        let h = '<div class="sec-body"><p class="sec-note" style="margin-top:0;"><b>' + escapeHtml(blk.def.label) + ' settings.</b> ' +
+          (blk.saved ? 'Changes show in the preview right away.' : 'This block was added before its settings could be changed here. Changing one rebuilds the block, which replaces any text you changed in it.') + '</p>';
+        const pt = blk.def.propTypes || {};
+        h += '<div class="of-block-body expanded sec-blk-form">' + Object.entries(blk.props).map(([key, value]) =>
+          blockPropFieldHtml(key, value, pt[key], (expr) => 'secBlockProp(' + i + ', \'' + escapeAttr(key) + '\', ' + expr + ')', 'sec:' + i)).join('') + '</div>';
+        h += '<details style="margin-top:0.6rem;"><summary class="sec-note" style="cursor:pointer;">Edit HTML of this section</summary>' +
+          '<textarea id="secHtml" class="sec-html" spellcheck="false" oninput="secOnHtml(' + i + ',this)" onblur="secHtmlBlur()"' + (_isLocked ? ' disabled' : '') + '>' + escapeHtml(x.src) + '</textarea>' +
+          '<p class="sec-note">Editing the HTML by hand is fine; changing a setting above rebuilds the block from its settings.</p></details>';
+        return h + '</div>';
+      }
       if (!secRuns) secRuns = SPSections.textRuns(x.src);
       let h = '<div class="sec-body">';
       if (!secRuns.length) h += '<p class="sec-note">No plain text to change here (it may be pictures or live show info). Use Edit HTML below for anything else.</p>';
@@ -11077,6 +11167,84 @@
       body.classList.toggle('expanded');
     }
 
+    // One block setting as a form field (shared by the Blocks tab and, from
+    // v0.33.268, the Sections tab). call(expr) returns the inline handler
+    // that saves the JS expression's value; ctx tags list editors so the
+    // caller can mount them after rendering.
+    function blockPropFieldHtml(key, value, declaredType, call, ctx) {
+      // A setting can name itself (propTypes[key].label, v0.33.268+).
+      const ownLabel = declaredType && declaredType.label;
+      const prettifyKey = (k) => ownLabel || prettifyKeyBase(k);
+      if (declaredType && declaredType.type === 'color') declaredType = null; // colour picker via inference below
+      // Hidden (older settings a newer one replaced) and list settings
+      // (v0.33.268+, mounted by SPBlockEditors after the cards render).
+      if (declaredType && declaredType.type === 'hidden') return '';
+      if (declaredType && (declaredType.type === 'rows' || declaredType.type === 'socialLinks')) {
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <div class="sp-list-editor" data-ctx="${escapeAttr(ctx)}" data-key="${escapeAttr(key)}"></div>`;
+      }
+
+      // Declared enum → <select>.
+      if (declaredType && declaredType.type === 'enum' && Array.isArray(declaredType.options)) {
+        const options = declaredType.options.map(opt => {
+          const optVal = escapeAttr(opt.value);
+          const optLbl = escapeHtml(opt.label != null ? opt.label : opt.value);
+          const sel = (opt.value === value) ? ' selected' : '';
+          return `<option value="${optVal}"${sel}>${optLbl}</option>`;
+        }).join('');
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <select onchange="${call("this.value")}">${options}</select>`;
+      }
+
+      // Declared number → <input type="number">. Coerce to Number on
+      // input so block render() functions don't have to defensively
+      // parseFloat. Empty string sends null so the default kicks back in.
+      if (declaredType && declaredType.type === 'number') {
+        const minAttr  = (typeof declaredType.min === 'number')  ? ` min="${declaredType.min}"`   : '';
+        const maxAttr  = (typeof declaredType.max === 'number')  ? ` max="${declaredType.max}"`   : '';
+        const stepAttr = (typeof declaredType.step === 'number') ? ` step="${declaredType.step}"` : '';
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <input type="number" value="${escapeAttr(value == null ? '' : value)}"${minAttr}${maxAttr}${stepAttr}
+                 oninput="${call("this.value === '' ? null : Number(this.value)")}" />`;
+      }
+
+      // Declared lines / time / datetime (v0.33.265).
+      if (declaredType && declaredType.type === 'lines') {
+        return `<label>${escapeHtml(prettifyKey(key))} <small style="opacity:.7;font-weight:400;">(one per line)</small></label>
+          <textarea rows="5" oninput="${call("this.value")}">${escapeHtml(value || '')}</textarea>`;
+      }
+      if (declaredType && (declaredType.type === 'time' || declaredType.type === 'datetime')) {
+        const it = declaredType.type === 'time' ? 'time' : 'datetime-local';
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <input type="${it}" value="${escapeAttr(value || '')}"
+                 onchange="${call("this.value")}" />`;
+      }
+
+      // Auto-inference fallback (the original behavior).
+      const isColor = typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+      const isBool = typeof value === 'boolean';
+      const isLong = typeof value === 'string' && value.length > 60;
+      if (isBool) {
+        return `<label style="display:flex; gap:0.4rem; align-items:center;">
+          <input type="checkbox" ${value ? 'checked' : ''} style="width:auto; margin:0;"
+                 onchange="${call("this.checked")}" />
+          <span>${escapeHtml(prettifyKey(key))}</span>
+        </label>`;
+      }
+      if (isColor) {
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <input type="color" value="${escapeAttr(value)}"
+                 oninput="${call("this.value")}" />`;
+      }
+      if (isLong) {
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <textarea rows="3" oninput="${call("this.value")}">${escapeHtml(value)}</textarea>`;
+      }
+      return `<label>${escapeHtml(prettifyKey(key))}</label>
+        <input type="text" value="${escapeAttr(value || '')}"
+               oninput="${call("this.value")}" />`;
+    }
+
     function renderBlocksCanvas() {
       const canvas = document.getElementById('blocksCanvas');
       if (!canvas) return;
@@ -11103,69 +11271,9 @@
         // render() merges the same defaults, so the shown value is the one
         // in effect.
         const shownProps = { ...((def && def.defaultProps) || {}), ...(b.props || {}) };
-        const propFields = Object.entries(shownProps).map(([key, value]) => {
-          const declaredType = propTypes[key];
-
-          // Declared enum → <select>.
-          if (declaredType && declaredType.type === 'enum' && Array.isArray(declaredType.options)) {
-            const options = declaredType.options.map(opt => {
-              const optVal = escapeAttr(opt.value);
-              const optLbl = escapeHtml(opt.label != null ? opt.label : opt.value);
-              const sel = (opt.value === value) ? ' selected' : '';
-              return `<option value="${optVal}"${sel}>${optLbl}</option>`;
-            }).join('');
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <select onchange="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)">${options}</select>`;
-          }
-
-          // Declared number → <input type="number">. Coerce to Number on
-          // input so block render() functions don't have to defensively
-          // parseFloat. Empty string sends null so the default kicks back in.
-          if (declaredType && declaredType.type === 'number') {
-            const minAttr  = (typeof declaredType.min === 'number')  ? ` min="${declaredType.min}"`   : '';
-            const maxAttr  = (typeof declaredType.max === 'number')  ? ` max="${declaredType.max}"`   : '';
-            const stepAttr = (typeof declaredType.step === 'number') ? ` step="${declaredType.step}"` : '';
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <input type="number" value="${escapeAttr(value == null ? '' : value)}"${minAttr}${maxAttr}${stepAttr}
-                     oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value === '' ? null : Number(this.value))" />`;
-          }
-
-          // Declared lines / time / datetime (v0.33.265).
-          if (declaredType && declaredType.type === 'lines') {
-            return `<label>${escapeHtml(prettifyKey(key))} <small style="opacity:.7;font-weight:400;">(one per line)</small></label>
-              <textarea rows="5" oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)">${escapeHtml(value || '')}</textarea>`;
-          }
-          if (declaredType && (declaredType.type === 'time' || declaredType.type === 'datetime')) {
-            const it = declaredType.type === 'time' ? 'time' : 'datetime-local';
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <input type="${it}" value="${escapeAttr(value || '')}"
-                     onchange="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
-          }
-
-          // Auto-inference fallback (the original behavior).
-          const isColor = typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
-          const isBool = typeof value === 'boolean';
-          const isLong = typeof value === 'string' && value.length > 60;
-          if (isBool) {
-            return `<label style="display:flex; gap:0.4rem; align-items:center;">
-              <input type="checkbox" ${value ? 'checked' : ''} style="width:auto; margin:0;"
-                     onchange="updateBlockProp(${idx}, '${escapeAttr(key)}', this.checked)" />
-              <span>${escapeHtml(prettifyKey(key))}</span>
-            </label>`;
-          }
-          if (isColor) {
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <input type="color" value="${escapeAttr(value)}"
-                     oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
-          }
-          if (isLong) {
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <textarea rows="3" oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)">${escapeHtml(value)}</textarea>`;
-          }
-          return `<label>${escapeHtml(prettifyKey(key))}</label>
-            <input type="text" value="${escapeAttr(value || '')}"
-                   oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
-        }).join('');
+        const propFields = Object.entries(shownProps).map(([key, value]) =>
+          blockPropFieldHtml(key, value, propTypes[key], (expr) => `updateBlockProp(${idx}, '${escapeAttr(key)}', ${expr})`, 'blk:' + idx)
+        ).join('');
         // Only the header is draggable, not the whole card. Earlier versions
         // had draggable="true" on the card, which made the browser's native
         // drag-handler intercept click-and-drag inside any input/textarea
@@ -11194,8 +11302,25 @@
           </div>
         `;
       }).join('');
+      // List settings get their own small editor (v0.33.268+).
+      canvas.querySelectorAll('.sp-list-editor').forEach((el) => {
+        const idx = Number(String(el.dataset.ctx).slice(4)), key = el.dataset.key;
+        const b = currentBlocks[idx];
+        const def = blockTypes.find(t => t.type === b.type);
+        const props = { ...((def && def.defaultProps) || {}), ...(b.props || {}) };
+        if (!window.SPBlockEditors) return;
+        SPBlockEditors.mount(el, def.propTypes[key], props[key], (v) => {
+          updateBlockProp(idx, key, v);
+          // Social Links' older per-site settings are folded into the list
+          // now; clear them so a removed link doesn't come back.
+          if (b.type === 'socialLinks' && key === 'links') {
+            for (const k of ['facebook', 'instagram', 'youtube']) if (currentBlocks[idx].props && currentBlocks[idx].props[k]) updateBlockProp(idx, k, '');
+          }
+        }, props);
+      });
     }
 
+    function prettifyKeyBase(k) { return prettifyKey(k); }
     function prettifyKey(k) {
       return k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
     }

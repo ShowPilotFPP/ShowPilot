@@ -1021,8 +1021,21 @@
       if (h > 0) return h + ':' + p2(m) + ':' + p2(sec);
       return m + ':' + p2(sec);
     }
-    function tickCountdowns() {
+    // "Now" as the show's wall clock (v0.33.268+). Countdown times are the
+    // show's local times, so a visitor in another time zone sees the right
+    // countdown. Falls back to the phone's own clock.
+    function showNow() {
       const now = new Date();
+      const tz = window.__SHOWPILOT__ && window.__SHOWPILOT__.showTimezone;
+      if (!tz) return now;
+      try {
+        const parts = {};
+        for (const x of new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(now)) parts[x.type] = x.value;
+        return new Date(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second, now.getMilliseconds());
+      } catch (e) { return now; }
+    }
+    function tickCountdowns() {
+      const now = showNow();
       document.querySelectorAll('[data-showpilot-countdown]').forEach(el => {
         const st = countdownState(el, now);
         const time = el.querySelector('[data-showpilot-countdown-time]');

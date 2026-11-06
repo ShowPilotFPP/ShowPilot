@@ -49,13 +49,27 @@ async function buildStatusResponse({ force }) {
     if (head && head !== betaCheck.beta.sha) betaAvailable = true;
   }
 
+  // The newest release's notes missing from the (cached) list: fetch them
+  // directly, once, and keep them with the cached check (v0.33.261).
+  const notes = check.latest && Array.isArray(check.latest.notes) ? check.latest.notes : null;
+  if (updateAvailable && notes && latestTag && !notes.some(n => updater.compareVersions(n.tag, latestTag) === 0) && !check.latest._noteTried) {
+    check.latest._noteTried = true;
+    try {
+      const n = await updater.fetchReleaseNote(latestTag);
+      if (n) notes.unshift(n);
+    } catch (_) { /* shown as "notes not on GitHub yet" */ }
+  }
+  const newList = updateAvailable ? whatsNew(notes, current, latestTag) : recentNotes(notes, current);
+
   return {
     currentVersion: current,
     latestVersion: latestTag,
-    latestRelease: check.latest ? { ...check.latest, notes: undefined } : null,
+    latestRelease: check.latest ? { ...check.latest, notes: undefined, _noteTried: undefined } : null,
     // With an update waiting: what it brings. Up to date: what's in the
     // installed version, then a few earlier ones (v0.33.260).
-    whatsNew: updateAvailable ? whatsNew(check.latest && check.latest.notes, current, latestTag) : recentNotes(check.latest && check.latest.notes, current),
+    whatsNew: newList,
+    // An update with no notes found anywhere yet (just shipped): the page says so.
+    whatsNewPending: updateAvailable && !newList.some(n => latestTag && updater.compareVersions(n.version, latestTag) === 0),
     whatsNewInstalled: !updateAvailable,
     updateAvailable,
     updaterAvailable: updater.isUpdaterAvailable(),

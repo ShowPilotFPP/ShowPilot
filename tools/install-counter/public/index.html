@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ShowPilot Installs</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0f1115">
 <link rel="stylesheet" href="jsvectormap.min.css">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#e3e6eb;--accent:#2563eb;--accent2:#d97706;--map-empty:#e6e9ee}
@@ -31,11 +34,19 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 .muted{color:var(--muted);font-size:.85rem}
 .scroll{max-height:320px;overflow:auto}
 svg text{fill:var(--muted);font-size:11px}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);margin-left:8px;vertical-align:middle;font-weight:500}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.live.on i{background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.6);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.6)}70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+.bump{animation:bump 1.2s ease-out}
+@keyframes bump{0%{color:var(--accent);transform:scale(1.15)}100%{color:inherit;transform:scale(1)}}
+.kpi .value{display:inline-block;transform-origin:left center}
+@media (prefers-reduced-motion: reduce){.live.on i,.bump{animation:none}}
 </style>
 </head>
 <body>
 <main>
-  <h1>ShowPilot installs</h1>
+  <h1>ShowPilot installs <span class="live" id="live" title="Updates as installs check in"><i></i><span id="liveText">Connecting…</span></span></h1>
   <p class="sub" id="sub">Loading…</p>
   <div class="grid">
     <div class="card kpi"><div class="label">Running now</div><div class="value" id="kActive">–</div><div class="note">checked in within 30 days</div></div>
@@ -63,65 +74,103 @@ svg text{fill:var(--muted);font-size:11px}
 <script src="jsvectormap.min.js"></script>
 <script src="world.js"></script>
 <script>
-(async function(){
+(function(){
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const names = (typeof Intl !== 'undefined' && Intl.DisplayNames) ? new Intl.DisplayNames(['en'], { type: 'region' }) : null;
   const cname = c => { try { return names ? names.of(c) : c; } catch { return c; } };
-  const r = await fetch('api/stats' + location.search);
-  if (!r.ok) { document.getElementById('sub').textContent = 'Could not load stats.'; return; }
-  const s = await r.json();
-  document.getElementById('sub').textContent = 'Updated ' + new Date(s.generatedAt).toLocaleString() + ' · ' + s.seenThisYear + ' installs seen in the past year';
-  document.getElementById('kActive').textContent = s.active;
-  document.getElementById('kMain').textContent = s.products['showpilot'] || 0;
-  document.getElementById('kLite').textContent = s.products['showpilot-lite'] || 0;
-  document.getElementById('k7').textContent = s.activeLast7Days;
+  const $ = id => document.getElementById(id);
+  let map = null, mapKey = '';
 
-  const shared = Object.values(s.countries).reduce((a,b)=>a+b,0);
-  document.getElementById('countryNote').textContent = shared + ' of ' + s.active + ' installs share their location' + (s.countryHidden ? ' (' + s.countryHidden + ' keep it private).' : '.') + (s.towns.length ? ' Dots are towns.' : '');
-  const cb = document.querySelector('#tCountry tbody');
-  const entries = Object.entries(s.countries).sort((a,b)=>b[1]-a[1]);
-  cb.innerHTML = entries.length ? entries.map(([c,n]) => '<tr><td>' + esc(cname(c)) + '</td><td class="n">' + n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a country yet.</td></tr>';
-  if (s.countryHidden) cb.innerHTML += '<tr><td class="muted">Not shared</td><td class="n muted">' + s.countryHidden + '</td></tr>';
+  // Set a number; briefly highlight it when it changes (not on first load).
+  function setNum(id, v, first) {
+    const el = $(id);
+    if (!first && el.textContent !== String(v)) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+    el.textContent = v;
+  }
 
-  const rb = document.querySelector('#tRegion tbody');
-  rb.innerHTML = s.regions.length ? s.regions.map(r => '<tr><td>' + esc(r.region) + ', ' + esc(r.country) + '</td><td class="n">' + r.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a state yet.</td></tr>';
-  const tb = document.querySelector('#tTown tbody');
-  tb.innerHTML = s.towns.length ? s.towns.map(t => '<tr><td>' + esc(t.city) + (t.region ? ', ' + esc(t.region) : '') + ', ' + esc(t.country) + '</td><td class="n">' + t.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a town yet.</td></tr>';
+  function drawMap(s, entries) {
+    const key = JSON.stringify([entries, s.towns]);
+    if (key === mapKey) return;           // nothing on the map changed
+    mapKey = key;
+    try {
+      if (map) { map.destroy(); map = null; }
+      $('map').innerHTML = '';
+      const values = {}; for (const [c,n] of entries) values[c] = n;
+      map = new jsVectorMap({
+        selector: '#map', map: 'world', zoomButtons: true, zoomOnScroll: false,
+        regionStyle: { initial: { fill: css('--map-empty'), stroke: css('--card'), strokeWidth: 0.4 }, hover: { fillOpacity: 0.8 } },
+        // Light to dark blue by installs (square-root so small countries still show).
+        // ZZ is not a real region: it pins the low end of the scale at 0.
+        visualizeData: { scale: ['#bfdbfe', '#1d4ed8'], values: Object.assign({ ZZ: 0 }, Object.fromEntries(entries.map(([c, n]) => [c, Math.sqrt(n)]))) },
+        markers: s.towns.map(t => ({ name: t.city + (t.region ? ', ' + t.region : '') + ' — ' + t.n + (t.n === 1 ? ' install' : ' installs'), coords: [t.lat, t.lon] })),
+        markerStyle: { initial: { fill: css('--accent2'), stroke: css('--card'), strokeWidth: 1.5, r: 5 }, hover: { fill: css('--accent2'), stroke: css('--text') } },
+        onRegionTooltipShow(e, tip, code) { tip.text(tip.text() + ' — ' + (values[code] || 0) + ((values[code] || 0) === 1 ? ' install' : ' installs')); },
+      });
+    } catch (e) { $('map').textContent = 'Map could not load.'; }
+  }
 
-  const vb = document.querySelector('#tVersion tbody');
-  vb.innerHTML = s.versions.length ? s.versions.map(v => '<tr><td>' + (v.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + '</td><td>' + esc(v.version) + '</td><td class="n">' + v.n + '</td></tr>').join('') : '<tr><td colspan="3" class="muted">No installs yet.</td></tr>';
-
-  try {
-    const values = {}; for (const [c,n] of entries) values[c] = n;
-    new jsVectorMap({
-      selector: '#map', map: 'world', zoomButtons: true, zoomOnScroll: false,
-      regionStyle: { initial: { fill: css('--map-empty'), stroke: css('--card'), strokeWidth: 0.4 }, hover: { fillOpacity: 0.8 } },
-      // Light to dark blue by installs (square-root so small countries still show).
-      // ZZ is not a real region: it pins the low end of the scale at 0.
-      visualizeData: { scale: ['#bfdbfe', '#1d4ed8'], values: Object.assign({ ZZ: 0 }, Object.fromEntries(entries.map(([c, n]) => [c, Math.sqrt(n)]))) },
-      markers: s.towns.map(t => ({ name: t.city + (t.region ? ', ' + t.region : '') + ' — ' + t.n + (t.n === 1 ? ' install' : ' installs'), coords: [t.lat, t.lon] })),
-      markerStyle: { initial: { fill: css('--accent2'), stroke: css('--card'), strokeWidth: 1.5, r: 5 }, hover: { fill: css('--accent2'), stroke: css('--text') } },
-      onRegionTooltipShow(e, tip, code) { tip.text(tip.text() + ' — ' + (values[code] || 0) + ((values[code] || 0) === 1 ? ' install' : ' installs')); },
-    });
-  } catch (e) { document.getElementById('map').textContent = 'Map could not load.'; }
-
-  // Trend: one line per product, plain SVG.
-  const days = [...new Set(s.trend.map(t => t.day))];
-  if (days.length >= 2) {
+  function drawTrend(s) {
+    const days = [...new Set(s.trend.map(t => t.day))];
+    if (days.length < 2) return;
     const W = 960, H = 160, P = 24, max = Math.max(1, ...s.trend.map(t => t.active));
     const x = i => P + i * (W - 2*P) / (days.length - 1), y = v => H - P - v * (H - 2*P) / max;
     const line = (prod, color) => {
       const pts = days.map((d,i) => { const t = s.trend.find(t => t.day === d && t.product === prod); return x(i) + ',' + y(t ? t.active : 0); }).join(' ');
       return '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' + pts + '"/>';
     };
-    document.getElementById('trend').innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Active installs over time">'
+    $('trend').innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Active installs over time">'
       + '<line x1="' + P + '" y1="' + (H-P) + '" x2="' + (W-P) + '" y2="' + (H-P) + '" stroke="' + css('--line') + '"/>'
       + line('showpilot', css('--accent')) + line('showpilot-lite', css('--accent2'))
       + '<text x="' + P + '" y="' + (H-6) + '">' + days[0] + '</text><text x="' + (W-P) + '" y="' + (H-6) + '" text-anchor="end">' + days[days.length-1] + '</text>'
       + '<text x="' + P + '" y="14">max ' + max + '</text></svg>'
       + '<div class="muted"><span style="color:' + css('--accent') + '">■</span> ShowPilot &nbsp; <span style="color:' + css('--accent2') + '">■</span> Lite</div>';
   }
+
+  let first = true;
+  function render(s) {
+    $('sub').textContent = 'Updated ' + new Date(s.generatedAt).toLocaleTimeString() + ' · ' + s.seenThisYear + (s.seenThisYear === 1 ? ' install' : ' installs') + ' seen in the past year';
+    setNum('kActive', s.active, first);
+    setNum('kMain', s.products['showpilot'] || 0, first);
+    setNum('kLite', s.products['showpilot-lite'] || 0, first);
+    setNum('k7', s.activeLast7Days, first);
+
+    const entries = Object.entries(s.countries).sort((a,b)=>b[1]-a[1]);
+    const shared = entries.reduce((a,[,n])=>a+n,0);
+    $('countryNote').textContent = shared + ' of ' + s.active + (s.active === 1 ? ' install shares its location' : ' installs share their location') + (s.countryHidden ? ' (' + s.countryHidden + ' keep it private).' : '.') + (s.towns.length ? ' Dots are towns.' : '');
+    const cb = document.querySelector('#tCountry tbody');
+    cb.innerHTML = (entries.length ? entries.map(([c,n]) => '<tr><td>' + esc(cname(c)) + '</td><td class="n">' + n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a country yet.</td></tr>')
+      + (s.countryHidden ? '<tr><td class="muted">Not shared</td><td class="n muted">' + s.countryHidden + '</td></tr>' : '');
+    document.querySelector('#tRegion tbody').innerHTML = s.regions.length ? s.regions.map(r => '<tr><td>' + esc(r.region) + ', ' + esc(r.country) + '</td><td class="n">' + r.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a state yet.</td></tr>';
+    document.querySelector('#tTown tbody').innerHTML = s.towns.length ? s.towns.map(t => '<tr><td>' + esc(t.city) + (t.region ? ', ' + esc(t.region) : '') + ', ' + esc(t.country) + '</td><td class="n">' + t.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a town yet.</td></tr>';
+    document.querySelector('#tVersion tbody').innerHTML = s.versions.length ? s.versions.map(v => '<tr><td>' + (v.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + '</td><td>' + esc(v.version) + '</td><td class="n">' + v.n + '</td></tr>').join('') : '<tr><td colspan="3" class="muted">No installs yet.</td></tr>';
+
+    drawMap(s, entries);
+    drawTrend(s);
+    first = false;
+  }
+
+  function setLive(on, text) { $('live').classList.toggle('on', on); $('liveText').textContent = text; }
+
+  async function load() {
+    const r = await fetch('api/stats' + location.search, { cache: 'no-store' });
+    if (!r.ok) { $('sub').textContent = 'Could not load stats.'; return; }
+    render(await r.json());
+  }
+
+  // Live updates: the server pushes fresh numbers whenever an install checks
+  // in. If the stream drops, the browser reconnects on its own; while it's
+  // down we fall back to refreshing once a minute.
+  let fallback = null;
+  function connect() {
+    if (!window.EventSource) { setLive(false, 'Refreshes every minute'); fallback = setInterval(load, 60000); return; }
+    const es = new EventSource('api/live' + location.search);
+    es.addEventListener('stats', ev => { try { render(JSON.parse(ev.data)); } catch {} });
+    es.onopen = () => { setLive(true, 'Live'); if (fallback) { clearInterval(fallback); fallback = null; } };
+    es.onerror = () => { setLive(false, 'Reconnecting…'); if (!fallback) fallback = setInterval(load, 60000); };
+  }
+
+  load().then(connect);
 })();
 </script>
 </body>

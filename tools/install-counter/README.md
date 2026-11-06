@@ -54,6 +54,7 @@ and opening `/?key=yourkey`.
 | `POST /ping` | Check-in from an install (204, no body) |
 | `GET /` | Stats page: totals, ShowPilot vs Lite, versions, map, countries, states, towns, trend |
 | `GET /api/stats` | The same numbers as JSON |
+| `GET /api/live` | Live updates for the stats page (Server-Sent Events; pushes new numbers whenever an install checks in) |
 
 "Running" means checked in within the last 30 days. Daily totals are saved
 for the trend line.

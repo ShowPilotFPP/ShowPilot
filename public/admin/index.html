@@ -572,10 +572,14 @@
     .sec-body input[type=text], .sec-body textarea { width: 100%; box-sizing: border-box; }
     .sec-body textarea.sec-html { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; min-height: 180px; }
     .sec-note { font-size: 0.78rem; color: var(--text-muted); margin: 0.3rem 0; }
-    .sec-gap { display: flex; justify-content: center; height: 14px; align-items: center; position: relative; }
-    .sec-gap button { opacity: 0.3; transition: opacity 0.12s; font-size: 0.7rem; padding: 0 0.5rem; line-height: 1.3; border-radius: 999px; margin: 0; }
-    .sec-gap:hover button, .sec-gap.open button, .sec-gap button:focus-visible { opacity: 1; }
-    .sec-gap.always button { opacity: 0.85; }
+    .sec-gap { display: flex; justify-content: center; height: 32px; align-items: center; position: relative; }
+    /* Dashed pill in the theme's accent colour, so it's clear there's a button
+       between sections; fills in on hover or while its picker is open. */
+    .sec-gap button.secondary { font-size: 0.72rem; font-weight: 600; padding: 0.1rem 0.75rem; line-height: 1.3; border-radius: 999px; margin: 0;
+      color: var(--accent, #dc2626); background: var(--accent-soft, rgba(220,38,38,0.15)); border: 1px dashed var(--accent, #dc2626);
+      transition: background 0.12s, color 0.12s; }
+    .sec-gap button.secondary:hover, .sec-gap.open button.secondary, .sec-gap button.secondary:focus-visible {
+      color: var(--accent-text, #fff); background: var(--accent, #dc2626); border-style: solid; }
     .sec-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.35rem; padding: 0.5rem; margin: 0.25rem 0 0.5rem; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg-input); }
     .sec-picker button { text-align: left; font-size: 0.8rem; padding: 0.35rem 0.5rem; margin: 0; }
     .sec-picker button small { display: block; font-weight: 400; opacity: 0.7; font-size: 0.7rem; }
@@ -1968,7 +1972,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.258-beta.2</span>
+        <span class="app-version">v0.33.258-beta.3</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>

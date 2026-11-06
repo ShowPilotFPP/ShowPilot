@@ -615,6 +615,13 @@ sudo systemctl restart showpilot
 
 ---
 
+## Anonymous install count
+
+Once a day ShowPilot sends an anonymous check-in so we know how many installs are running and which versions they use. It sends only a random ID made on your install, the product name (ShowPilot or ShowPilot-Lite) and the version. No show name, URL, IP address or settings, and nothing is sent back. You can see the exact message in **Settings → General → Install count**.
+
+- **Turn it off:** untick *Count this install* there, or set `installCount: false` in `config.js`, or set the environment variable `SHOWPILOT_NO_INSTALL_COUNT=1` (Docker: add it under `environment:`). `DO_NOT_TRACK=1` also works.
+- **Show map (optional, off by default):** pick *Country*, *State / region* or *Town* to put your show on the public map. ShowPilot still sends no location; the counter uses an approximate lookup of the connection and keeps only the level you chose.
+
 ## Backups
 
 The whole application state lives in two places:

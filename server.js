@@ -809,6 +809,9 @@ server.listen(config.port, config.host, () => {
   } catch (err) {
     console.error('[cloudflared] auto-start failed:', err.message);
   }
+
+  // Anonymous daily install count (see lib/install-count.js for exactly what's sent).
+  try { require('./lib/install-count').start(); } catch (err) { /* never block startup */ }
 });
 
 // Clean shutdown: tell the cloudflared supervisor to stop respawning

@@ -107,6 +107,13 @@ module.exports = {
   demoResetIntervalMinutes: 10,
   demoCredentialsHint: 'admin / admin',
 
+  // Anonymous install count (v0.33.266+). Once a day ShowPilot sends a
+  // random install ID, the product name and its version so we know how many
+  // installs are running — nothing else. Turn it off in
+  // Settings → General → Install count, or set this to false to lock it off.
+  // (The env var SHOWPILOT_NO_INSTALL_COUNT=1 also works.)
+  // installCount: false,
+
   // Logging
   logLevel: 'info', // 'debug' | 'info' | 'warn' | 'error'
 };

@@ -476,28 +476,29 @@ router.get('/state', (req, res) => {
   // not all operators want ShowPilot reaching into their FPP playlist.
   // Requires plugin v0.13.40+.
   if (cfg.cooldown_suppress_fpp_playlist === 1) {
+    // v0.33.258: tiered cooldowns in songs or minutes (lib/cooldown.js).
+    // A songs-based cooldown has no end time, so reenableAt is a generous
+    // estimate (10 minutes per song still to play); the patch is resent on
+    // every poll and turns into enabled:true as soon as the cooldown ends.
+    const cdLib = require('../lib/cooldown');
     const cooldownCandidates = db.prepare(`
-      SELECT name, last_played_at, cooldown_minutes
+      SELECT name, category, last_played_at, plays_since_hidden, cooldown_minutes, cooldown
       FROM sequences
-      WHERE cooldown_minutes > 0 AND last_played_at IS NOT NULL
+      WHERE last_played_at IS NOT NULL
     `).all();
-
-    if (cooldownCandidates.length > 0) {
-      const now = Date.now();
-      const patches = [];
-      for (const s of cooldownCandidates) {
-        const playedAt = new Date(s.last_played_at + 'Z').getTime();
-        const cooldownMs = s.cooldown_minutes * 60 * 1000;
-        const reenableAt = new Date(playedAt + cooldownMs).toISOString();
-        const inCooldown = now < (playedAt + cooldownMs);
-        patches.push({
-          sequenceName: s.name,
-          enabled: !inCooldown,
-          reenableAt: inCooldown ? reenableAt : null,
-        });
-      }
-      response.playlistPatches = patches;
+    const catMap = cdLib.categoryMap(cfg);
+    const now = Date.now();
+    const patches = [];
+    for (const s of cooldownCandidates) {
+      if (!(cdLib.effective(s, cfg, catMap) > 0)) continue;
+      const st = cdLib.status(s, cfg, catMap, now);
+      patches.push({
+        sequenceName: s.name,
+        enabled: !st,
+        reenableAt: st ? (st.until || new Date(now + st.left * 10 * 60_000).toISOString()) : null,
+      });
     }
+    if (patches.length > 0) response.playlistPatches = patches;
   }
 
   res.json(response);
@@ -795,14 +796,17 @@ router.post('/playing', (req, res) => {
     // an in-flight entry is the one currently playing or about to start
     // and shouldn't be removed. The cooldown timer itself is implicit:
     // last_played_at + cooldown_minutes is checked at request/voting time.
-    const seq = db.prepare(`SELECT id, cooldown_minutes, is_psa FROM sequences WHERE name = ?`).get(name);
-    if (seq && seq.cooldown_minutes > 0) {
+    // v0.33.258: the song's cooldown may come from itself, its category or
+    // the show-wide setting (lib/cooldown.js).
+    const seq = db.prepare(`SELECT id, category, cooldown_minutes, cooldown, is_psa FROM sequences WHERE name = ?`).get(name);
+    const seqCooldown = seq ? require('../lib/cooldown').effective(seq, getConfig()) : 0;
+    if (seq && seqCooldown > 0) {
       const purged = db.prepare(`
         DELETE FROM jukebox_queue
         WHERE sequence_id = ? AND played = 0 AND handed_off_at IS NULL
       `).run(seq.id);
       if (purged.changes > 0) {
-        console.log(`[cooldown] Purged ${purged.changes} queued copies of "${name}" (cooldown ${seq.cooldown_minutes}m)`);
+        console.log(`[cooldown] Purged ${purged.changes} queued copies of "${name}" (cooldown ${seqCooldown})`);
       }
     }
 

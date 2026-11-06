@@ -9,8 +9,8 @@
        the classic layout. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
-  <link rel="stylesheet" href="/admin/ui-new.css?v=258">
-  <script src="/admin/ui-new.js"></script>
+  <link rel="stylesheet" href="/admin/ui-new.css?v=2582">
+  <script src="/admin/ui-new.js?v=258"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=1"></script>
   <script src="/admin/sections.js?v=2"></script>
@@ -545,6 +545,17 @@
       background: var(--accent);
       color: #fff;
     }
+    .tpl-ref-link { align-self: center; font-size: 0.85rem; color: var(--text-muted); text-decoration: none; padding: 0.3rem 0.5rem; white-space: nowrap; }
+    .tpl-ref-link:hover { color: var(--accent); }
+    /* Song cooldown settings (v0.33.258) */
+    .cooldown-box { margin-top: 1rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); }
+    .cooldown-box code { font-size: 0.75rem; }
+    .cat-cooldown { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+    /* Cooldown numbers are 1–2 digits: narrow boxes, no spinner arrows. */
+    .cd-input, .cat-cooldown input, #cfg_cooldown_default { width: 3.2em !important; padding: 0.25rem 0.3rem !important; font-size: 0.9rem; text-align: center; -moz-appearance: textfield; appearance: textfield; }
+    .cd-input::-webkit-inner-spin-button, .cd-input::-webkit-outer-spin-button,
+    .cat-cooldown input::-webkit-inner-spin-button, .cat-cooldown input::-webkit-outer-spin-button,
+    #cfg_cooldown_default::-webkit-inner-spin-button, #cfg_cooldown_default::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     /* Sections editor (beta) */
     .sec-beta { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px; background: #7c3aed; color: #fff; vertical-align: middle; }
     .sec-intro { font-size: 0.85rem; color: var(--text-muted); background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; line-height: 1.45; }
@@ -1418,11 +1429,19 @@
        dropdown was squeezed to two letters). Below the min-width the table
        scrolls sideways instead of crushing columns. */
     #sequencesTable { width: 100%; min-width: 1400px; }
-    #sequencesTable th.col-display, #sequencesTable td.col-display { width: 23%; max-width: 0; }
-    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: 19%; max-width: 0; }
-    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: 17%; max-width: 0; }
-    #sequencesTable th.col-category, #sequencesTable td.col-category { width: 19%; max-width: 0; }
-    #sequencesTable th.col-badge, #sequencesTable td.col-badge { width: 14%; max-width: 0; }
+    /* Text columns: resizable by dragging their header's right edge
+       (v0.33.258, widths kept per browser); double-click the edge to reset.
+       Badge is narrower by default (labels are short). */
+    #sequencesTable { --w-display: 26%; --w-seqname: 19%; --w-artist: 17%; --w-category: 19%; --w-badge: 9%; }
+    #sequencesTable th.col-display, #sequencesTable td.col-display { width: var(--w-display); max-width: 0; }
+    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: var(--w-seqname); max-width: 0; }
+    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: var(--w-artist); max-width: 0; }
+    #sequencesTable th.col-category, #sequencesTable td.col-category { width: var(--w-category); max-width: 0; }
+    #sequencesTable th.col-badge, #sequencesTable td.col-badge { width: var(--w-badge); max-width: 0; }
+    #sequencesTable th[data-resize] { position: relative; }
+    #sequencesTable .col-resize { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; touch-action: none; }
+    #sequencesTable .col-resize::after { content: ''; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 1px; background: var(--border); }
+    #sequencesTable th[data-resize]:hover .col-resize::after, #sequencesTable .col-resize.dragging::after { background: var(--accent, #dc2626); width: 2px; }
     #sequencesTable .seq-badge-select { width: 100%; min-width: 0; text-overflow: ellipsis; }
     #sequencesTable .col-seqname code { display: block; max-width: 100%; width: fit-content; overflow: hidden; text-overflow: ellipsis;
                                         white-space: nowrap; }
@@ -1972,7 +1991,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.258-beta.4</span>
+        <span class="app-version">v0.33.258</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2218,6 +2237,7 @@
             <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
             <select id="seqBulkCategory" onchange="bulkSetCategory(this)" title="Set the category of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
             <select id="seqBulkBadge" onchange="bulkSetBadge(this)" title="Set or clear the badge of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
+            <button class="secondary" onclick="bulkSetCooldown()" title="Set the cooldown of all selected sequences">⏳ Cooldown…</button>
             <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
             <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
             <button class="secondary" onclick="clearSeqSelection()">Clear</button>
@@ -2234,17 +2254,17 @@
                   <th class="col-tight"></th>
                   <th class="col-tight col-status" title="Green: in your show player's playlist. Red: inactive — no longer in the playlist; kept with all its details and hidden from viewers.">Status</th>
                   <th class="col-tight col-art">Art</th>
-                  <th class="col-display">Display Name</th>
-                  <th class="col-seqname">Sequence Name</th>
+                  <th data-resize="display" class="col-display">Display Name</th>
+                  <th data-resize="seqname" class="col-seqname">Sequence Name</th>
                   <th class="col-tight col-index" title="Position in your show player's playlist, from the last sync. If the wrong song plays, check this matches the playlist (and sync again).">Playlist #</th>
-                  <th class="col-artist">Artist</th>
-                  <th class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
-                  <th class="col-badge" title="A short label shown after the song's name on the viewer page, like New or Fan Favorite.">Badge</th>
+                  <th data-resize="artist" class="col-artist">Artist</th>
+                  <th data-resize="category" class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
+                  <th data-resize="badge" class="col-badge" title="A short label shown after the song's name on the viewer page, like New or Fan Favorite.">Badge</th>
                   <th class="col-tight col-visible">Visible</th>
                   <th class="col-tight col-vote">Vote</th>
                   <th class="col-tight col-jukebox">Jukebox</th>
                   <th class="col-tight col-psa">PSA</th>
-                  <th class="col-tight col-cooldown" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
+                  <th class="col-tight col-cooldown" title="How long after this song plays before viewers can pick it again (and other queued copies are dropped). Empty = use its category's or the show's cooldown (Settings → Jukebox); 0 = never cools down.">Cooldown<br><span id="seqCooldownUnitHead" style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
                   <th class="col-tight col-actions"><div class="seq-actions-reserve"></div></th>
                 </tr>
               </thead>
@@ -2683,6 +2703,7 @@
           <p class="muted" style="margin-bottom: 0.75rem;">
             Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>. ShowPilot adds <code>{NOW_PLAYING_ARTIST}</code>, <code>{NOW_PLAYING_IMAGE}</code>, <code>{NEXT_PLAYLIST_ARTIST}</code> and <code>{NEXT_PLAYLIST_IMAGE}</code> (Up Next artist and cover), <code>{NOW_PLAYING_TIMER}</code> and <code>{NOW_PLAYING_PROGRESS}</code>.
             <a href="/" target="_blank" style="color: var(--accent);">Open viewer page →</a>
+            · <a href="/admin/template-reference.html" target="_blank" rel="noopener" style="color: var(--accent);" title="Every placeholder, class, pop-up message ID and CSS variable a template can use">📖 Template reference</a>
           </p>
 
           <div style="display: grid; grid-template-columns: 240px 1fr; gap: 1rem;">
@@ -2737,6 +2758,7 @@
                 <button class="secondary" onclick="document.getElementById('tplUploadFile').click()" id="tplUploadBtn" title="Replace this page's code with an .html file from your computer (you still Save Changes to make it live)">📄 Load from file…</button>
                 <input type="file" id="tplUploadFile" accept=".html,.htm,.txt,text/html,text/plain" style="display:none;" onchange="loadTemplateFromFile(this)" />
                 <span style="flex: 1;"></span>
+                <a class="of-tpl-bypass-lock tpl-ref-link" href="/admin/template-reference.html" target="_blank" rel="noopener" title="Every placeholder, class, pop-up message ID and CSS variable a template can use">📖 Template reference</a>
                 <button class="secondary" onclick="discardDraft()" id="tplDiscardBtn" style="display:none;">Discard Changes</button>
                 <button onclick="commitDraft()" id="tplCommitBtn" style="display:none;">Save Changes</button>
               </div>
@@ -3476,16 +3498,38 @@
               <input type="checkbox" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', this.checked ? 1 : 0)" />
               <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide song from the request list after it plays</label>
             </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Song disappears from the viewer's request grid after playing and stays hidden for the cooldown period set on each sequence.</p>
-            <div class="row" style="margin-top: 0.75rem;">
-              <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
-              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in the show player's normal playlist rotation</label>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">The song that's playing drops off the viewer's request list until the next song starts. For a longer wait, use the song cooldown below.</p>
+
+            <!-- Song cooldown (v0.33.258, tiered: show-wide → category → song; GitHub issue #41) -->
+            <div class="cooldown-box">
+              <div style="font-weight: 600;">Song cooldown</div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0.6rem;">After a song plays, viewers can't request it or vote for it again until its cooldown is over. Works in Jukebox and Voting.</p>
+              <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <label for="cfg_cooldown_default" style="margin: 0;">Wait</label>
+                <input type="number" id="cfg_cooldown_default" min="0" max="1440" step="1" onchange="saveCooldownDefault(this)" />
+                <select id="cfg_cooldown_unit" onchange="saveCooldownUnit(this)" style="width: auto; padding: 0.35rem 0.5rem;" aria-label="Count the cooldown in">
+                  <option value="songs">more songs</option>
+                  <option value="minutes">minutes</option>
+                </select>
+                <span>before a song can be picked again <span class="muted">(0 = no cooldown)</span></span>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;"><strong>More songs</strong> counts every song that starts after it, whatever its length. Categories and single songs can have their own cooldown on the <em>Sequences</em> page; leave theirs empty to use this one. Switching between songs and minutes doesn't convert numbers already set there.</p>
+              <div class="row" style="margin-top: 0.75rem;">
+                <input type="checkbox" id="cfg_cooldown_show_cooled" onchange="saveSetting('cooldown_show_cooled', this.checked ? 1 : 0)" />
+                <label for="cfg_cooldown_show_cooled" style="margin: 0;">Keep cooling-down songs on the page, greyed out, instead of hiding them</label>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">They show "Available again after 3 more songs", and tapping one says when it can be picked. To style them yourself, the song has the class <code>showpilot-cooldown</code>, <code>data-cooldown</code> (e.g. "after 3 more songs"), <code>data-cooldown-left</code> and a <code>.sequence-cooldown</code> note; a <code>&lt;div id="songCooldown"&gt;</code> on your page is used for the tap message.</p>
+              <div class="row" style="margin-top: 0.75rem;">
+                <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
+                <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in the show player's normal playlist rotation</label>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, your show player skips the song in your playlist during its cooldown and brings it back when the cooldown ends. On FPP this needs plugin v0.13.40+.</p>
             </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, your show player skips the song in your playlist during the cooldown window and brings it back when the cooldown ends. On FPP this needs plugin v0.13.40+.</p>
           </div>
 
           <!-- VOTING SETTINGS -->
           <div class="sub-tab-pane" data-subtab="voting">
+            <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.75rem;">Song cooldowns (how long before a song can be voted for again) are set under <em>Jukebox</em> and apply to voting too.</p>
             <div class="row">
               <input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0); updateAllowVoteChangeVisibility();" />
               <label for="cfg_prevent_multiple_votes" style="margin: 0;">Limit each viewer to one vote per round</label>
@@ -6461,6 +6505,11 @@
       updateAllowVoteChangeVisibility();
       setVal('cfg_hide_sequence_after_played', c.hide_sequence_after_played);
       setChk('cfg_cooldown_suppress_fpp_playlist', c.cooldown_suppress_fpp_playlist);
+      cooldownUnit = c.cooldown_unit === 'songs' ? 'songs' : 'minutes';
+      cooldownGlobal = parseInt(c.cooldown_default, 10) || 0;
+      setVal('cfg_cooldown_unit', cooldownUnit);
+      setVal('cfg_cooldown_default', cooldownGlobal);
+      setChk('cfg_cooldown_show_cooled', c.cooldown_show_cooled);
       setVal('cfg_blocked_ips', c.blocked_ips || '');
       setVal('cfg_public_base_url', c.public_base_url || '');
       setVal('cfg_player_decoration', c.player_decoration || 'none');
@@ -7153,6 +7202,28 @@
       saveSetting('viewer_progress_bar_color', '');
     }
 
+    // ======= Song cooldown (v0.33.258) =======
+    let cooldownUnit = 'minutes';
+    let cooldownGlobal = 0;
+    function cooldownUnitWord(n) {
+      if (cooldownUnit === 'songs') return n === 1 ? 'song' : 'songs';
+      return n === 1 ? 'minute' : 'minutes';
+    }
+    async function saveCooldownDefault(el) {
+      let v = parseInt(el.value, 10);
+      if (!Number.isFinite(v) || v < 0) v = 0;
+      if (v > 1440) v = 1440;
+      el.value = v;
+      cooldownGlobal = v;
+      await saveSetting('cooldown_default', v);
+      if (typeof loadSequences === 'function' && sequencesCache) loadSequences();
+    }
+    async function saveCooldownUnit(el) {
+      cooldownUnit = el.value === 'songs' ? 'songs' : 'minutes';
+      await saveSetting('cooldown_unit', cooldownUnit);
+      if (typeof loadSequences === 'function' && sequencesCache) loadSequences();
+    }
+
     async function saveSetting(key, value) {
       const body = {};
       body[key] = value;
@@ -7784,7 +7855,26 @@
         schedBtn.innerHTML = SEQ_ICONS.clock + '<span>' + (c.schedule ? 'Schedule' : 'Add schedule') + '</span>';
         schedBtn.addEventListener('click', () => openCategoryScheduleModal(c));
 
-        [grip, tog, name, sched, count, schedBtn, ren, del].forEach(el => row.appendChild(el));
+        // Category cooldown (v0.33.258): empty = use the show's.
+        const cdWrap = document.createElement('label');
+        cdWrap.className = 'cat-cooldown';
+        cdWrap.title = 'Cooldown for songs in this category (songs that have their own keep it). Empty = use the show\'s cooldown (Settings → Jukebox).';
+        const cdIn = document.createElement('input');
+        cdIn.type = 'number'; cdIn.min = '0'; cdIn.max = '1440'; cdIn.step = '1';
+        cdIn.value = (c.cooldown === undefined || c.cooldown === null) ? '' : String(c.cooldown);
+        cdIn.placeholder = String(cooldownGlobal || 0);
+        cdIn.setAttribute('aria-label', 'Cooldown for ' + c.name);
+        cdIn.addEventListener('change', () => {
+          const raw = cdIn.value.trim();
+          let v = null;
+          if (raw !== '') { v = parseInt(raw, 10); if (!Number.isFinite(v) || v < 0) v = 0; if (v > 1440) v = 1440; cdIn.value = v; }
+          categoryAction('/categories/cooldown', { name: c.name, cooldown: v });
+        });
+        const cdUnit = document.createElement('span');
+        cdUnit.textContent = cooldownUnit === 'songs' ? 'songs' : 'min';
+        cdWrap.append('Cooldown', cdIn, cdUnit);
+
+        [grip, tog, name, sched, count, cdWrap, schedBtn, ren, del].forEach(el => row.appendChild(el));
         host.appendChild(row);
       });
       if (categoriesCache.length > 1) {
@@ -8021,13 +8111,87 @@
 
     let _categoryOptionsLoaded = false;
 
+    // ======= Resizable text columns in the Sequences table (v0.33.258) =======
+    // Drag a header's right edge; widths are kept in this browser as
+    // percentages. The space a column gains or gives up comes from Display
+    // Name (or Artist while Display Name itself is dragged), so the total
+    // never changes and the table doesn't reshuffle. Double-click resets.
+    const SEQ_COLW_KEY = 'sp-seq-col-widths-v2';
+    const SEQ_COLW_DEFAULT = { display: 26, seqname: 19, artist: 17, category: 19, badge: 9 };
+    function seqColWidths() {
+      let w = {};
+      try { w = JSON.parse(localStorage.getItem(SEQ_COLW_KEY) || '{}') || {}; } catch (e) { w = {}; }
+      const out = {};
+      for (const c of Object.keys(SEQ_COLW_DEFAULT)) out[c] = Number(w[c]) > 0 ? Number(w[c]) : SEQ_COLW_DEFAULT[c];
+      return out;
+    }
+    function applySeqColWidths(w) {
+      const t = document.getElementById('sequencesTable');
+      if (!t) return;
+      w = w || seqColWidths();
+      for (const c of Object.keys(SEQ_COLW_DEFAULT)) t.style.setProperty('--w-' + c, w[c].toFixed(2) + '%');
+    }
+    function initSeqColResize() {
+      const t = document.getElementById('sequencesTable');
+      if (!t || t.__spResize) return;
+      t.__spResize = true;
+      t.querySelectorAll('th[data-resize]').forEach((th) => {
+        const col = th.getAttribute('data-resize');
+        const h = document.createElement('span');
+        h.className = 'col-resize';
+        h.title = 'Drag to resize · double-click to reset all columns';
+        h.addEventListener('click', (e) => e.stopPropagation());
+        h.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          try { localStorage.removeItem(SEQ_COLW_KEY); } catch (err) {}
+          applySeqColWidths();
+        });
+        h.addEventListener('pointerdown', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const slack = col === 'display' ? 'artist' : 'display';
+          const start = seqColWidths();
+          // Pixels per percent, measured from the text columns themselves (the
+          // fixed-size columns take their share first), so the edge follows
+          // the pointer.
+          let pxSum = 0, pctSum = 0;
+          t.querySelectorAll('th[data-resize]').forEach((x) => { pxSum += x.getBoundingClientRect().width; pctSum += start[x.getAttribute('data-resize')]; });
+          const pxPerPct = pxSum > 0 && pctSum > 0 ? pxSum / pctSum : (t.getBoundingClientRect().width || 1400) / 100;
+          const minPct = 60 / pxPerPct;  // no column narrower than ~60px
+          const startX = e.clientX;
+          let cur = start;
+          h.classList.add('dragging');
+          try { h.setPointerCapture(e.pointerId); } catch (err) {}
+          const move = (ev) => {
+            let d = (ev.clientX - startX) / pxPerPct;
+            d = Math.max(minPct - start[col], Math.min(start[slack] - minPct, d));
+            cur = { ...start, [col]: start[col] + d, [slack]: start[slack] - d };
+            applySeqColWidths(cur);
+          };
+          const up = () => {
+            h.classList.remove('dragging');
+            h.removeEventListener('pointermove', move);
+            h.removeEventListener('pointerup', up);
+            h.removeEventListener('pointercancel', up);
+            try { localStorage.setItem(SEQ_COLW_KEY, JSON.stringify(cur)); } catch (err) {}
+          };
+          h.addEventListener('pointermove', move);
+          h.addEventListener('pointerup', up);
+          h.addEventListener('pointercancel', up);
+        });
+        th.appendChild(h);
+      });
+      applySeqColWidths();
+    }
+
     async function loadSequences() {
+      initSeqColResize();
       // Categories first — each row's Category dropdown is built from the cache.
       await loadCategories();
       if (!_categoryOptionsLoaded) { _categoryOptionsLoaded = true; loadCategoryDisplayOptions(); }
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
+      { const h = document.getElementById('seqCooldownUnitHead'); if (h) h.textContent = cooldownUnit === 'songs' ? '(songs)' : '(min)'; }
       {
         const inactive = r.data.filter(s => s.active === 0).length;
         document.getElementById('sequenceCount').textContent = inactive
@@ -8110,10 +8274,11 @@
         <td class="col-tight col-vote"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-jukebox"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td class="col-tight col-psa"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td class="col-tight col-cooldown"><input type="number" min="0" max="1440" step="1" value="${seq.cooldown_minutes || 0}"
+        <td class="col-tight col-cooldown"><input type="number" min="0" max="1440" step="1" value="${seq.cooldown_own === null || seq.cooldown_own === undefined ? '' : seq.cooldown_own}"
+                   placeholder="${seq.cooldown_own === null || seq.cooldown_own === undefined ? (seq.cooldown_effective || 0) : ''}"
                    onchange="updateSeqCooldown(${seq.id}, this)"
-                   style="width: 64px; padding: 0.3rem 0.4rem; font-size: 0.9rem;"
-                   title="Minutes to suppress this sequence after it plays. 0 = no cooldown." /></td>
+                   class="cd-input"
+                   title="${escapeAttr(seqCooldownTitle(seq))}" /></td>
         <td class="col-tight col-actions">
           <button class="secondary seq-icon-btn col-preview" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" aria-label="Preview">${SEQ_ICONS.play}</button><button class="secondary seq-icon-btn col-search" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" aria-label="Search">${SEQ_ICONS.search}</button>${seq.media_name ? '<button class="secondary seq-icon-btn sp-lang-btn col-lang" title="Manage alternate-language audio variants" aria-label="Languages">' + SEQ_ICONS.lang + '</button>' : '<span class="seq-icon-slot col-lang"></span>'}<button class="danger seq-icon-btn" onclick="delSeq(${seq.id})" title="Delete this sequence" aria-label="Delete">${SEQ_ICONS.trash}</button>
         </td>
@@ -8558,12 +8723,41 @@
     // Cooldown input has its own helper because we need to coerce to a
     // valid integer in [0, 1440] before sending — invalid values would
     // either blow up the server validation or, worse, save garbage.
-    function updateSeqCooldown(id, inputEl) {
-      let v = parseInt(inputEl.value, 10);
-      if (!Number.isFinite(v) || v < 0) v = 0;
-      if (v > 1440) v = 1440; // cap at 24 hours; longer makes no sense for a single show
-      inputEl.value = v; // reflect the clamp back into the input
-      updateSeqField(id, 'cooldown_minutes', v);
+    // v0.33.258: empty = use the category's / show's cooldown (sent as null).
+    async function updateSeqCooldown(id, inputEl) {
+      let v = null;
+      if (String(inputEl.value).trim() !== '') {
+        v = parseInt(inputEl.value, 10);
+        if (!Number.isFinite(v) || v < 0) v = 0;
+        if (v > 1440) v = 1440; // cap; longer makes no sense for a single show
+        inputEl.value = v; // reflect the clamp back into the input
+      }
+      await updateSeqField(id, 'cooldown', v);
+      // Refresh just this box's hint (no list reload, so focus stays put).
+      const seq = sequencesCache.find(s => s.id === id);
+      if (seq) {
+        seq.cooldown_own = v;
+        const r = localCooldownResolve(seq);
+        seq.cooldown_effective = r.value; seq.cooldown_from = r.from;
+        inputEl.placeholder = v === null ? String(r.value || 0) : '';
+        inputEl.title = seqCooldownTitle(seq);
+      }
+    }
+    function localCooldownResolve(seq) {
+      if (seq.cooldown_own !== null && seq.cooldown_own !== undefined) return { value: seq.cooldown_own, from: 'song' };
+      const key = String(seq.category || '').trim().toLowerCase();
+      const cat = key ? categoriesCache.find(c => String(c.name).trim().toLowerCase() === key) : null;
+      if (cat && cat.cooldown !== undefined && cat.cooldown !== null) return { value: cat.cooldown, from: 'category' };
+      return { value: cooldownGlobal, from: 'show' };
+    }
+    function seqCooldownTitle(seq) {
+      const n = seq.cooldown_effective || 0;
+      const what = n ? n + ' ' + cooldownUnitWord(n) : 'no cooldown';
+      const now = seq.cooldown_now ? '\nCooling down now: viewers can pick it again ' + seq.cooldown_now + '.' : '';
+      if (seq.cooldown_own !== null && seq.cooldown_own !== undefined) {
+        return 'This song\'s own cooldown: ' + what + '. Clear the box to use its category\'s or the show\'s.' + now;
+      }
+      return 'Empty: uses ' + (seq.cooldown_from === 'category' ? 'its category\'s' : 'the show\'s') + ' cooldown (' + what + '). Type a number to give this song its own; 0 = never cools down.' + now;
     }
 
     // ======= Audio preview (v0.33.248-beta.3) =======
@@ -9240,6 +9434,23 @@
       ));
       clearSeqSelection();
       loadSequences();
+    }
+
+    // v0.33.258: one cooldown for every selected song; empty = use the
+    // category's / show's.
+    async function bulkSetCooldown() {
+      const n = _seqSelection.size;
+      if (!n) return;
+      const unit = cooldownUnit === 'songs' ? 'songs' : 'minutes';
+      const raw = await showPrompt('Cooldown for ' + n + ' selected song' + (n === 1 ? '' : 's') + ', in ' + unit + '.\nLeave empty to use their category\'s or the show\'s cooldown; 0 = never cools down.', '');
+      if (raw === null || raw === undefined) return;
+      let v = null;
+      if (String(raw).trim() !== '') {
+        v = parseInt(raw, 10);
+        if (!Number.isFinite(v) || v < 0) { showAlert('Enter a number, or leave it empty.'); return; }
+        if (v > 1440) v = 1440;
+      }
+      await bulkSetField('cooldown', v);
     }
 
     async function bulkDeleteSelected() {

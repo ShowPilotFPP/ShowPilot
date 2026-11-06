@@ -109,6 +109,28 @@ body.ui-new:not(.rail-pinned) .spn-rail:has(:focus-visible) .spn-sub.open { disp
 .spn-top .spn-spacer { flex: 1; }
 .spn-top #themeSelect { min-height: 40px; width: auto; max-width: 220px; }
 .spn-top .header-show-btn { min-height: 40px; }
+/* Viewer control + mode in the top bar (v0.33.258): a switch and a menu,
+   styled like the other top-bar controls (no pill badges). */
+.spn-vc { display: inline-flex; align-items: center; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); font-size: 14px; }
+.spn-vc-switch { display: inline-flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px; margin: 0; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 14px; cursor: pointer; border-radius: 10px 0 0 10px; }
+/* The admin's general button styles (red fill, hover glow) don't apply here. */
+.spn-vc .spn-vc-switch, .spn-vc .spn-vc-switch:hover, .spn-vc .spn-vc-switch:active, .spn-vc .spn-vc-switch:disabled { background: none !important; box-shadow: none !important; transform: none !important; border: 0 !important; min-height: 0; }
+.spn-vc .spn-vc-switch:hover { color: var(--text); }
+.spn-vc .spn-vc-switch:disabled { opacity: .6; cursor: progress; }
+.spn-vc-knob { position: relative; width: 30px; height: 17px; border-radius: 9px; background: var(--border); transition: background .15s; flex: 0 0 auto; }
+.spn-vc-knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.spn-vc.is-on .spn-vc-knob { background: var(--status-success, #22c55e); }
+.spn-vc.is-on .spn-vc-knob::after { transform: translateX(13px); }
+.spn-vc.is-on .spn-vc-switch { color: var(--text); }
+.spn-vc-sep { width: 1px; align-self: stretch; margin: 8px 0; background: var(--border); }
+.spn-vc-mode { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 0 4px 0 12px; color: var(--text-muted); font-size: 14px; cursor: pointer; }
+.spn-vc-mode select { width: auto; min-width: 0; margin: 0; padding: 0 22px 0 2px; height: 36px; border: 0; background-color: transparent; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: none; }
+.spn-vc:not(.is-on) .spn-vc-mode select { color: var(--text-muted); font-weight: 400; }
+/* The open list: Windows draws it with the select's (transparent) background
+   and inherited text color, so set both on the options explicitly. */
+.spn-vc-mode select option { background-color: var(--bg-elevated, #16213a); color: var(--text, #e6e9f0); font-weight: 400; }
+.spn-vc-switch:focus-visible, .spn-vc-mode select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 720px) { .spn-vc-label { display: none; } .spn-vc-state { display: none; } .spn-vc-switch { padding: 0 10px; } }
 .spn-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); font-size: 14px; }
 
 .spn-notice { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 10px 28px 0; padding: 14px 18px; border-radius: 14px; border: 1px solid var(--accent); background: var(--accent-soft); }

@@ -2036,7 +2036,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.265</span>
+        <span class="app-version">v0.33.266</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3505,6 +3505,32 @@
               <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
                 Used as the browser tab title on the viewer page (unless your template defines its own &lt;title&gt; tag) and as a friendly name in a few other places.
               </p>
+            </div>
+
+            <div id="installCountSection" style="margin-top: 1.5rem;">
+              <h3>Install count</h3>
+              <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+                Once a day ShowPilot tells us "one more install is running" so we know how many shows use it and which versions they run.
+                It's anonymous: a random ID made on this install, the product name and the version. No show name, URL, IP address or settings are sent, and nothing is sent back.
+              </p>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="cfg_install_count_enabled" onchange="saveInstallCount('install_count_enabled', this.checked ? 1 : 0)" />
+                <label for="cfg_install_count_enabled" style="margin: 0;">Count this install</label>
+              </div>
+              <div style="margin-top: 0.75rem;">
+                <label for="cfg_install_count_location">Put my show on the map <span class="muted" style="font-weight: normal;">(optional)</span></label>
+                <select id="cfg_install_count_location" onchange="saveInstallCount('install_count_location', this.value)" style="width: auto;">
+                  <option value="off">Off</option>
+                  <option value="country">Country only</option>
+                  <option value="region">State / region</option>
+                  <option value="city">Town</option>
+                </select>
+                <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
+                  Adds you to the public map of where ShowPilot shows are. ShowPilot still sends no location; the counter uses an approximate lookup of the connection and keeps only the level you pick. Town is rounded to about 10&nbsp;km and is often the nearest big town.
+                </p>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin-top: 0.5rem;">Exactly what's sent: <code id="installCountSample">…</code></p>
+              <p class="muted" id="installCountLocked" style="font-size: 0.8rem; margin-top: 0.25rem; display: none;"></p>
             </div>
           </div>
 
@@ -6522,6 +6548,9 @@
 
       // General settings
       setVal('cfg_show_name', c.show_name || '');
+      setChk('cfg_install_count_enabled', c.install_count_enabled !== 0);
+      setVal('cfg_install_count_location', c.install_count_location || 'off');
+      loadInstallCountStatus().then(st => maybeShowInstallCountNotice(c, st));
 
       // Populate safeguard settings
       setVal('cfg_jukebox_queue_depth', c.jukebox_queue_depth);
@@ -7319,6 +7348,49 @@
       if (!r.ok) {
         showAlert('Failed to save ' + key);
       }
+    }
+
+    // Anonymous install count (v0.33.266+). See lib/install-count.js.
+    async function loadInstallCountStatus() {
+      const r = await api('/install-count');
+      if (!r.ok) return null;
+      const st = r.data;
+      const sample = document.getElementById('installCountSample');
+      if (sample) sample.textContent = JSON.stringify(st.sample);
+      const locked = document.getElementById('installCountLocked');
+      const chk = document.getElementById('cfg_install_count_enabled');
+      const sel = document.getElementById('cfg_install_count_location');
+      const why = { demo: 'Demo mode never sends a count.', config: 'Turned off in config.js (installCount: false).', env: 'Turned off by the SHOWPILOT_NO_INSTALL_COUNT or DO_NOT_TRACK environment variable.' }[st.lockedReason];
+      if (locked) { locked.textContent = why || ''; locked.style.display = why ? '' : 'none'; }
+      if (chk) chk.disabled = !!why;
+      if (sel) sel.disabled = !!why || (chk && !chk.checked);
+      return st;
+    }
+
+    async function saveInstallCount(key, value) {
+      await saveSetting(key, value);
+      loadInstallCountStatus();
+    }
+
+    let _installNoticeShown = false;
+    async function maybeShowInstallCountNotice(c, st) {
+      if (_installNoticeShown || !st || st.lockedReason || c.install_count_notice_seen) return;
+      _installNoticeShown = true;
+      const keep = await _spModalShow({
+        title: 'Anonymous install count',
+        icon: 'info',
+        message: 'ShowPilot now sends one anonymous check-in a day so we can see how many shows are running and which versions they use. '
+          + 'It sends only a random ID, the product name and the version. No show name, URL, IP address or settings, and nothing comes back.\n\n'
+          + 'You can turn it off any time, or add your show to the public map (country, state or town), in Settings → General → Install count.',
+        okLabel: 'Keep it on',
+        cancelLabel: 'Turn it off',
+      });
+      await saveSetting('install_count_notice_seen', 1);
+      if (!keep) {
+        await saveSetting('install_count_enabled', 0);
+        setChk('cfg_install_count_enabled', false);
+      }
+      loadInstallCountStatus();
     }
 
     // PSA trigger mode UI helpers (v0.30.0+). Two pieces:

@@ -9,7 +9,7 @@
        the classic layout. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
-  <link rel="stylesheet" href="/admin/ui-new.css">
+  <link rel="stylesheet" href="/admin/ui-new.css?v=258">
   <script src="/admin/ui-new.js"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=1"></script>
@@ -1972,7 +1972,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.258-beta.3</span>
+        <span class="app-version">v0.33.258-beta.4</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2815,6 +2815,7 @@
                   <div class="designer-pane" data-designer-pane="sections" id="designerPaneSections" style="display:none;">
                     <div class="sec-intro">
                       <strong>Sections</strong> <span class="sec-beta">BETA</span> — the parts of your page, top to bottom. Move, hide or remove them, change their text, or add a ready-made block in between. Your page's own code and styles are kept exactly as they are; changes show in the preview and go live when you click <em>Save Changes</em>.
+                      <div style="margin-top:0.35rem;">The Settings and Blocks builders are hidden for hand-built pages because they would replace the page. To build a page with them instead, click <em>+ New</em>.</div>
                     </div>
                     <div class="sec-toolbar">
                       <button class="secondary" id="secUndoBtn" onclick="secUndo()" disabled>↶ Undo</button>
@@ -9967,7 +9968,7 @@
           _suppressMonacoChange = false;
         }
       }
-      setSectionsTabVisible(mode === 'code');
+      setSectionsTabVisible(mode === 'code' && !isStarterTemplate(_editorCode));
       switchDesignerTab(mode);
 
       // Show the live preview
@@ -10243,9 +10244,16 @@
     let secRuns = null;         // text runs of the open section (kept while typing)
     let secTypingSnap = false;  // one undo step per field focus
 
+    // A hand-built (Code) page gets Code + Sections. The Settings and Blocks
+    // builders are hidden for it (v0.33.258-beta.4): they generate a whole new
+    // page, so clicking around in them replaced the custom page with a builder
+    // page. Pages made with Settings or Blocks keep those tabs as before.
     function setSectionsTabVisible(on) {
       const b = document.getElementById('designerTabSections');
       if (b) b.style.display = on ? '' : 'none';
+      document.querySelectorAll('.designer-tab[data-designer-tab="settings"], .designer-tab[data-designer-tab="blocks"]').forEach((t) => {
+        t.style.display = on ? 'none' : '';
+      });
       if (!on && currentMode === 'sections') switchDesignerTab('code');
     }
     function secCurrentCode() {
@@ -10770,7 +10778,7 @@
       if (r.ok) {
         if (typeof r.data?.html === 'string') _editorCode = r.data.html;
         // A page saved from the Code tab can be edited as Sections (beta).
-        setSectionsTabVisible(body.mode === 'code');
+        setSectionsTabVisible(body.mode === 'code' && !isStarterTemplate(body.html));
         // Mirror the generated HTML into Monaco so switching to Code tab
         // shows what Settings/Blocks produced. Skip if user is currently
         // typing in Code (to avoid clobbering their cursor position).
@@ -10895,10 +10903,11 @@
       }
     }
 
-    async function newTemplate() {
-      const name = await showPrompt('Name for new template?', 'New Template');
-      if (!name) return;
-      const starter = `<!DOCTYPE html>
+    // The page + New starts with (v0.33.258-beta.4: shared so the editor can
+    // tell an untouched new page, which may still use the builders, from a
+    // hand-built one).
+    function starterTemplateHtml(name) {
+      return `<!DOCTYPE html>
 <html>
 <head><title>${escapeHtml(name)}</title></head>
 <body>
@@ -10918,6 +10927,17 @@
   <div id="alreadyVoted" style="display:none;">Already voted</div>
 </body>
 </html>`;
+    }
+    // True for a page that is still exactly the + New starter (title aside).
+    function isStarterTemplate(html) {
+      const strip = (h) => String(h || '').replace(/<title>[\s\S]*?<\/title>/i, '<title></title>').replace(/\r\n/g, '\n').trim();
+      return strip(html) === strip(starterTemplateHtml(''));
+    }
+
+    async function newTemplate() {
+      const name = await showPrompt('Name for new template?', 'New Template');
+      if (!name) return;
+      const starter = starterTemplateHtml(name);
       const r = await api('/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

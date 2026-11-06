@@ -552,6 +552,7 @@
     .whats-new-head { font-weight: 600; margin-bottom: 0.35rem; }
     .whats-new-item { padding: 0.35rem 0; border-top: 1px solid var(--border); }
     .whats-new-item:first-of-type { border-top: 0; }
+    .whats-new-sub { margin-top: 0.6rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
     .whats-new-item summary { cursor: pointer; font-size: 0.9rem; line-height: 1.4; }
     .whats-new-item ul { margin: 0.4rem 0 0.2rem 1.1rem; padding: 0; font-size: 0.85rem; line-height: 1.45; }
     .whats-new-item li { margin: 0.2rem 0; }
@@ -2005,7 +2006,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.259</span>
+        <span class="app-version">v0.33.260</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -5561,8 +5562,16 @@
         if (Array.isArray(data.whatsNew) && data.whatsNew.length) {
           const fmt = (t) => escapeHtml(t).replace(/`([^`]+)`/g, '<code>$1</code>');
           const many = data.whatsNew.length > 1;
-          statusHtml += `<div class="whats-new"><div class="whats-new-head">What's new${many ? ' since v' + escapeHtml(data.currentVersion) + ' (' + data.whatsNew.length + ' updates)' : ' in v' + escapeHtml(data.whatsNew[0].version)}</div>`;
+          // Up to date (v0.33.260): the running version's notes first, earlier
+          // updates folded under their own heading.
+          const installed = !!data.whatsNewInstalled;
+          const isCurrent = (n) => n.version === String(data.currentVersion).replace(/^v/, '');
+          const head = installed
+            ? (isCurrent(data.whatsNew[0]) ? 'What\'s new in your version (v' + escapeHtml(data.whatsNew[0].version) + ')' : 'Recent updates')
+            : 'What\'s new' + (many ? ' since v' + escapeHtml(data.currentVersion) + ' (' + data.whatsNew.length + ' updates)' : ' in v' + escapeHtml(data.whatsNew[0].version));
+          statusHtml += `<div class="whats-new"><div class="whats-new-head">${head}</div>`;
           data.whatsNew.forEach((n, i) => {
+            if (installed && i === 1) statusHtml += `<div class="whats-new-sub">Earlier updates</div>`;
             const when = n.publishedAt ? new Date(n.publishedAt).toLocaleDateString() : '';
             const body = (n.items && n.items.length)
               ? '<ul>' + n.items.map(x => '<li>' + fmt(x) + '</li>').join('') + '</ul>'

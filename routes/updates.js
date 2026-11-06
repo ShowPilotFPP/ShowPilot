@@ -53,7 +53,10 @@ async function buildStatusResponse({ force }) {
     currentVersion: current,
     latestVersion: latestTag,
     latestRelease: check.latest ? { ...check.latest, notes: undefined } : null,
-    whatsNew: updateAvailable ? whatsNew(check.latest && check.latest.notes, current, latestTag) : [],
+    // With an update waiting: what it brings. Up to date: what's in the
+    // installed version, then a few earlier ones (v0.33.260).
+    whatsNew: updateAvailable ? whatsNew(check.latest && check.latest.notes, current, latestTag) : recentNotes(check.latest && check.latest.notes, current),
+    whatsNewInstalled: !updateAvailable,
     updateAvailable,
     updaterAvailable: updater.isUpdaterAvailable(),
     supervisor: supervisor.detectSupervisor(),
@@ -108,6 +111,16 @@ function whatsNew(notes, current, latest) {
   return notes
     .filter(n => updater.compareVersions(n.tag, current) > 0 && updater.compareVersions(n.tag, latest) <= 0)
     .slice(0, 15)
+    .map(parseReleaseNote)
+    .filter(n => n.title || n.items.length);
+}
+
+// Up to date (v0.33.260): the installed version's notes and the 5 before it.
+function recentNotes(notes, current) {
+  if (!Array.isArray(notes) || !current) return [];
+  return notes
+    .filter(n => updater.compareVersions(n.tag, current) <= 0)
+    .slice(0, 6)
     .map(parseReleaseNote)
     .filter(n => n.title || n.items.length);
 }

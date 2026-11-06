@@ -93,6 +93,13 @@
     invalidLocationCode: 'invalidLocationCode',
     failed: 'requestFailed',
     alreadyQueued: 'requestPlaying',
+    // v0.33.264: the viewer already has as many requests waiting as the show
+    // allows. Remote Falcon's templates call this #alreadyRequested; without
+    // one, #requestFailed shows the server's sentence.
+    alreadyRequested: 'alreadyRequested',
+    // Remote Falcon's "song not available right now" box, used for
+    // cooldowns when a page has no #songCooldown (v0.33.264).
+    sequenceUnavailable: 'sequenceUnavailable',
     queueFull: 'queueFull',
     alreadyVoted: 'alreadyVoted',
     songPlaying: 'songPlaying',
@@ -163,11 +170,23 @@
     }, durationMs || 3000);
   }
 
+  // #songCooldown when the page has one, else Remote Falcon's
+  // #sequenceUnavailable; showMessage falls back to #requestFailed after that.
+  function cooldownMsgId() {
+    if (document.getElementById(MSG_IDS.songCooldown)) return MSG_IDS.songCooldown;
+    if (document.getElementById(MSG_IDS.sequenceUnavailable)) return MSG_IDS.sequenceUnavailable;
+    return MSG_IDS.songCooldown;
+  }
+
   function mapErrorToId(error, data) {
     // Server explicitly flags code failures (v0.33.24+) — use the dedicated toast.
     if (data && data.invalidLocationCode) return MSG_IDS.invalidLocationCode;
-    if (data && data.cooldown) return MSG_IDS.songCooldown;
+    if (data && data.cooldown) return cooldownMsgId();
+    if (data && data.viewerLimit) return MSG_IDS.alreadyRequested;
+    if (data && data.sequenceLimit) return MSG_IDS.alreadyQueued;
     const msg = (error || '').toLowerCase();
+    if (msg.startsWith('you already have')) return MSG_IDS.alreadyRequested;
+    if (msg.includes('requested the maximum number')) return MSG_IDS.alreadyQueued;
     if (msg.includes('miles of the show')) return MSG_IDS.invalidLocation;
     if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
     if (msg.includes('location')) return MSG_IDS.invalidLocation;
@@ -858,15 +877,15 @@
       showMessage(id, hint ? 9000 : undefined, hint ? err + hint : undefined, err + hint);
       return;
     }
-    if (id === MSG_IDS.songCooldown) {
-      fillCooldownText(data.cooldown && data.cooldown.text);
+    if (id === MSG_IDS.songCooldown || id === MSG_IDS.sequenceUnavailable) {
+      fillCooldownText(id, data.cooldown && data.cooldown.text);
       showMessage(id, 4500, undefined, err);
       return;
     }
     showMessage(id, undefined, undefined, err);
   }
-  function fillCooldownText(text) {
-    const box = document.getElementById(MSG_IDS.songCooldown);
+  function fillCooldownText(id, text) {
+    const box = document.getElementById(id);
     if (!box || !text) return;
     box.querySelectorAll('[data-showpilot-cooldown-text]').forEach(el => { el.textContent = text; });
   }
@@ -880,8 +899,9 @@
     if (!row) return false;
     const text = row.getAttribute('data-cooldown') || 'a little later';
     const msg = 'That song was just played. You can pick it again ' + text + '.';
-    fillCooldownText(text);
-    showMessage(MSG_IDS.songCooldown, 4500, undefined, msg);
+    const id = cooldownMsgId();
+    fillCooldownText(id, text);
+    showMessage(id, 4500, undefined, msg);
     return true;
   }
   // Listen Only (v0.33.249+): picking is closed, the page and audio stay up.
@@ -1240,7 +1260,7 @@
         : data.queue.map(e => {
             const seq = byName[e.sequence_name];
             const name = seq ? seq.display_name : e.sequence_name;
-            return `<div class="queue-item" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}</div>`;
+            return `<div class="queue-item jukebox-queue" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}</div>`;
           }).join('');
       queueListEls.forEach(el => { el.innerHTML = queueHtml; });
     }
@@ -1845,7 +1865,7 @@
       const label = (seq.category && String(seq.category).trim()) || other;
       const key = label.toLowerCase();
       if (key !== prevKey) {
-        out.push(`<div class="sequence-category-header" data-showpilot-category="${escapeHtml(label)}">${escapeHtml(label)}</div>`);
+        out.push(`<div class="sequence-category-header category-label" data-showpilot-category="${escapeHtml(label)}">${escapeHtml(label)}</div>`);
         prevKey = key;
       }
       out.push(rowFn(seq));

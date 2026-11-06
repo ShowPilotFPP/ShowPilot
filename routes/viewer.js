@@ -766,6 +766,7 @@ router.post('/jukebox/add', (req, res) => {
     if (seqCount >= cfg.jukebox_sequence_request_limit) {
       return res.status(409).json({
         error: `That sequence has been requested the maximum number of times. Try another.`,
+        sequenceLimit: true,
       });
     }
   }
@@ -780,6 +781,7 @@ router.post('/jukebox/add', (req, res) => {
       const noun = limit === 1 ? 'request' : 'requests';
       return res.status(409).json({
         error: `You already have ${existing} ${noun} in the queue. This show limits each viewer to ${limit} ${noun} at a time — please wait until your current ${noun} ${limit === 1 ? 'plays' : 'play'} before requesting another.`,
+        viewerLimit: true,
       });
     }
   }

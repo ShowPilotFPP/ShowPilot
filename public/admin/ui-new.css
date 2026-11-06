@@ -26,6 +26,9 @@ body.ui-new .app-header,
 body.ui-new .status-strip,
 body.ui-new .tab-nav,
 body.ui-new .sub-tabs { display: none !important; }
+/* The card that only holds the (hidden) sub-tab bar would show as an empty
+   strip at the top of Viewer Page and other tabs (v0.33.258-beta.4). */
+body.ui-new .card:has(> .sub-tabs:only-child) { display: none !important; }
 
 /* ---------- Rail ---------- */
 body.ui-new .spn-rail {

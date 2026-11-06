@@ -144,7 +144,29 @@ app.post('/ping', express.json({ limit: '1kb' }), (req, res) => {
   // Lowering or turning off the map option clears the extra detail on this check-in.
   upsert.run({ id_hash, product, version, ...locationFor(req, level), now: Math.floor(Date.now() / 1000) });
   res.status(204).end();
+  pushSoon();
 });
+
+// ------------------------------------------------------------
+// Live stats page: Server-Sent Events. Open pages get fresh numbers
+// whenever an install checks in (bursts are combined into one push per
+// second). A comment every 25 s keeps the connection open through
+// Cloudflare.
+// ------------------------------------------------------------
+const MAX_LIVE = 500;
+const liveClients = new Set();
+let pushTimer = null;
+
+function pushSoon() {
+  if (pushTimer || liveClients.size === 0) return;
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    const data = 'event: stats\ndata: ' + JSON.stringify(getStats()) + '\n\n';
+    for (const res of liveClients) res.write(data);
+  }, 1000);
+}
+
+setInterval(() => { for (const res of liveClients) res.write(': ping\n\n'); }, 25000).unref();
 
 function requireKey(req, res, next) {
   if (!STATS_KEY || req.query.key === STATS_KEY) return next();
@@ -153,6 +175,19 @@ function requireKey(req, res, next) {
 
 app.get('/api/stats', requireKey, (req, res) => {
   res.set('Cache-Control', 'no-store').json(getStats());
+});
+app.get('/api/live', requireKey, (req, res) => {
+  if (liveClients.size >= MAX_LIVE) return res.status(503).end();
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write('retry: 5000\n\n');
+  liveClients.add(res);
+  req.on('close', () => liveClients.delete(res));
 });
 app.get('/', requireKey, (req, res) => {
   res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -163,6 +198,6 @@ app.use((req, res) => res.status(404).send('Not found'));
 // Daily totals for the trend line: once at start, then every 6 hours
 // (the row for today is simply replaced).
 snapshot();
-setInterval(snapshot, 6 * 60 * 60 * 1000).unref();
+setInterval(() => { snapshot(); pushSoon(); }, 6 * 60 * 60 * 1000).unref();
 
 app.listen(PORT, HOST, () => console.log(`ShowPilot install counter on http://${HOST}:${PORT}`));

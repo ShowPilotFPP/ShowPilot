@@ -201,7 +201,13 @@
     let g = group(s, from, to);
     // Look inside a single wrapper (e.g. <div class="wrap">…the whole page…</div>),
     // up to three levels, while it is the only editable part.
-    for (let level = 0; level < 3; level++) {
+    // Look inside a wrapper that holds the whole page (e.g. <div class="app">
+    // <div class="app-inner">…</div></div>), through up to five nested
+    // wrappers, while it is the only part with text or show content. The
+    // deepest level with at least two parts is used.
+    const count = (lvl) => lvl.sections.filter((x) => !x.fixed && !x.hidden).length;
+    let best = count(g) >= 2 ? { from, to, g } : null;
+    for (let level = 0; level < 5; level++) {
       // The part holding the text / show content; image-only decoration
       // (a moon, a graveyard SVG) beside it doesn't count.
       const editable = g.sections.filter((x) => !x.fixed && !x.hidden && (visibleText(x.src) || PLACEHOLDER.test(x.src)));
@@ -212,11 +218,13 @@
       const closeAt = s.lastIndexOf('</', w._end);
       if (closeAt < innerFrom || tagName(s.slice(closeAt, tagEnd(s, closeAt))) !== w._node.name) break;
       const inner = group(s, innerFrom, closeAt);
-      if (inner.sections.filter((x) => !x.fixed && !x.hidden).length < 2) break;
+      if (count(inner) < 1) break;
       // Everything outside the wrapper's inside becomes prefix/suffix.
       from = innerFrom; to = closeAt;
       g = inner;
+      if (count(g) >= 2) best = { from, to, g };
     }
+    if (count(g) < 2 && best) ({ from, to, g } = best);
     const model = {
       prefix: s.slice(0, from),
       sections: g.sections.map(({ lead, src, hidden, fixed }) => ({ lead, src, hidden, fixed })),
@@ -241,6 +249,12 @@
     const added = /<!--\s*sp-added:\s*([^>]*?)\s*-->/.exec(src);
     if (added) return added[1];
     const has = (p) => src.indexOf(p) !== -1;
+    // A fold-out panel (<details>) is named by its own heading (<summary>).
+    if (tagName(src) === 'details') {
+      const sm = /<summary\b[^>]*>([\s\S]*?)<\/summary\s*>/i.exec(src);
+      const st = sm ? decode(visibleText(sm[1])) : '';
+      if (st) return 'Fold-out: ' + (st.length > 40 ? st.slice(0, 40) + '…' : st);
+    }
     if (has('{after-hours-message}')) return 'After-hours message';
     if (has('{MESSAGE_WALL}')) return 'Message wall';
     if (has('{MESSAGE_BOX}')) return 'Message box';

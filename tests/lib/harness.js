@@ -54,7 +54,9 @@ async function startShowPilot() {
   const log = fs.openSync(logPath, 'a');
   const child = spawn(process.execPath, ['server.js'], {
     cwd: app,
-    env: { ...process.env, SHOWPILOT_SHOW_TOKEN: SHOW_TOKEN, SHOWPILOT_JWT_SECRET: JWT_SECRET, NODE_ENV: 'test' },
+    env: { ...process.env, SHOWPILOT_SHOW_TOKEN: SHOW_TOKEN, SHOWPILOT_JWT_SECRET: JWT_SECRET, NODE_ENV: 'test',
+      // Throwaway test servers never send the anonymous install count (and so never show its notice).
+      SHOWPILOT_NO_INSTALL_COUNT: '1' },
     stdio: ['ignore', log, log],
   });
   const base = `http://127.0.0.1:${port}`;

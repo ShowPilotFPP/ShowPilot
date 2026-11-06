@@ -62,6 +62,7 @@
   .tag { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; border-radius: 999px; vertical-align: middle; margin-left: 4px; }
   .tag.rf { background: rgba(124,178,255,.16); color: var(--link); }
   .tag.sp { background: var(--accent-soft); color: var(--accent); }
+  .tag.rfonly { background: transparent; color: var(--muted); border: 1px solid var(--border); }
   .note { background: var(--accent-soft); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: .92rem; }
   .legend { color: var(--muted); font-size: .85rem; margin: 6px 0 0; }
   .search { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 14px 0 10px; }
@@ -79,7 +80,7 @@
 <body>
 <header class="top"><div class="inner">
   <h1>Viewer Page Template Reference</h1>
-  <p>Everything a viewer page template can use in ShowPilot: placeholders, show/hide sections, the song list's classes, pop-up messages, CSS variables and JavaScript calls. <span class="tag rf">RF</span> means it also works the same way on Remote Falcon pages; <span class="tag sp">SP</span> is ShowPilot only.</p>
+  <p>Everything a viewer page template can use in ShowPilot: placeholders, show/hide sections, the song list's classes, pop-up messages, CSS variables and JavaScript calls. <span class="tag rf">RF</span> means it also works the same way on Remote Falcon pages; <span class="tag sp">SP</span> is ShowPilot only; <span class="tag rfonly">RF only</span> is a Remote Falcon feature ShowPilot accepts but doesn't use, so imported pages don't break. Checked against Remote Falcon's viewer and templates as of October 2026.</p>
 </div></header>
 
 <div class="wrap">
@@ -125,7 +126,7 @@
     <div class="card"><table>
       <thead><tr><th>Placeholder</th><th>Becomes</th><th>What it shows</th></tr></thead>
       <tbody>
-        <tr><td><code>{NOW_PLAYING}</code> <span class="tag rf">RF</span></td><td><code>.now-playing-text</code></td><td>Display name of the song playing now, or — when nothing is.</td></tr>
+        <tr><td><code>{NOW_PLAYING}</code> <span class="tag rf">RF</span></td><td><code>.now-playing-text</code></td><td>Display name of the song playing now, or — when nothing is. (Remote Falcon also puts the cover and artist in here; in ShowPilot use the two placeholders below.)</td></tr>
         <tr><td><code>{NOW_PLAYING_ARTIST}</code> <span class="tag sp">SP</span></td><td><code>.now-playing-artist</code></td><td>Its artist; empty when there isn't one (style <code>:empty</code> to hide it).</td></tr>
         <tr><td><code>{NOW_PLAYING_IMAGE}</code> <span class="tag sp">SP</span></td><td><code>img.now-playing-image.sequence-image</code></td><td>Its cover art. Hidden when there's no cover.</td></tr>
         <tr><td><code>{NOW_PLAYING_TIMER}</code> <span class="tag rf">RF</span></td><td><code>[data-showpilot-timer]</code></td><td>Time left in the song, m:ss; <code>--:--</code> when unknown.</td></tr>
@@ -140,7 +141,8 @@
         <tr><td><code>{LOCATION_CODE}</code> <span class="tag rf">RF</span></td><td><code>input#locationCodeInput</code></td><td>The access-code box when an access code is required; nothing otherwise.</td></tr>
         <tr><td><code>{MESSAGE_BOX}</code> <span class="tag sp">SP</span></td><td><code>form.sp-message-box</code></td><td>The "send us a message" form. See <a href="#visitor">Visitor messages</a>.</td></tr>
         <tr><td><code>{MESSAGE_WALL}</code> <span class="tag sp">SP</span></td><td><code>section.sp-message-wall</code></td><td>Messages visitors chose to share, once approved.</td></tr>
-        <tr><td><code>{VOTES}</code>, <code>{VOTES_REMAINING}</code> <span class="tag rf">RF</span></td><td>nothing</td><td>Accepted so Remote Falcon templates don't show stray text; ShowPilot puts vote counts in each song row and has no per-show vote limit.</td></tr>
+        <tr><td><code>{VOTES}</code> <span class="tag rf">RF</span></td><td>nothing</td><td>Accepted so Remote Falcon templates don't show stray text; vote counts are in each song row.</td></tr>
+        <tr><td><code>{VOTES_REMAINING}</code> <span class="tag rfonly">RF only</span></td><td>nothing</td><td>On Remote Falcon this shows "X of N votes left" when the show limits votes per viewer. ShowPilot has no vote limit, so it's left empty.</td></tr>
       </tbody>
     </table></div>
   </section>
@@ -155,6 +157,7 @@
         <tr><td><code>{jukebox-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="jukebox"</code></td><td>Jukebox mode.</td></tr>
         <tr><td><code>{playlist-standard-dynamic-container}</code> <span class="tag rf">RF</span></td><td>same as jukebox</td><td>Jukebox mode (older Remote Falcon name).</td></tr>
         <tr><td><code>{playlist-voting-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="voting"</code></td><td>Voting mode.</td></tr>
+        <tr><td><code>{on-demand-and-voting-dynamic-container}</code> <span class="tag rf">RF</span></td><td>same as voting</td><td>Voting mode (older Remote Falcon name).</td></tr>
         <tr><td><code>{race-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="race"</code></td><td>Race mode.</td></tr>
         <tr><td><code>{location-code-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="locationcode"</code></td><td>An access code is required.</td></tr>
         <tr><td><code>{after-hours-message}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="afterhours"</code></td><td>Viewer control is off (outside show hours).</td></tr>
@@ -197,7 +200,8 @@
         <tr><td><code>.sequence-image</code>, <code>.sequence-name</code>, <code>.sequence-artist</code> <span class="tag rf">RF</span></td><td>inside a row</td><td>Images come with <code>width="40"</code> as a hint; your CSS wins. The artist line is empty when there's no artist (use <code>:empty</code>).</td></tr>
         <tr><td><code>.sequence-votes</code></td><td>voting rows</td><td>A second vote count inside the name cell, hidden unless your CSS shows it.</td></tr>
         <tr><td><code>[data-seq]</code></td><td>rows, queue items</td><td>The song's file name, for CSS or scripts.</td></tr>
-        <tr><td><code>.sequence-category-header</code> <span class="tag sp">SP</span></td><td>category headings</td><td>Shown above each group when songs have categories (and headings are on in Sequences → Categories). Spans the full width in grid and flex lists.</td></tr>
+        <tr><td><code>.sequence-category-header</code> <span class="tag sp">SP</span>, <code>.category-label</code> <span class="tag rf">RF</span></td><td>category headings</td><td>Shown above each group when songs have categories (and headings are on in Sequences → Categories). Spans the full width in grid and flex lists. Both classes are on the heading. Remote Falcon also wraps each group in <code>.category-section</code>; ShowPilot doesn't, so style the heading instead.</td></tr>
+        <tr><td><code>.jukebox-list-3</code>, <code>.sequence-image-3</code>, <code>data-key</code> <span class="tag rfonly">RF only</span></td><td>—</td><td>Remote Falcon numbers each row's classes and puts the file name in <code>data-key</code>. In ShowPilot use <code>[data-seq="File name"]</code> or <code>:nth-child()</code> instead.</td></tr>
       </tbody>
     </table></div>
   </section>
@@ -226,11 +230,12 @@
   <section id="queue" data-s>
     <h2>Request queue</h2>
 <pre><code>&lt;div data-showpilot-queue-list&gt;
-  &lt;div class="queue-item" data-seq="File name"&gt;Display Name&lt;/div&gt;
+  &lt;div class="queue-item jukebox-queue" data-seq="File name"&gt;Display Name&lt;/div&gt;
   …
 &lt;/div&gt;
 &lt;!-- or, when nothing is waiting: --&gt;
 &lt;div class="queue-empty"&gt;Queue is empty.&lt;/div&gt;</code></pre>
+    <p><code>.queue-item</code> <span class="tag sp">SP</span> and <code>.jukebox-queue</code> <span class="tag rf">RF</span> are the same element, so either selector works. Remote Falcon also puts the cover and artist inside each queue item; ShowPilot shows the name only.</p>
   </section>
 
   <section id="race" data-s>
@@ -247,14 +252,17 @@
         <tr><td><code>#requestSuccessful</code> <span class="tag rf">RF</span></td><td>A request was added (and a vote, if there's no <code>#voteSuccessful</code>).</td></tr>
         <tr><td><code>#voteSuccessful</code> <span class="tag sp">SP</span></td><td>A vote was counted.</td></tr>
         <tr><td><code>#requestFailed</code> <span class="tag rf">RF</span></td><td>Anything else went wrong, with ShowPilot's explanation when there's no matching element below.</td></tr>
-        <tr><td><code>#requestPlaying</code> <span class="tag rf">RF</span></td><td>That song is already in the queue.</td></tr>
+        <tr><td><code>#requestPlaying</code> <span class="tag rf">RF</span></td><td>That song has been requested as many times as the show allows.</td></tr>
+        <tr><td><code>#alreadyRequested</code> <span class="tag rf">RF</span></td><td>The visitor already has as many requests waiting as the show allows (Settings → Jukebox).</td></tr>
         <tr><td><code>#queueFull</code> <span class="tag rf">RF</span></td><td>The queue is full.</td></tr>
         <tr><td><code>#alreadyVoted</code> <span class="tag rf">RF</span></td><td>The visitor already voted this round.</td></tr>
         <tr><td><code>#invalidLocation</code> <span class="tag rf">RF</span></td><td>The visitor isn't close enough to the show (or location was blocked).</td></tr>
-        <tr><td><code>#invalidLocationCode</code> <span class="tag sp">SP</span></td><td>Wrong access code.</td></tr>
+        <tr><td><code>#invalidLocationCode</code> <span class="tag rf">RF</span></td><td>Wrong access code.</td></tr>
         <tr><td><code>#songPlaying</code> <span class="tag sp">SP</span></td><td>That song is playing right now.</td></tr>
         <tr><td><code>#songNextUp</code> <span class="tag sp">SP</span></td><td>That song is already up next.</td></tr>
         <tr><td><code>#songCooldown</code> <span class="tag sp">SP</span></td><td>That song is cooling down. Any element inside with <code>data-showpilot-cooldown-text</code> gets "after 3 more songs" / "in about 12 minutes".</td></tr>
+        <tr><td><code>#sequenceUnavailable</code> <span class="tag rf">RF</span></td><td>Used for a cooling-down song when the page has no <code>#songCooldown</code>.</td></tr>
+        <tr><td><code>#dailyVoteLimitReached</code> <span class="tag rfonly">RF only</span></td><td>Never shown: ShowPilot has no daily vote limit.</td></tr>
       </tbody>
     </table></div>
 <pre><code>&lt;div id="songCooldown" class="toast" style="display:none"&gt;

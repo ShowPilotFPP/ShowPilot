@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Template Reference · ShowPilot</title>
+<!--
+  Viewer page template reference (v0.33.258). Everything a template author can
+  use: placeholders, show/hide containers, the song list's markup, classes and
+  data attributes, pop-up message IDs, CSS variables and JavaScript calls.
+  Keep it in step with lib/viewer-renderer.js and public/rf-compat.js when
+  either gains something a template can use. Linked from Viewer Page in the
+  admin; static, no login needed (it holds no show data).
+-->
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161d2c; --panel-2: #1c2436; --border: #2a3448;
+    --text: #e6e9f0; --muted: #98a2b8; --accent: #ef4444; --accent-soft: rgba(239,68,68,.14);
+    --code-bg: #0b0f18; --code-text: #f4c6a8; --ok: #22c55e; --link: #7cb2ff;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7fb; --panel: #ffffff; --panel-2: #f1f3f8; --border: #dde2ec;
+      --text: #161b26; --muted: #5b6475; --accent: #dc2626; --accent-soft: rgba(220,38,38,.09);
+      --code-bg: #f3f4f8; --code-text: #9a3412; --ok: #15803d; --link: #2563eb;
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--link); }
+  code, pre, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em; }
+  code { background: var(--code-bg); color: var(--code-text); padding: .1em .38em; border-radius: 5px; white-space: nowrap; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; margin: 12px 0; }
+  pre code { background: none; padding: 0; white-space: pre; color: var(--text); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; }
+  header.top { border-bottom: 1px solid var(--border); background: var(--panel); }
+  header.top .inner { max-width: 1180px; margin: 0 auto; padding: 22px 16px 18px; }
+  header.top h1 { margin: 0 0 4px; font-size: 1.6rem; letter-spacing: -.01em; }
+  header.top p { margin: 0; color: var(--muted); max-width: 760px; }
+  nav.toc { position: sticky; top: 16px; align-self: start; padding: 20px 0; font-size: .9rem; }
+  nav.toc a { display: block; padding: 4px 10px; color: var(--muted); text-decoration: none; border-left: 2px solid transparent; }
+  nav.toc a:hover { color: var(--text); border-left-color: var(--accent); }
+  nav.toc .grp { margin-top: 10px; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 0 10px; opacity: .75; }
+  main { padding: 8px 0 80px; min-width: 0; }
+  section { padding-top: 22px; }
+  h2 { font-size: 1.25rem; margin: 18px 0 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+  section:first-of-type h2 { border-top: 0; }
+  h3 { font-size: 1rem; margin: 20px 0 6px; }
+  p.lead { color: var(--muted); margin: 0 0 10px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-top: 1px solid var(--border); }
+  thead th { border-top: 0; background: var(--panel-2); font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  td code, p code, li code { white-space: normal; overflow-wrap: anywhere; }
+  .card { overflow-x: auto; }
+  td:first-child { width: 34%; }
+  td.small { width: 22%; }
+  .tag { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; border-radius: 999px; vertical-align: middle; margin-left: 4px; }
+  .tag.rf { background: rgba(124,178,255,.16); color: var(--link); }
+  .tag.sp { background: var(--accent-soft); color: var(--accent); }
+  .note { background: var(--accent-soft); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: .92rem; }
+  .legend { color: var(--muted); font-size: .85rem; margin: 6px 0 0; }
+  .search { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 14px 0 10px; }
+  .search input { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; }
+  .hidden-by-search { display: none !important; }
+  .nohit { color: var(--muted); padding: 20px 0; display: none; }
+  @media (max-width: 860px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    nav.toc { display: none; }
+    td:first-child, td.small { width: auto; }
+    th, td { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+<header class="top"><div class="inner">
+  <h1>Viewer Page Template Reference</h1>
+  <p>Everything a viewer page template can use in ShowPilot: placeholders, show/hide sections, the song list's classes, pop-up messages, CSS variables and JavaScript calls. <span class="tag rf">RF</span> means it also works the same way on Remote Falcon pages; <span class="tag sp">SP</span> is ShowPilot only.</p>
+</div></header>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <div class="grp">Basics</div>
+  <a href="#how">How placeholders work</a>
+  <a href="#text">Song and queue info</a>
+  <a href="#containers">Show / hide sections</a>
+  <div class="grp">Song list</div>
+  <a href="#list">Song list markup</a>
+  <a href="#states">Song states</a>
+  <a href="#queue">Request queue</a>
+  <a href="#race">Race mode</a>
+  <div class="grp">Feedback</div>
+  <a href="#messages">Pop-up messages</a>
+  <a href="#page">Page states</a>
+  <div class="grp">Extras</div>
+  <a href="#progress">Progress bar</a>
+  <a href="#visitor">Visitor messages</a>
+  <a href="#listen">Listen on Phone</a>
+  <a href="#vars">CSS variables</a>
+  <a href="#js">JavaScript</a>
+  <a href="#tips">Tips</a>
+</nav>
+
+<main>
+  <div class="search"><input type="search" id="q" placeholder="Search, e.g. cooldown, badge, queue, toast…" aria-label="Search this reference"></div>
+  <p class="nohit" id="nohit">Nothing matches that search.</p>
+
+  <section id="how" data-s>
+    <h2>How placeholders work</h2>
+    <p>Write a placeholder in curly braces anywhere in your template's HTML and ShowPilot replaces it when the page loads, then keeps it up to date while visitors are on the page (no refresh needed). Names are case-sensitive.</p>
+<pre><code>&lt;h2&gt;Now playing: {NOW_PLAYING}&lt;/h2&gt;
+&lt;div {jukebox-dynamic-container}&gt;
+  &lt;div class="jukebox_table"&gt;{PLAYLISTS}&lt;/div&gt;
+&lt;/div&gt;</code></pre>
+    <div class="note"><strong>Placeholders are replaced everywhere, even inside HTML comments.</strong> To mention one in a comment, write it without the braces (e.g. <code>NOW_PLAYING</code>).</div>
+  </section>
+
+  <section id="text" data-s>
+    <h2>Song and queue info</h2>
+    <p class="lead">Each one becomes a small element you can style; the class or data attribute in the second column is what ShowPilot puts on it.</p>
+    <div class="card"><table>
+      <thead><tr><th>Placeholder</th><th>Becomes</th><th>What it shows</th></tr></thead>
+      <tbody>
+        <tr><td><code>{NOW_PLAYING}</code> <span class="tag rf">RF</span></td><td><code>.now-playing-text</code></td><td>Display name of the song playing now, or — when nothing is.</td></tr>
+        <tr><td><code>{NOW_PLAYING_ARTIST}</code> <span class="tag sp">SP</span></td><td><code>.now-playing-artist</code></td><td>Its artist; empty when there isn't one (style <code>:empty</code> to hide it).</td></tr>
+        <tr><td><code>{NOW_PLAYING_IMAGE}</code> <span class="tag sp">SP</span></td><td><code>img.now-playing-image.sequence-image</code></td><td>Its cover art. Hidden when there's no cover.</td></tr>
+        <tr><td><code>{NOW_PLAYING_TIMER}</code> <span class="tag rf">RF</span></td><td><code>[data-showpilot-timer]</code></td><td>Time left in the song, m:ss; <code>--:--</code> when unknown.</td></tr>
+        <tr><td><code>{NOW_PLAYING_PROGRESS}</code> <span class="tag sp">SP</span></td><td><code>.sp-progress</code></td><td>A progress bar with the time left. See <a href="#progress">Progress bar</a>.</td></tr>
+        <tr><td><code>{NEXT_PLAYLIST}</code> <span class="tag rf">RF</span></td><td><code>[data-showpilot-next]</code></td><td>The song up next (next request, or the next scheduled song).</td></tr>
+        <tr><td><code>{NEXT_PLAYLIST_ARTIST}</code> <span class="tag sp">SP</span></td><td><code>.next-playlist-artist</code></td><td>Its artist; empty when there isn't one.</td></tr>
+        <tr><td><code>{NEXT_PLAYLIST_IMAGE}</code> <span class="tag sp">SP</span></td><td><code>img.next-playlist-image.sequence-image</code></td><td>Its cover art. Hidden when there's no cover.</td></tr>
+        <tr><td><code>{PLAYLISTS}</code> <span class="tag rf">RF</span></td><td>song rows</td><td>The song list for the current mode (vote buttons in Voting, request buttons in Jukebox). See <a href="#list">Song list markup</a>.</td></tr>
+        <tr><td><code>{JUKEBOX_QUEUE}</code> <span class="tag rf">RF</span></td><td><code>[data-showpilot-queue-list]</code></td><td>The list of songs waiting to play. See <a href="#queue">Request queue</a>.</td></tr>
+        <tr><td><code>{QUEUE_SIZE}</code> <span class="tag rf">RF</span></td><td><code>[data-showpilot-queue-size]</code></td><td>How many requests are waiting.</td></tr>
+        <tr><td><code>{QUEUE_DEPTH}</code> <span class="tag rf">RF</span></td><td>plain number</td><td>The most requests the queue takes (Settings → Jukebox).</td></tr>
+        <tr><td><code>{LOCATION_CODE}</code> <span class="tag rf">RF</span></td><td><code>input#locationCodeInput</code></td><td>The access-code box when an access code is required; nothing otherwise.</td></tr>
+        <tr><td><code>{MESSAGE_BOX}</code> <span class="tag sp">SP</span></td><td><code>form.sp-message-box</code></td><td>The "send us a message" form. See <a href="#visitor">Visitor messages</a>.</td></tr>
+        <tr><td><code>{MESSAGE_WALL}</code> <span class="tag sp">SP</span></td><td><code>section.sp-message-wall</code></td><td>Messages visitors chose to share, once approved.</td></tr>
+        <tr><td><code>{VOTES}</code>, <code>{VOTES_REMAINING}</code> <span class="tag rf">RF</span></td><td>nothing</td><td>Accepted so Remote Falcon templates don't show stray text; ShowPilot puts vote counts in each song row and has no per-show vote limit.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="containers" data-s>
+    <h2>Show / hide sections</h2>
+    <p class="lead">Put one of these <em>inside an opening tag</em>. ShowPilot shows that element only when it applies, and switches it live (e.g. when you change from Voting to Jukebox). Hidden elements get the <code>hidden</code> attribute.</p>
+<pre><code>&lt;div class="intro" {after-hours-message}&gt;The show starts at 6 PM!&lt;/div&gt;</code></pre>
+    <div class="card"><table>
+      <thead><tr><th>Write in the tag</th><th>Becomes</th><th>Shown when</th></tr></thead>
+      <tbody>
+        <tr><td><code>{jukebox-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="jukebox"</code></td><td>Jukebox mode.</td></tr>
+        <tr><td><code>{playlist-standard-dynamic-container}</code> <span class="tag rf">RF</span></td><td>same as jukebox</td><td>Jukebox mode (older Remote Falcon name).</td></tr>
+        <tr><td><code>{playlist-voting-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="voting"</code></td><td>Voting mode.</td></tr>
+        <tr><td><code>{race-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="race"</code></td><td>Race mode.</td></tr>
+        <tr><td><code>{location-code-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="locationcode"</code></td><td>An access code is required.</td></tr>
+        <tr><td><code>{after-hours-message}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="afterhours"</code></td><td>Viewer control is off (outside show hours).</td></tr>
+        <tr><td><code>{message-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="messages"</code></td><td>Visitor messages are open.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Put <code>{PLAYLISTS}</code> inside a Voting and a Jukebox section and each gets the right kind of rows. To hide other parts while the after-hours message shows:</p>
+<pre><code>body:has([data-showpilot-container="afterhours"]:not([hidden])) .now-playing-card { display: none; }</code></pre>
+  </section>
+
+  <section id="list" data-s>
+    <h2>Song list markup</h2>
+    <p class="lead">What <code>{PLAYLISTS}</code> puts on the page. The classes match Remote Falcon's, so Remote Falcon CSS keeps working; ShowPilot adds a few of its own.</p>
+    <h3>Jukebox row</h3>
+<pre><code>&lt;div class="jukebox-list sequence-item" data-seq="File name" onclick="ShowPilotRequest('File name')"&gt;
+  &lt;div&gt;
+    &lt;img class="sequence-image" src="…cover…"&gt;          &lt;!-- only when the song has a cover --&gt;
+    &lt;span class="sequence-name"&gt;Display Name&lt;/span&gt;
+    &lt;span class="sequence-badge"&gt;New&lt;/span&gt;            &lt;!-- only with a badge --&gt;
+    &lt;div class="jukebox-list-artist sequence-artist"&gt;Artist&lt;/div&gt;
+    &lt;span class="sequence-requests"&gt;&lt;/span&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</code></pre>
+    <h3>Voting row</h3>
+    <p>Two cells side by side with no row wrapper (Remote Falcon's layout), so a two-column grid on the container pairs them up.</p>
+<pre><code>&lt;div class="cell-vote-playlist sequence-item" data-seq="File name" onclick="ShowPilotVote('File name')"&gt;
+  &lt;div&gt;
+    &lt;img class="sequence-image" src="…"&gt;
+    &lt;span class="sequence-name"&gt;Display Name&lt;/span&gt;
+    &lt;div class="cell-vote-playlist-artist sequence-artist"&gt;Artist&lt;/div&gt;
+    &lt;span class="sequence-votes"&gt;3&lt;/span&gt;              &lt;!-- hidden by default --&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class="cell-vote" onclick="ShowPilotVote('File name')"&gt;3&lt;/div&gt;</code></pre>
+    <div class="card"><table>
+      <thead><tr><th>Class / attribute</th><th>On</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>.sequence-item</code> <span class="tag sp">SP</span></td><td>every song row</td><td>One selector for both modes.</td></tr>
+        <tr><td><code>.jukebox-list</code>, <code>.cell-vote-playlist</code>, <code>.cell-vote</code> <span class="tag rf">RF</span></td><td>rows / vote count cell</td><td>The vote count cell also casts the vote when tapped.</td></tr>
+        <tr><td><code>.sequence-image</code>, <code>.sequence-name</code>, <code>.sequence-artist</code> <span class="tag rf">RF</span></td><td>inside a row</td><td>Images come with <code>width="40"</code> as a hint; your CSS wins. The artist line is empty when there's no artist (use <code>:empty</code>).</td></tr>
+        <tr><td><code>.sequence-votes</code></td><td>voting rows</td><td>A second vote count inside the name cell, hidden unless your CSS shows it.</td></tr>
+        <tr><td><code>[data-seq]</code></td><td>rows, queue items</td><td>The song's file name, for CSS or scripts.</td></tr>
+        <tr><td><code>.sequence-category-header</code> <span class="tag sp">SP</span></td><td>category headings</td><td>Shown above each group when songs have categories (and headings are on in Sequences → Categories). Spans the full width in grid and flex lists.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="states" data-s>
+    <h2>Song states</h2>
+    <p class="lead">Extra classes and attributes a song row can carry. All of them are ShowPilot only, kept current while the page is open.</p>
+    <div class="card"><table>
+      <thead><tr><th>Class / attribute</th><th>Means</th><th>Default look</th></tr></thead>
+      <tbody>
+        <tr><td><code>.showpilot-queued</code><br><code>data-queue-position="2"</code></td><td>Already requested, and where it is in the queue.</td><td>None; style it yourself (e.g. a "#2 in line" label with <code>attr()</code>).</td></tr>
+        <tr><td><code>.showpilot-badge</code>, <code>.showpilot-badge-&lt;name&gt;</code><br><code>data-badge="Fan Favorite"</code>, <code>.sequence-badge</code></td><td>The song has a badge (Sequences page). <code>&lt;name&gt;</code> is the badge in lower case with dashes, e.g. <code>showpilot-badge-fan-favorite</code>.</td><td>A small label in the cover's corner or after the name (Settings → badge look). Style <code>.sequence-badge</code> to change it.</td></tr>
+        <tr><td><code>.showpilot-cooldown</code><br><code>data-cooldown="after 3 more songs"</code><br><code>data-cooldown-left="3"</code> <code>data-cooldown-unit="songs"</code><br><code>.sequence-cooldown</code></td><td>Just played and still cooling down. Only on the page when <em>Keep cooling-down songs on the page</em> is on (Settings → Jukebox → Song cooldown); otherwise the song is left out. <code>data-cooldown-unit</code> is <code>songs</code> or <code>minutes</code>. The voting count cell gets the class too.</td><td>Greyed out, with "Available again after 3 more songs" in the artist line (<code>.sequence-cooldown</code>). Tapping it shows the cooldown message instead of sending a request.</td></tr>
+        <tr><td><code>.showpilot-tiebreak-candidate</code></td><td>One of the tied songs during a tie-break vote.</td><td>Outlined in <code>--showpilot-tiebreak-accent</code>.</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Example: your own cooldown look</h3>
+<pre><code>.showpilot-cooldown { opacity: .5; filter: none; }
+.sequence-cooldown { color: #b3b3b3; font-size: 12px; }
+/* or hide the note and use the attribute instead */
+.sequence-cooldown { display: none; }
+.showpilot-cooldown .sequence-name::after { content: " · back " attr(data-cooldown); }</code></pre>
+    <p class="legend">The default cooldown and badge styles have no specificity, so any rule of yours wins.</p>
+  </section>
+
+  <section id="queue" data-s>
+    <h2>Request queue</h2>
+<pre><code>&lt;div data-showpilot-queue-list&gt;
+  &lt;div class="queue-item" data-seq="File name"&gt;Display Name&lt;/div&gt;
+  …
+&lt;/div&gt;
+&lt;!-- or, when nothing is waiting: --&gt;
+&lt;div class="queue-empty"&gt;Queue is empty.&lt;/div&gt;</code></pre>
+  </section>
+
+  <section id="race" data-s>
+    <h2>Race mode</h2>
+    <p>In Race mode <code>{PLAYLISTS}</code> becomes tap buttons with a bar per song: <code>.race-row</code>, <code>.race-cover</code>, <code>.race-row-info</code>, <code>.race-song-name</code>, <code>.race-song-artist</code>, <code>.race-bar-track</code>, <code>.race-bar-fill</code>, <code>.race-tap-btn</code>, <code>.race-tap-count</code>, plus <code>.race-instructions</code> and <code>.race-empty</code>. The winner is announced in <code>#showpilot-race-winner-overlay</code>. Templates don't need a race section; <code>{race-dynamic-container}</code> is there if you want race-only content.</p>
+  </section>
+
+  <section id="messages" data-s>
+    <h2>Pop-up messages</h2>
+    <p class="lead">Add an element with one of these IDs (usually hidden with <code>style="display:none"</code>) and ShowPilot shows it for a few seconds at the right moment; tapping it closes it. If a specific one is missing, ShowPilot shows <code>#requestFailed</code> with its own wording, so <code>#requestSuccessful</code> and <code>#requestFailed</code> cover everything.</p>
+    <div class="card"><table>
+      <thead><tr><th>ID</th><th>Shown when</th></tr></thead>
+      <tbody>
+        <tr><td><code>#requestSuccessful</code> <span class="tag rf">RF</span></td><td>A request was added (and a vote, if there's no <code>#voteSuccessful</code>).</td></tr>
+        <tr><td><code>#voteSuccessful</code> <span class="tag sp">SP</span></td><td>A vote was counted.</td></tr>
+        <tr><td><code>#requestFailed</code> <span class="tag rf">RF</span></td><td>Anything else went wrong, with ShowPilot's explanation when there's no matching element below.</td></tr>
+        <tr><td><code>#requestPlaying</code> <span class="tag rf">RF</span></td><td>That song is already in the queue.</td></tr>
+        <tr><td><code>#queueFull</code> <span class="tag rf">RF</span></td><td>The queue is full.</td></tr>
+        <tr><td><code>#alreadyVoted</code> <span class="tag rf">RF</span></td><td>The visitor already voted this round.</td></tr>
+        <tr><td><code>#invalidLocation</code> <span class="tag rf">RF</span></td><td>The visitor isn't close enough to the show (or location was blocked).</td></tr>
+        <tr><td><code>#invalidLocationCode</code> <span class="tag sp">SP</span></td><td>Wrong access code.</td></tr>
+        <tr><td><code>#songPlaying</code> <span class="tag sp">SP</span></td><td>That song is playing right now.</td></tr>
+        <tr><td><code>#songNextUp</code> <span class="tag sp">SP</span></td><td>That song is already up next.</td></tr>
+        <tr><td><code>#songCooldown</code> <span class="tag sp">SP</span></td><td>That song is cooling down. Any element inside with <code>data-showpilot-cooldown-text</code> gets "after 3 more songs" / "in about 12 minutes".</td></tr>
+      </tbody>
+    </table></div>
+<pre><code>&lt;div id="songCooldown" class="toast" style="display:none"&gt;
+  Hang on! That one comes back &lt;span data-showpilot-cooldown-text&gt;&lt;/span&gt;.
+&lt;/div&gt;</code></pre>
+    <p>The voting-round winner announcement is <code>#showpilot-winner-toast</code>; restyle it with the <code>--showpilot-toast-*</code> <a href="#vars">variables</a>.</p>
+  </section>
+
+  <section id="page" data-s>
+    <h2>Page states</h2>
+    <div class="card"><table>
+      <thead><tr><th>Hook</th><th>On</th><th>Values / meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>data-showpilot-mode</code> <span class="tag sp">SP</span></td><td><code>&lt;html&gt;</code> and <code>&lt;body&gt;</code></td><td><code>voting</code>, <code>jukebox</code>, <code>race</code>, <code>listen-only</code> or <code>off</code>. Updated live, e.g. <code>[data-showpilot-mode="off"] .vote-help { display: none; }</code></td></tr>
+        <tr><td><code>.showpilot-listen-only</code> <span class="tag sp">SP</span></td><td><code>&lt;body&gt;</code></td><td>Listen Only mode: picking is closed, and a <code>.showpilot-listen-notice</code> appears above the song list.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="progress" data-s>
+    <h2>Progress bar</h2>
+<pre><code>&lt;div class="sp-progress sp-progress--inline" data-showpilot-progress role="progressbar"&gt;
+  &lt;div class="sp-progress-track"&gt;&lt;div class="sp-progress-fill"&gt;&lt;/div&gt;&lt;/div&gt;
+  &lt;span class="sp-progress-time"&gt;2:41&lt;/span&gt;
+&lt;/div&gt;</code></pre>
+    <p><code>.sp-progress--idle</code> is added when nothing is playing or the song's length is unknown. The fill color comes from Settings (or <code>--sp-progress-color</code>); it's set inline, so override it with <code>!important</code>. Where the time sits (left/right) is a setting too.</p>
+  </section>
+
+  <section id="visitor" data-s>
+    <h2>Visitor messages</h2>
+    <p><code>{MESSAGE_BOX}</code> gives <code>form.sp-message-box[data-showpilot-message-box]</code>, hidden while messages are closed, so you can show something else instead:</p>
+<pre><code>.msg-closed { display: none; }
+.panel:has(form[data-showpilot-message-box][hidden]) .msg-closed { display: block; }</code></pre>
+    <p><code>{MESSAGE_WALL}</code> gives <code>section.sp-message-wall[data-showpilot-message-wall]</code> with <code>data-style</code> = <code>cards</code>, <code>bubbles</code> or <code>ticker</code>. Both carry <code>data-sp-theme</code> = <code>dark</code> or <code>light</code> (the Box style setting). Inner classes start with <code>sp-message-</code> and <code>sp-wall-</code>. Your page's own CSS is kept away from them, so set the colors with the <code>--sp-message-*</code> <a href="#vars">variables</a>.</p>
+  </section>
+
+  <section id="listen" data-s>
+    <h2>Listen on Phone</h2>
+    <p>The floating headphones button is <code>#of-listen-btn</code>; its colors come from Settings → Listen-on-Phone (or <code>--sp-launcher-bg</code> / <code>--sp-launcher-fg</code>).</p>
+    <div class="card"><table>
+      <thead><tr><th>Attribute</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>data-sp-listen-icon</code></td><td>Put on an empty <code>&lt;span&gt;</code> in your help text and ShowPilot fills it with a copy of the Listen button's icon and colors, so instructions always match the real button.</td></tr>
+        <tr><td><code>data-showpilot-sync-help</code></td><td>The element is shown only while "sync help" is switched on in the admin (use it for "music out of sync?" tips).</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="vars" data-s>
+    <h2>CSS variables</h2>
+    <p class="lead">Set these on <code>:root</code> (or any parent) to restyle ShowPilot's own parts to match your page.</p>
+    <div class="card"><table>
+      <thead><tr><th>Variable</th><th>Changes</th></tr></thead>
+      <tbody>
+        <tr><td><code>--showpilot-toast-bg</code>, <code>-text</code>, <code>-border</code>, <code>-accent</code>, <code>-font</code></td><td>The voting winner announcement.</td></tr>
+        <tr><td><code>--showpilot-tiebreak-bg</code>, <code>-text</code>, <code>-accent</code></td><td>The tie-break banner and the outline on tied songs.</td></tr>
+        <tr><td><code>--sp-message-accent</code>, <code>--sp-message-accent-text</code>, <code>--sp-message-bg</code>, <code>--sp-message-border</code>, <code>--sp-message-field-bg</code>, <code>--sp-message-text</code></td><td>The message box and wall. An accent color picked in the admin still wins over <code>--sp-message-accent</code>.</td></tr>
+        <tr><td><code>--sp-progress-color</code></td><td>The progress bar fill.</td></tr>
+        <tr><td><code>--sp-launcher-bg</code>, <code>--sp-launcher-fg</code></td><td>The Listen on Phone button.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="js" data-s>
+    <h2>JavaScript</h2>
+    <p>Use these in <code>onclick</code> if you build your own buttons. Pass the song's <em>file name</em> (the <code>data-seq</code> value), not its display name.</p>
+    <div class="card"><table>
+      <thead><tr><th>Call</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>ShowPilotRequest('File name')</code></td><td>Requests the song (Jukebox). Also available as <code>RemoteFalconRequest</code>, <code>OpenFalconRequest</code> and <code>request</code>.</td></tr>
+        <tr><td><code>ShowPilotVote('File name')</code></td><td>Votes for the song (Voting). Also <code>RemoteFalconVote</code>, <code>OpenFalconVote</code> and <code>vote</code>.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Both handle the access code, location check and pop-up messages for you.</p>
+  </section>
+
+  <section id="tips" data-s>
+    <h2>Tips</h2>
+    <ul>
+      <li><strong>Global CSS</strong> (Viewer Page → Global CSS) is added to every template, handy for one rule you want everywhere.</li>
+      <li>Hand-built pages can be rearranged without code in the template editor's <strong>Sections</strong> tab.</li>
+      <li>Remote Falcon templates work as they are. To bring one up to date with the extras on this page, use the converter at <a href="https://showpilot.dev/convert" target="_blank" rel="noopener">showpilot.dev/convert</a>.</li>
+      <li>The preview in the template editor uses your real songs and settings, so states like cooldowns and badges show there as they will on the live page.</li>
+    </ul>
+  </section>
+</main>
+</div>
+
+<script>
+// Filter the sections and table rows by the search box.
+(function () {
+  var q = document.getElementById('q'), none = document.getElementById('nohit');
+  var secs = Array.prototype.slice.call(document.querySelectorAll('[data-s]'));
+  q.addEventListener('input', function () {
+    var t = q.value.trim().toLowerCase(), any = false;
+    secs.forEach(function (s) {
+      var rows = s.querySelectorAll('tbody tr'), hit = !t || s.textContent.toLowerCase().indexOf(t) !== -1, rowHit = false;
+      Array.prototype.forEach.call(rows, function (r) {
+        var m = !t || r.textContent.toLowerCase().indexOf(t) !== -1 || s.querySelector('h2').textContent.toLowerCase().indexOf(t) !== -1;
+        r.classList.toggle('hidden-by-search', !m); if (m) rowHit = true;
+      });
+      s.classList.toggle('hidden-by-search', !hit);
+      if (hit) any = true;
+    });
+    none.style.display = any ? 'none' : 'block';
+  });
+})();
+</script>
+</body>
+</html>

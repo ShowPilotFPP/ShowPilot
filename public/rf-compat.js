@@ -97,6 +97,11 @@
     alreadyVoted: 'alreadyVoted',
     songPlaying: 'songPlaying',
     songNextUp:  'songNextUp',
+    // v0.33.258: a song that's cooling down. Templates can add their own
+    // <div id="songCooldown">; an element inside it with
+    // data-showpilot-cooldown-text gets "after 3 more songs". Without one,
+    // #requestFailed shows the server's sentence.
+    songCooldown: 'songCooldown',
   };
 
   function showMessage(id, durationMs, textOverride, fallbackText) {
@@ -161,6 +166,7 @@
   function mapErrorToId(error, data) {
     // Server explicitly flags code failures (v0.33.24+) — use the dedicated toast.
     if (data && data.invalidLocationCode) return MSG_IDS.invalidLocationCode;
+    if (data && data.cooldown) return MSG_IDS.songCooldown;
     const msg = (error || '').toLowerCase();
     if (msg.includes('miles of the show')) return MSG_IDS.invalidLocation;
     if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
@@ -778,6 +784,7 @@
   // Globals exposed to template onclick handlers
   window.ShowPilotVote = async function (sequenceName) {
     if (listenOnlyBlocked()) return;
+    if (cooldownTapBlocked(sequenceName)) return;
     // If a tiebreak is in progress, route through the tiebreak path
     // instead. Voting for a candidate goes via /api/tiebreak-vote;
     // voting for a non-candidate is rejected with a clear message.
@@ -851,7 +858,31 @@
       showMessage(id, hint ? 9000 : undefined, hint ? err + hint : undefined, err + hint);
       return;
     }
+    if (id === MSG_IDS.songCooldown) {
+      fillCooldownText(data.cooldown && data.cooldown.text);
+      showMessage(id, 4500, undefined, err);
+      return;
+    }
     showMessage(id, undefined, undefined, err);
+  }
+  function fillCooldownText(text) {
+    const box = document.getElementById(MSG_IDS.songCooldown);
+    if (!box || !text) return;
+    box.querySelectorAll('[data-showpilot-cooldown-text]').forEach(el => { el.textContent = text; });
+  }
+  // A tap on a song marked as cooling down (kept on the page by the show's
+  // setting) answers right away from its data-cooldown, without a request.
+  function cooldownTapBlocked(sequenceName) {
+    let row = null;
+    document.querySelectorAll('.showpilot-cooldown[data-seq]').forEach(el => {
+      if (!row && el.getAttribute('data-seq') === sequenceName) row = el;
+    });
+    if (!row) return false;
+    const text = row.getAttribute('data-cooldown') || 'a little later';
+    const msg = 'That song was just played. You can pick it again ' + text + '.';
+    fillCooldownText(text);
+    showMessage(MSG_IDS.songCooldown, 4500, undefined, msg);
+    return true;
   }
   // Listen Only (v0.33.249+): picking is closed, the page and audio stay up.
   const LISTEN_MSG = 'Requests and voting are closed for now. You can still listen along!';
@@ -864,6 +895,7 @@
 
   window.ShowPilotRequest = async function (sequenceName) {
     if (listenOnlyBlocked()) return;
+    if (cooldownTapBlocked(sequenceName)) return;
     let body;
     try { body = await buildBody({ sequenceName }); }
     catch { return; }
@@ -1782,7 +1814,8 @@
         (s.artist || '') + '|' +
         (s.image_url || '') + '|' +
         (s.category || '') + '|' +
-        (s.badge || '')
+        (s.badge || '') + '|' +
+        (s.cooldown ? s.cooldown.text : '')
         // vote counts excluded — managed by the direct DOM update in applyStateUpdate
       );
     }
@@ -1886,13 +1919,20 @@
         : '';
       // Badge: same markup as the server (queued state is applied after by markQueued).
       const badge = seq.badge ? String(seq.badge).trim() : '';
-      const extraCls = badge ? ` showpilot-badge showpilot-badge-${badgeSlug(badge)}` : '';
-      const extraAttr = badge ? ` data-badge="${escapeHtml(badge)}"` : '';
+      // Cooldown marks (v0.33.258), same as the server's cooldownMarkup.
+      const cd = seq.cooldown && typeof seq.cooldown === 'object' ? seq.cooldown : null;
+      const cdText = cd ? String(cd.text || '') : '';
+      const cdCls = cd ? ' showpilot-cooldown' : '';
+      const extraCls = (badge ? ` showpilot-badge showpilot-badge-${badgeSlug(badge)}` : '') + cdCls;
+      const extraAttr = (badge ? ` data-badge="${escapeHtml(badge)}"` : '') +
+        (cd ? ` data-cooldown="${escapeHtml(cdText)}" data-cooldown-left="${Number(cd.left) || 0}" data-cooldown-unit="${cd.unit === 'songs' ? 'songs' : 'minutes'}" aria-disabled="true"` : '');
       const badgeEl = badge ? `<span class="sequence-badge">${escapeHtml(badge)}</span>` : '';
+      // Inside the artist line, like the server render.
+      const artistHtml = safeArtist + (cd ? `<span class="sequence-cooldown">Available again ${escapeHtml(cdText)}</span>` : '');
       if (mode === 'VOTING') {
-        return `<div class="cell-vote-playlist sequence-item${extraCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
+        return `<div class="cell-vote-playlist sequence-item${extraCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="cell-vote-playlist-artist sequence-artist">${artistHtml}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote${cdCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
       } else {
-        return `<div class="jukebox-list sequence-item${extraCls}" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
+        return `<div class="jukebox-list sequence-item${extraCls}" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="jukebox-list-artist sequence-artist">${artistHtml}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
       }
     }).join('');
   }

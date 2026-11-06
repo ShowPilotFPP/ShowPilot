@@ -88,28 +88,21 @@ function isSequenceHidden(seq, cfg) {
   return seq.plays_since_hidden < cfg.hide_sequence_after_played;
 }
 
-// Per-sequence cooldown check (v0.29.2+). Returns null if the sequence
-// is NOT in cooldown (or has cooldown disabled), or an ISO timestamp
-// string indicating when the cooldown expires. The check is purely
-// query-time — there's no scheduled job to clear it; it just naturally
-// stops being true once enough time has passed.
-//
-// Used in three places: viewer state (so the UI can gray out), jukebox
-// add (defense in depth — UI hides it but reject the request server-side
-// too), and voting nomination (filter out cooled-down sequences).
-function sequenceCooldownUntil(seq) {
-  if (!seq.cooldown_minutes || seq.cooldown_minutes <= 0) return null;
-  if (!seq.last_played_at) return null;
-  // SQLite stores last_played_at as a UTC string ('YYYY-MM-DD HH:MM:SS').
-  // Treat it as UTC by appending 'Z' if no timezone is present, so Date
-  // parsing doesn't apply local-time interpretation.
-  const lpa = String(seq.last_played_at);
-  const utc = /[Z+\-]/.test(lpa.slice(-6)) ? lpa : lpa.replace(' ', 'T') + 'Z';
-  const lastMs = Date.parse(utc);
-  if (!Number.isFinite(lastMs)) return null;
-  const untilMs = lastMs + seq.cooldown_minutes * 60_000;
-  if (untilMs <= Date.now()) return null;
-  return new Date(untilMs).toISOString();
+// Cooldown check (v0.29.2+; tiered with songs or minutes since v0.33.258,
+// see lib/cooldown.js). Returns null when the song can be picked, otherwise
+// { unit, left, until? }. Purely query-time: it stops being true once
+// enough songs have played or enough time has passed.
+function sequenceCooldown(seq, cfg) {
+  return require('../lib/cooldown').status(seq, cfg || getConfig());
+}
+// Rejection for a vote / request on a cooling-down song.
+function cooldownRejection(st) {
+  const cd = require('../lib/cooldown');
+  return {
+    error: cd.message(st),
+    cooldown: { unit: st.unit, left: st.left, text: cd.describe(st) },
+    cooldown_until: st.until || null,
+  };
 }
 
 function viewerPresenceCheck(req, cfg) {
@@ -193,7 +186,7 @@ router.get('/state', (req, res) => {
   const allSequences = db.prepare(`
     SELECT id, name, display_name, artist, category, image_url, badge,
            duration_seconds, votable, jukeboxable,
-           last_played_at, plays_since_hidden, cooldown_minutes
+           last_played_at, plays_since_hidden, cooldown_minutes, cooldown
     FROM sequences
     WHERE visible = 1 AND active = 1 AND is_psa = 0
     ORDER BY display_order, display_name
@@ -217,11 +210,13 @@ router.get('/state', (req, res) => {
   // backward compat with custom templates.
   //   3. disabled categories — applyCategoryView drops them and
   //      groups the remainder into category order for header rendering.
+  //   4. cooldown (v0.33.258): with "keep cooling-down songs on the page"
+  //      they stay, carrying { cooldown: { unit, left, text } } so the page
+  //      can mark them; otherwise they drop out as before.
   const sequences = bustSequenceCovers(
-    categories.applyCategoryView(allSequences, cfg)
-      .filter(s => !isSequenceHidden(s, cfg))
-      .filter(s => !sequenceCooldownUntil(s))
-      .map(({ cooldown_minutes, ...rest }) => rest)
+    require('../lib/cooldown').applyToList(
+      categories.applyCategoryView(allSequences, cfg).filter(s => !isSequenceHidden(s, cfg)), cfg)
+      .map(({ cooldown_minutes, cooldown, ...rest }) => (cooldown && typeof cooldown === 'object' ? { ...rest, cooldown } : rest))
   );
 
   const voteCounts = db.prepare(`
@@ -416,13 +411,8 @@ router.post('/vote', (req, res) => {
   if (isSequenceHidden(seq, cfg)) {
     return res.status(400).json({ error: 'That sequence was recently played. Try another.' });
   }
-  const cooldownUntilV = sequenceCooldownUntil(seq);
-  if (cooldownUntilV) {
-    return res.status(400).json({
-      error: 'That sequence was recently played. It will be available again shortly.',
-      cooldown_until: cooldownUntilV,
-    });
-  }
+  const cooldownV = sequenceCooldown(seq, cfg);
+  if (cooldownV) return res.status(400).json(cooldownRejection(cooldownV));
 
   // Repeat blockers (v0.31.1+): block votes for the currently-playing song
   // or the one already winning the round (which would otherwise be next up).
@@ -727,13 +717,8 @@ router.post('/jukebox/add', (req, res) => {
   // Cooldown check (v0.29.2+). The viewer UI already hides cooled-down
   // sequences, but a stale page or a direct API caller could still try
   // to request one — reject server-side too.
-  const cooldownUntil = sequenceCooldownUntil(seq);
-  if (cooldownUntil) {
-    return res.status(400).json({
-      error: 'That sequence was recently played. It will be available again shortly.',
-      cooldown_until: cooldownUntil,
-    });
-  }
+  const cooldownJ = sequenceCooldown(seq, cfg);
+  if (cooldownJ) return res.status(400).json(cooldownRejection(cooldownJ));
 
   // Repeat blockers (v0.31.1+): don't let viewers queue the song that's
   // currently playing or the one already lined up next. "Next up" mirrors

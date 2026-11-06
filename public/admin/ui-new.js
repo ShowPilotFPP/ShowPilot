@@ -195,6 +195,60 @@
     backdrop.addEventListener('click', () => closeDrawer(true));
     document.body.appendChild(backdrop);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(true); });
+    // Viewer control + show mode (v0.33.258): always in the top bar, and
+    // usable from any page — a switch for on/off and a menu for the mode, so
+    // testing the viewer page doesn't mean going back to the Dashboard. Both
+    // call the Dashboard's own functions (toggleViewerControl / updateMode)
+    // and follow the classic header's #modePill, which every mode change
+    // already updates.
+    const modePill = document.getElementById('modePill');
+    if (modePill && typeof window.updateMode === 'function') {
+      const st = el('<div class="spn-vc" role="group" aria-label="Viewer control">' +
+        '<button type="button" class="spn-vc-switch" role="switch" aria-checked="false" title="Turn viewer control on or off">' +
+          '<span class="spn-vc-knob" aria-hidden="true"></span><span class="spn-vc-state">Off</span></button>' +
+        '<span class="spn-vc-sep" aria-hidden="true"></span>' +
+        '<label class="spn-vc-mode"><span class="spn-vc-label">Mode</span>' +
+          '<select aria-label="Viewer mode">' +
+            '<option value="VOTING">Voting</option><option value="JUKEBOX">Jukebox</option>' +
+            '<option value="RACE">Race</option><option value="LISTEN">Listen only</option>' +
+          '</select></label></div>');
+      const sw = st.querySelector('.spn-vc-switch');
+      const sel = st.querySelector('select');
+      const MODES = { voting: 'VOTING', jukebox: 'JUKEBOX', race: 'RACE', listen: 'LISTEN' };
+      let busy = false;
+      const sync = () => {
+        const cls = (modePill.className.match(/\b(voting|jukebox|race|listen|off)\b/) || [])[1] || 'off';
+        const on = cls !== 'off';
+        st.classList.toggle('is-on', on);
+        sw.setAttribute('aria-checked', on ? 'true' : 'false');
+        sw.querySelector('.spn-vc-state').textContent = on ? 'Viewers on' : 'Viewers off';
+        if (on) sel.value = MODES[cls];
+        sel.title = on ? 'Change the viewer mode' : 'Viewer control is off. Picking a mode turns it on.';
+      };
+      sync();
+      new MutationObserver(sync).observe(modePill, { attributes: true, attributeFilter: ['class'] });
+      sw.addEventListener('click', async () => {
+        if (busy) return; busy = true; sw.disabled = true;
+        try { await window.toggleViewerControl(); } finally { busy = false; sw.disabled = false; }
+      });
+      sel.addEventListener('change', async () => {
+        if (busy) return; busy = true; sel.disabled = true;
+        try {
+          const ms = document.getElementById('modeSelect');
+          if (ms) ms.value = sel.value;
+          await window.updateMode(sel.value);
+        } finally { busy = false; sel.disabled = false; }
+      });
+      // When off, show the mode it will come back on in.
+      (async () => {
+        try {
+          const r = await api('/config');
+          const last = r && r.ok && r.data && r.data.last_active_mode;
+          if (!st.classList.contains('is-on') && last && /^(VOTING|JUKEBOX|RACE|LISTEN)$/.test(last)) sel.value = last;
+        } catch (_) {}
+      })();
+      top.appendChild(st);
+    }
     const count = document.getElementById('headerViewerCount');
     if (count) {
       const chip = el('<span class="spn-chip"></span>');

@@ -296,6 +296,9 @@ router.put('/config', requireAdmin, (req, res) => {
     // Misc
     'hide_sequence_after_played',
     'cooldown_suppress_fpp_playlist',
+    'cooldown_unit',
+    'cooldown_default',
+    'cooldown_show_cooled',
     'blocked_ips',
     // Viewer player decoration
     'player_decoration',
@@ -362,6 +365,10 @@ router.put('/config', requireAdmin, (req, res) => {
     if (k in req.body) updates[k] = req.body[k];
   }
   require('../lib/visitor-messages').sanitizeSettings(updates);
+  // Tiered cooldowns (v0.33.258, lib/cooldown.js)
+  if ('cooldown_unit' in updates) updates.cooldown_unit = updates.cooldown_unit === 'songs' ? 'songs' : 'minutes';
+  if ('cooldown_default' in updates) updates.cooldown_default = require('../lib/cooldown').toInt(updates.cooldown_default) || 0;
+  if ('cooldown_show_cooled' in updates) updates.cooldown_show_cooled = updates.cooldown_show_cooled ? 1 : 0;
 
   // Sanitize psa_trigger_mode (v0.30.0+) to one of two allowed values.
   // Anything else falls back to 'interactions' (the default + safe option).
@@ -540,6 +547,19 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
 router.get('/sequences', requireAdmin, (req, res) => {
   const { bustSequenceCovers } = require('../lib/cover-art');
   const rows = db.prepare(`SELECT * FROM sequences ORDER BY display_order, display_name`).all();
+  // Tiered cooldowns (v0.33.258): the song's own value, what it ends up
+  // using and where that comes from, and whether it's cooling down now.
+  const cd = require('../lib/cooldown');
+  const cfg = getConfig();
+  const catMap = cd.categoryMap(cfg);
+  for (const r of rows) {
+    const eff = cd.resolve(r, cfg, catMap);
+    const st = cd.status(r, cfg, catMap);
+    r.cooldown_own = cd.ownCooldown(r);
+    r.cooldown_effective = eff.value;
+    r.cooldown_from = eff.from;
+    r.cooldown_now = st ? cd.describe(st) : null;
+  }
   res.json(bustSequenceCovers(rows));
 });
 
@@ -575,10 +595,21 @@ function updateSequence(req, res) {
   const id = Number(req.params.id);
   const fields = ['display_name', 'artist', 'category', 'image_url',
                   'duration_seconds', 'visible', 'votable', 'jukeboxable',
-                  'is_psa', 'display_order', 'cooldown_minutes', 'badge'];
+                  'is_psa', 'display_order', 'cooldown_minutes', 'cooldown', 'badge'];
   const updates = {};
   for (const k of fields) {
     if (k in req.body) updates[k] = req.body[k];
+  }
+  // Tiered cooldowns (v0.33.258): `cooldown` is the song's own value (null =
+  // use its category's / the show's). An old-style cooldown_minutes is moved
+  // into it, and the old column is cleared so it stops counting.
+  if ('cooldown_minutes' in updates) {
+    if (!('cooldown' in updates)) updates.cooldown = updates.cooldown_minutes;
+    delete updates.cooldown_minutes;
+  }
+  if ('cooldown' in updates) {
+    updates.cooldown = require('../lib/cooldown').toInt(updates.cooldown);
+    updates.cooldown_minutes = 0;
   }
   if (Object.keys(updates).length === 0) return res.json({ ok: true });
   if ('badge' in updates) updates.badge = cleanBadge(updates.badge);
@@ -622,6 +653,11 @@ router.post('/categories/enabled', requireAdmin, (req, res) => {
 router.post('/categories/schedule', requireAdmin, (req, res) => {
   const { name, schedule } = req.body || {};
   categoryResult(req, res, require('../lib/categories').setCategorySchedule(name, schedule || null));
+});
+// Category cooldown (v0.33.258): { name, cooldown: number | null (= use the show's) }
+router.post('/categories/cooldown', requireAdmin, (req, res) => {
+  const { name, cooldown } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').setCategoryCooldown(name, cooldown));
 });
 router.post('/categories/rename', requireAdmin, (req, res) => {
   const { name, new_name } = req.body || {};
@@ -1723,6 +1759,21 @@ router.get('/designer/defaults', requireAdmin, (req, res) => {
   res.json({ settings: DEFAULT_SETTINGS });
 });
 
+// Sections editor (beta, v0.33.258-beta.1): HTML for one library block,
+// with its default content, to insert into a hand-built template. Wrapped
+// in one <div> (so a block made of several parts moves as one section) with
+// a comment naming it, which the Sections tab shows as the section's name.
+router.post('/designer/render-block', requireAdmin, (req, res) => {
+  const { BLOCK_TYPES } = require('../lib/visual-designer');
+  const type = String((req.body && req.body.type) || '');
+  const def = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, type) ? BLOCK_TYPES[type] : null;
+  if (!def) return res.status(400).json({ error: 'Unknown block' });
+  let inner;
+  try { inner = def.render({ ...def.defaultProps }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
+  const name = String(def.label || type).replace(/--+|[<>]/g, '');
+  res.json({ html: '<div class="sp-added-block"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
+});
+
 // PATCH a draft for the active template (or one specified by ?id=).
 // Body: { mode: 'settings'|'blocks'|'code', settings, blocks, html }
 // Returns the rendered draft HTML so the client can refresh the preview.
@@ -2000,10 +2051,11 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
       missingNames: missing.slice(0, 8).map((r) => r.name) });
   }
   const categories = require('../lib/categories');
-  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes', 'badge'];
+  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown', 'badge'];
   const pick = (r) => {
     const u = {};
     for (const k of FIELDS) if (k in r) u[k] = r[k];
+    if ('cooldown' in u) u.cooldown_minutes = 0; // the song's own cooldown now lives in `cooldown`
     if ('category' in u) u.category = categories.ensureCategory(u.category);
     if ('badge' in u) u.badge = cleanBadge(u.badge);
     return u;
@@ -2019,15 +2071,15 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
     if (addMissing) {
       let order = (db.prepare(`SELECT MAX(display_order) AS m FROM sequences`).get().m || 0);
       const ins = db.prepare(`
-        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, badge, active, sort_order, display_order)
-        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, @badge, 0, 0, @display_order)`);
+        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown, badge, active, sort_order, display_order)
+        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown, @badge, 0, 0, @display_order)`);
       for (const r of missing) {
         const u = pick(r);
         added += ins.run({
           name: r.name, display_name: u.display_name || r.name, artist: u.artist || null,
           image_url: u.image_url || null, category: u.category || null,
           visible: u.visible ?? 1, votable: u.votable ?? 1, jukeboxable: u.jukeboxable ?? 1,
-          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, badge: u.badge || null, display_order: ++order,
+          is_psa: u.is_psa ?? 0, cooldown: u.cooldown ?? null, badge: u.badge || null, display_order: ++order,
         }).changes;
       }
     }

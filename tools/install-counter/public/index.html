@@ -1,185 +1,10 @@
-// ============================================================
-// ShowPilot install counter — Cloudflare Worker
-// ============================================================
-// Receives a once-a-day "I'm running" ping from each ShowPilot /
-// ShowPilot-Lite install and shows how many are running.
-//
-// What a ping contains:   a random install ID, the product name,
-//                         the version number, and the owner's
-//                         location choice: off | country | region | city.
-// What we store:          a SHA-256 hash of the install ID, product,
-//                         version, last-seen date, and — ONLY at the
-//                         level the owner opted into — country, state
-//                         and town (from Cloudflare's own lookup; the
-//                         install never sends a location).
-// What we never store:    IP addresses, show names, URLs, anything else.
-// What we send back:      nothing (204 No Content).
-// ============================================================
-
-const PRODUCTS = new Set(['showpilot', 'showpilot-lite']);
-const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,5}(-[0-9A-Za-z.]{1,20})?$/;
-const DAY = 86400;
-const ACTIVE_DAYS = 30;
-const FORGET_AFTER_DAYS = 400; // seasonal shows come back each year; forget after ~13 months
-const LEVELS = new Set(['off', 'country', 'region', 'city']);
-
-import MAP_JS from './vendor/jsvectormap.min.js.txt';
-import MAP_CSS from './vendor/jsvectormap.min.css.txt';
-import WORLD_JS from './vendor/world.js.txt';
-const ASSETS = {
-  '/assets/jsvectormap.min.js': [MAP_JS, 'text/javascript'],
-  '/assets/jsvectormap.min.css': [MAP_CSS, 'text/css'],
-  '/assets/world.js': [WORLD_JS, 'text/javascript'],
-};
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    try {
-      if (url.pathname === '/ping' && request.method === 'POST') return await handlePing(request, env);
-      if (url.pathname === '/ping' && request.method === 'OPTIONS') return new Response(null, { status: 204 });
-      if (ASSETS[url.pathname] && request.method === 'GET') {
-        const [body, type] = ASSETS[url.pathname];
-        return new Response(body, { headers: { 'content-type': type + '; charset=utf-8', 'cache-control': 'public, max-age=86400' } });
-      }
-      if (url.pathname === '/api/stats' && request.method === 'GET') {
-        if (!authorized(url, env)) return new Response('Not found', { status: 404 });
-        return json(await getStats(env));
-      }
-      if (url.pathname === '/' && request.method === 'GET') {
-        if (!authorized(url, env)) return new Response('Not found', { status: 404 });
-        return new Response(PAGE_HTML, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
-      }
-      return new Response('Not found', { status: 404 });
-    } catch (e) {
-      return new Response('Error', { status: 500 });
-    }
-  },
-
-  async scheduled(_event, env) {
-    const now = Math.floor(Date.now() / 1000);
-    const day = new Date(now * 1000).toISOString().slice(0, 10);
-    const { results } = await env.DB.prepare(
-      'SELECT product, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY product'
-    ).bind(now - ACTIVE_DAYS * DAY).all();
-    const stmts = [];
-    for (const p of PRODUCTS) {
-      const row = results.find(r => r.product === p);
-      stmts.push(env.DB.prepare('INSERT OR REPLACE INTO daily (day, product, active) VALUES (?, ?, ?)').bind(day, p, row ? row.n : 0));
-    }
-    stmts.push(env.DB.prepare('DELETE FROM installs WHERE last_seen < ?').bind(now - FORGET_AFTER_DAYS * DAY));
-    await env.DB.batch(stmts);
-  },
-};
-
-function authorized(url, env) {
-  if (!env.STATS_KEY) return true;
-  return url.searchParams.get('key') === env.STATS_KEY;
-}
-
-async function handlePing(request, env) {
-  const len = Number(request.headers.get('content-length') || 0);
-  if (len > 1024) return new Response(null, { status: 413 });
-  let body;
-  try { body = await request.json(); } catch { return new Response(null, { status: 400 }); }
-  const id = String(body.id || '').toLowerCase();
-  const product = String(body.product || '');
-  const version = String(body.version || '');
-  if (!ID_RE.test(id) || !PRODUCTS.has(product)) return new Response(null, { status: 400 });
-  const safeVersion = VERSION_RE.test(version) ? version : null;
-
-  // Location only to the level the owner opted into. Cloudflare supplies
-  // it from the connection; the install never sends it. XX = unknown, T1 = Tor.
-  const level = LEVELS.has(body.location) ? body.location : 'off';
-  const cf = request.cf || {};
-  let country = null, region = null, city = null, lat = null, lon = null;
-  if (level !== 'off' && typeof cf.country === 'string' && /^[A-Z]{2}$/.test(cf.country) && cf.country !== 'XX' && cf.country !== 'T1') {
-    country = cf.country;
-    if (level === 'region' || level === 'city') region = clean(cf.region);
-    if (level === 'city') {
-      city = clean(cf.city);
-      const la = Number(cf.latitude), lo = Number(cf.longitude);
-      if (city && Number.isFinite(la) && Number.isFinite(lo)) { lat = Math.round(la * 10) / 10; lon = Math.round(lo * 10) / 10; }
-    }
-  }
-
-  const idHash = await sha256(id);
-  const now = Math.floor(Date.now() / 1000);
-  // Lowering or turning off the location option clears the extra detail on the next ping.
-  await env.DB.prepare(
-    `INSERT INTO installs (id_hash, product, version, country, region, city, lat, lon, first_seen, last_seen)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
-     ON CONFLICT(id_hash) DO UPDATE SET product = ?2, version = ?3, country = ?4, region = ?5,
-       city = ?6, lat = ?7, lon = ?8, last_seen = ?9`
-  ).bind(idHash, product, safeVersion, country, region, city, lat, lon, now).run();
-  return new Response(null, { status: 204 });
-}
-
-function clean(v) {
-  if (typeof v !== 'string') return null;
-  const t = v.trim().slice(0, 80);
-  return t || null;
-}
-
-async function getStats(env) {
-  const now = Math.floor(Date.now() / 1000);
-  const since30 = now - ACTIVE_DAYS * DAY;
-  const since7 = now - 7 * DAY;
-  const db = env.DB;
-  const [byProduct, byVersion, byCountry, week, ever, trend, byRegion, towns] = await db.batch([
-    db.prepare('SELECT product, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY product').bind(since30),
-    db.prepare('SELECT product, COALESCE(version, \'unknown\') AS version, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY product, version ORDER BY n DESC').bind(since30),
-    db.prepare('SELECT COALESCE(country, \'\') AS country, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY country ORDER BY n DESC').bind(since30),
-    db.prepare('SELECT COUNT(*) AS n FROM installs WHERE last_seen >= ?').bind(since7),
-    db.prepare('SELECT COUNT(*) AS n FROM installs'),
-    db.prepare('SELECT day, product, active FROM daily WHERE day >= ? ORDER BY day').bind(new Date((now - 365 * DAY) * 1000).toISOString().slice(0, 10)),
-    db.prepare('SELECT country, region, COUNT(*) AS n FROM installs WHERE last_seen >= ? AND region IS NOT NULL GROUP BY country, region ORDER BY n DESC').bind(since30),
-    db.prepare('SELECT country, region, city, AVG(lat) AS lat, AVG(lon) AS lon, COUNT(*) AS n FROM installs WHERE last_seen >= ? AND city IS NOT NULL AND lat IS NOT NULL GROUP BY country, region, city ORDER BY n DESC').bind(since30),
-  ]);
-  const products = {};
-  for (const p of PRODUCTS) products[p] = 0;
-  for (const r of byProduct.results) products[r.product] = r.n;
-  const countries = {};
-  let countryHidden = 0;
-  for (const r of byCountry.results) {
-    if (r.country) countries[r.country] = r.n; else countryHidden += r.n;
-  }
-  return {
-    generatedAt: new Date(now * 1000).toISOString(),
-    activeDays: ACTIVE_DAYS,
-    active: Object.values(products).reduce((a, b) => a + b, 0),
-    activeLast7Days: week.results[0].n,
-    seenThisYear: ever.results[0].n,
-    products,
-    versions: byVersion.results,
-    countries,
-    countryHidden,
-    regions: byRegion.results,
-    towns: towns.results.map(t => ({ ...t, lat: Math.round(t.lat * 10) / 10, lon: Math.round(t.lon * 10) / 10 })),
-    trend: trend.results,
-  };
-}
-
-async function sha256(s) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('showpilot-install:' + s));
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function json(obj) {
-  return new Response(JSON.stringify(obj), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-}
-
-// ------------------------------------------------------------
-// Stats page
-// ------------------------------------------------------------
-const PAGE_HTML = `<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ShowPilot Installs</title>
-<link rel="stylesheet" href="/assets/jsvectormap.min.css">
+<link rel="stylesheet" href="jsvectormap.min.css">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#e3e6eb;--accent:#2563eb;--accent2:#d97706;--map-empty:#e6e9ee}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#171a21;--text:#e8eaef;--muted:#9aa2b1;--line:#2a2f3a;--accent:#60a5fa;--accent2:#fbbf24;--map-empty:#262b35}}
@@ -235,15 +60,15 @@ svg text{fill:var(--muted);font-size:11px}
   </div>
   <p class="muted">Installs send one anonymous check-in a day: a random ID, the product and its version. Location (country, state or town) is only counted for owners who turned it on, at the level they picked, and is approximate. No IP addresses, show names or URLs are kept.</p>
 </main>
-<script src="/assets/jsvectormap.min.js"></script>
-<script src="/assets/world.js"></script>
+<script src="jsvectormap.min.js"></script>
+<script src="world.js"></script>
 <script>
 (async function(){
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const names = (typeof Intl !== 'undefined' && Intl.DisplayNames) ? new Intl.DisplayNames(['en'], { type: 'region' }) : null;
   const cname = c => { try { return names ? names.of(c) : c; } catch { return c; } };
-  const r = await fetch('/api/stats' + location.search);
+  const r = await fetch('api/stats' + location.search);
   if (!r.ok) { document.getElementById('sub').textContent = 'Could not load stats.'; return; }
   const s = await r.json();
   document.getElementById('sub').textContent = 'Updated ' + new Date(s.generatedAt).toLocaleString() + ' · ' + s.seenThisYear + ' installs seen in the past year';
@@ -300,4 +125,4 @@ svg text{fill:var(--muted);font-size:11px}
 })();
 </script>
 </body>
-</html>`;
+</html>

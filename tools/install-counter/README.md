@@ -1,9 +1,10 @@
 # ShowPilot install counter
 
-A tiny Cloudflare Worker that counts how many ShowPilot and ShowPilot-Lite
-installs are running, by product and version, plus an opt-in map of where
-shows are. It is **not** part of the ShowPilot app; installs only send a
-once-a-day check-in to it.
+A small Node app that counts how many ShowPilot and ShowPilot-Lite installs
+are running, by product and version, plus an opt-in map of where shows are.
+It is **not** part of the ShowPilot app; installs only send a once-a-day
+check-in to it. It's meant to run on any small Linux box behind a
+Cloudflare Tunnel.
 
 ## What an install sends
 
@@ -14,29 +15,37 @@ once-a-day check-in to it.
 - `id` is random and made on the install the first time; it identifies nothing.
 - `location` is the owner's choice in **Settings → General → Install count**:
   `off` (default), `country`, `region` (state/province) or `city` (town).
-- The install never sends a location. When the owner opted in, the Worker
-  reads Cloudflare's own approximate lookup of the connection and keeps only
-  the level they picked. Town positions are rounded to about 10 km.
-- The Worker stores a SHA-256 hash of the ID, never the IP address, and
+- The install never sends a location. When the owner opted in, the counter
+  reads Cloudflare's visitor-location headers and keeps only the level they
+  picked. Town positions are rounded to about 10 km.
+- The counter stores a SHA-256 hash of the ID, never the IP address, and
   replies with an empty `204`. Nothing is sent back to the install.
 - Installs that stop checking in are deleted after about 13 months.
 
-## Setup (once)
+## Setup
 
 ```bash
-cd tools/install-counter
-npx wrangler login
-npx wrangler d1 create showpilot-installs      # copy the database_id into wrangler.toml
-npx wrangler d1 execute showpilot-installs --remote --file=schema.sql
-npx wrangler deploy
+git clone --depth 1 https://github.com/ShowPilotFPP/ShowPilot.git /opt/showpilot-src
+cp -r /opt/showpilot-src/tools/install-counter /opt/showpilot-install-counter
+cd /opt/showpilot-install-counter
+npm install --omit=dev
+pm2 start server.js --name showpilot-install-counter
+pm2 save
 ```
 
-Then in the Cloudflare dashboard, open the Worker → **Settings → Domains & Routes**
-and add the custom domain the app points at (see `DEFAULT_URL` in
-`lib/install-count.js`). The stats page is the root of that domain.
+It listens on `127.0.0.1:3040` (change with `PORT` / `HOST`). Data lives in
+`./data/installs.db` (change with `DATA_DIR`).
 
-Optional: make the stats page private with `npx wrangler secret put STATS_KEY`
-and open it as `/?key=YOUR_KEY`.
+Then in Cloudflare:
+
+1. **Tunnel:** add a public hostname for the domain the app points at (see
+   `DEFAULT_URL` in `lib/install-count.js`) → `http://localhost:3040`.
+2. **Town and state for the map:** on that domain's zone, turn on
+   **Rules → Settings → Managed Transforms → Add visitor location headers**.
+   Without it only countries show on the map.
+
+Optional: make the stats page private by starting it with `STATS_KEY=yourkey`
+and opening `/?key=yourkey`.
 
 ## Endpoints
 
@@ -46,11 +55,10 @@ and open it as `/?key=YOUR_KEY`.
 | `GET /` | Stats page: totals, ShowPilot vs Lite, versions, map, countries, states, towns, trend |
 | `GET /api/stats` | The same numbers as JSON |
 
-"Running" means checked in within the last 30 days. A daily cron saves the
-totals for the trend line.
+"Running" means checked in within the last 30 days. Daily totals are saved
+for the trend line.
 
-## Updating the map library
+## Map library
 
-`src/vendor/*.txt` are jsvectormap 1.7.0 (MIT, see `LICENSE-jsvectormap`),
-kept as `.txt` so Wrangler bundles them as text and the Worker serves them
-itself.
+`public/jsvectormap.min.*` and `public/world.js` are jsvectormap 1.7.0
+(MIT, see `public/LICENSE-jsvectormap`).

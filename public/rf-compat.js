@@ -945,6 +945,147 @@
   window.vote = window.ShowPilotVote;
   window.request = window.ShowPilotRequest;
 
+  // ======= Block helpers (v0.33.265) =======
+  // Countdown, date-limited elements and the page-stats blocks. Each part
+  // only does anything when the page has the matching data-showpilot-* hook.
+  (function initBlockHelpers() {
+    // --- Date ranges: data-showpilot-from / data-showpilot-until ---
+    // Values are YYYY-MM-DD (one date) or MM-DD (every year; 12-20 to 01-05
+    // wraps over New Year). Both ends are included. Either may be blank.
+    function md(d) { return (d.getMonth() + 1) * 100 + d.getDate(); }
+    function inRange(from, until, now) {
+      const full = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+      const short = (v) => /^\d{2}-\d{2}$/.test(v);
+      const today = now.getFullYear() * 10000 + md(now);
+      const asNum = (v) => full(v) ? parseInt(v.replace(/-/g, ''), 10) : null;
+      const asMd = (v) => short(v) ? parseInt(v.replace('-', ''), 10) : null;
+      if ((from && short(from)) || (until && short(until))) {
+        const f = asMd(from), u = asMd(until), t = md(now);
+        if (f !== null && u !== null) return f <= u ? (t >= f && t <= u) : (t >= f || t <= u);
+        if (f !== null) return t >= f;
+        if (u !== null) return t <= u;
+        return true;
+      }
+      const f = asNum(from), u = asNum(until);
+      if (f !== null && today < f) return false;
+      if (u !== null && today > u) return false;
+      return true;
+    }
+    function applyRanges() {
+      const now = new Date();
+      document.querySelectorAll('[data-showpilot-from], [data-showpilot-until]').forEach(el => {
+        const show = inRange((el.getAttribute('data-showpilot-from') || '').trim(), (el.getAttribute('data-showpilot-until') || '').trim(), now);
+        if (el.hidden === show) el.hidden = !show;
+      });
+    }
+
+    // --- Countdown ---
+    function hm(v) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '').trim());
+      return m ? { h: Math.min(23, +m[1]), m: Math.min(59, +m[2]) } : null;
+    }
+    function at(base, t, addDays) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + (addDays || 0));
+      d.setHours(t.h, t.m, 0, 0);
+      return d;
+    }
+    // { live: bool, target: Date|null }
+    function countdownState(el, now) {
+      if (el.getAttribute('data-showpilot-countdown') === 'date') {
+        const raw = el.getAttribute('data-date') || '';
+        const target = raw ? new Date(raw.length === 10 ? raw + 'T00:00' : raw) : null;
+        if (!target || isNaN(target)) return { live: false, target: null };
+        return { live: target <= now, target };
+      }
+      const start = hm(el.getAttribute('data-start')) || { h: 18, m: 0 };
+      const end = hm(el.getAttribute('data-end'));
+      const startToday = at(now, start, 0);
+      if (end) {
+        let endToday = at(now, end, 0);
+        // A show that runs past midnight (start 18:00, end 01:00).
+        if (endToday <= startToday) {
+          const startYesterday = at(now, start, -1);
+          if (now >= startYesterday && now < endToday) return { live: true, target: null };
+          endToday = at(now, end, 1);
+        }
+        if (now >= startToday && now < endToday) return { live: true, target: null };
+      }
+      return { live: false, target: now < startToday ? startToday : at(now, start, 1) };
+    }
+    function fmt(ms) {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+      const p2 = (n) => String(n).padStart(2, '0');
+      if (d > 0) return d + 'd ' + h + 'h ' + p2(m) + 'm';
+      if (h > 0) return h + ':' + p2(m) + ':' + p2(sec);
+      return m + ':' + p2(sec);
+    }
+    function tickCountdowns() {
+      const now = new Date();
+      document.querySelectorAll('[data-showpilot-countdown]').forEach(el => {
+        const st = countdownState(el, now);
+        const time = el.querySelector('[data-showpilot-countdown-time]');
+        const live = el.querySelector('[data-showpilot-countdown-live]');
+        const title = el.querySelector('.sp-countdown-title');
+        el.classList.toggle('sp-countdown--live', st.live);
+        if (live) live.hidden = !st.live;
+        if (title) title.hidden = st.live;
+        if (time) {
+          time.hidden = st.live || !st.target;
+          const txt = st.target ? fmt(st.target - now) : '';
+          if (time.textContent !== txt) time.textContent = txt;
+        }
+      });
+    }
+
+    // --- Top Songs / Tonight's Stats (GET /api/page-stats) ---
+    function paintStats(data) {
+      if (!data) return;
+      const t = data.tonight || {};
+      document.querySelectorAll('[data-showpilot-stat]').forEach(el => {
+        const v = t[el.getAttribute('data-showpilot-stat')];
+        const txt = typeof v === 'number' ? v.toLocaleString() : '–';
+        if (el.textContent !== txt) el.textContent = txt;
+      });
+      document.querySelectorAll('[data-showpilot-top-songs]').forEach(box => {
+        const period = box.getAttribute('data-showpilot-top-songs');
+        const n = Math.max(1, Math.min(10, parseInt(box.getAttribute('data-count'), 10) || 5));
+        const rows = ((data.top || {})[period] || []).slice(0, n);
+        const list = box.querySelector('[data-showpilot-top-songs-list]');
+        const empty = box.querySelector('[data-showpilot-top-songs-empty]');
+        if (list) {
+          list.hidden = !rows.length;
+          list.innerHTML = rows.map(r =>
+            '<li class="sp-top-song"><span class="sp-top-song-name">' + escapeHtml(r.name) + '</span>' +
+            (r.artist ? ' <span class="sp-top-song-artist" style="opacity:.7;font-size:.85em;">' + escapeHtml(r.artist) + '</span>' : '') +
+            '</li>').join('');
+        }
+        if (empty) empty.hidden = !!rows.length;
+      });
+    }
+    let statsBusy = false;
+    async function loadStats() {
+      if (statsBusy || !document.querySelector('[data-showpilot-stat], [data-showpilot-top-songs]')) return;
+      statsBusy = true;
+      try {
+        const r = await fetch('/api/page-stats', { cache: 'no-store' });
+        if (r.ok) paintStats(await r.json());
+      } catch (_) {} finally { statsBusy = false; }
+    }
+
+    function start() {
+      applyRanges();
+      tickCountdowns();
+      loadStats();
+      setInterval(tickCountdowns, 1000);
+      setInterval(applyRanges, 60_000);
+      setInterval(loadStats, 60_000);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+  })();
+
   // ======= Live state refresh =======
   // ---- Live mode switching into/out of Race mode (v0.33.231+) ----
   // The server builds the page differently in Race mode: it blanks every
@@ -4955,6 +5096,29 @@
     minBtn.onclick = () => setMode('minimized');
     closeBtn.onclick = () => setMode('closed');
     minimizedPill.onclick = () => setMode('open');
+
+    // {LISTEN_BUTTON} / any [data-showpilot-listen] (v0.33.265): a button in
+    // the template's own text that does what the corner button does. It runs
+    // the corner button's click handler inside the visitor's tap, which iOS
+    // needs to start audio. Hidden (.sp-listen-unavailable) whenever the
+    // corner button is: phone audio off, or waiting on the location check.
+    document.addEventListener('click', (e) => {
+      const t = e.target && e.target.closest ? e.target.closest('[data-showpilot-listen]') : null;
+      if (!t) return;
+      e.preventDefault();
+      if (panelMode === 'minimized') { setMode('open'); return; }
+      if (panelMode === 'open') return;
+      if (btn.onclick) btn.onclick();
+    });
+    function syncInlineListen() {
+      const off = !boot.audioEnabled || btn.classList.contains('of-audio-gate-pending');
+      document.querySelectorAll('[data-showpilot-listen]').forEach(el => {
+        if (el.classList.contains('sp-listen-unavailable') !== off) el.classList.toggle('sp-listen-unavailable', off);
+      });
+    }
+    try { new MutationObserver(syncInlineListen).observe(btn, { attributes: true, attributeFilter: ['class'] }); } catch (_) {}
+    syncInlineListen();
+    setInterval(syncInlineListen, 3000);
     playBtn.onclick = () => {
       // v0.33.246 (issue #33): a real Pause/Play toggle.
       // Pause: stop audio and stay stopped — userPaused blocks every

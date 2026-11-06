@@ -178,6 +178,13 @@ router.get('/time', (req, res) => {
   res.json({ t: Date.now() });
 });
 
+// Numbers for the "Top Songs" and "Tonight's Stats" blocks (v0.33.265).
+// Song names and counts only — nothing about who picked what.
+router.get('/page-stats', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(require('../lib/page-stats').get());
+});
+
 router.get('/state', (req, res) => {
   const cfg = getConfig();
   const nowPlaying = getNowPlaying();

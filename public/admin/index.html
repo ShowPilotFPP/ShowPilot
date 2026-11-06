@@ -695,6 +695,9 @@
       font-size: 0.75rem;
       color: var(--text-muted);
     }
+    /* v0.33.265: blocks already on the page */
+    .sp-used-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; vertical-align: 1px; background: rgba(34,197,94,0.16); color: #4ade80; }
+    .of-block-lib-item.sp-used-once, .sec-picker button.sp-used-once { opacity: 0.6; }
     /* Block on canvas */
     .of-block-card {
       background: var(--bg-elevated);
@@ -2033,7 +2036,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.264</span>
+        <span class="app-version">v0.33.265</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -10741,6 +10744,8 @@
     // gap = index the new section is inserted at.
     async function secAddBlock(gap, type) {
       if (secLocked()) return;
+      const bt = blockTypes.find((b) => b.type === type);
+      if (bt && !confirmAddAgain(bt, blockUsage(bt, secModel.sections.map((x) => x.src).join('\n')))) return;
       const r = await api('/designer/render-block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }) });
       if (!r.ok || typeof r.data?.html !== 'string') { showAlert(r.data?.error || 'Could not add that block'); return; }
       secSnapshot();
@@ -10804,8 +10809,11 @@
         const gapCls = 'sec-gap' + (secPicker === gap ? ' open' : '');
         let h = '<div class="' + gapCls + '"><button class="secondary" onclick="secTogglePicker(' + gap + ')" title="Add a ready-made block here">＋ Add block here</button></div>';
         if (secPicker === gap) {
-          h += '<div class="sec-picker">' + blockTypes.map((b) =>
-            '<button class="secondary" onclick="secAddBlock(' + gap + ', \'' + escapeHtml(b.type) + '\')">' + escapeHtml(b.label) + '<small>' + escapeHtml(b.description || '') + '</small></button>').join('') +
+          const pageHtml = secModel.sections.map((x) => x.src).join('\n');
+          h += '<div class="sec-picker">' + blockTypes.map((b) => {
+            const n = blockUsage(b, pageHtml);
+            return '<button class="secondary' + (n && b.once ? ' sp-used-once' : '') + '" onclick="secAddBlock(' + gap + ', \'' + escapeHtml(b.type) + '\')">' + escapeHtml(b.label) + usedTagHtml(n) + '<small>' + escapeHtml(b.description || '') + '</small></button>';
+          }).join('') +
             '</div><p class="sec-note" style="text-align:center;">Added blocks use their own simple styling; change their text in the section, or their look under Edit HTML.</p>';
         }
         return h;
@@ -10885,15 +10893,38 @@
       renderBlockLibrary();
     }
 
+    // How many times a block is already on the page (v0.33.265). Blocks
+    // tab: count the builder's blocks. Sections tab: match the block's
+    // `detect` pattern, or the <!-- sp-added: Label --> marker that added
+    // blocks carry, against the page's code.
+    function blockUsage(b, html) {
+      if (html == null) return currentBlocks.filter(x => x.type === b.type).length;
+      let n = 0;
+      if (b.detect) {
+        try { n = (html.match(new RegExp(b.detect, 'g')) || []).length; } catch (_) { n = 0; }
+      }
+      const tag = '<!-- sp-added: ' + String(b.label || b.type).replace(/--+|[<>]/g, '');
+      n = Math.max(n, html.split(tag).length - 1);
+      return n;
+    }
+    function usedTagHtml(n) {
+      return n ? '<span class="sp-used-tag">✓ On page' + (n > 1 ? ' ×' + n : '') + '</span>' : '';
+    }
+    function confirmAddAgain(b, n) {
+      if (!n || !b.once) return true;
+      return confirm(b.label + ' is already on this page. Add another one?');
+    }
     function renderBlockLibrary() {
       const lib = document.getElementById('blockLibrary');
       if (!lib) return;
-      lib.innerHTML = blockTypes.map(b => `
-        <button class="of-block-lib-item" onclick="addBlock('${b.type}')">
-          <span class="of-block-lib-item-label">${escapeHtml(b.label)}</span>
+      lib.innerHTML = blockTypes.map(b => {
+        const n = blockUsage(b);
+        return `
+        <button class="of-block-lib-item${n && b.once ? ' sp-used-once' : ''}" onclick="addBlock('${b.type}')">
+          <span class="of-block-lib-item-label">${escapeHtml(b.label)}${usedTagHtml(n)}</span>
           <span class="of-block-lib-item-desc">${escapeHtml(b.description)}</span>
-        </button>
-      `).join('');
+        </button>`;
+      }).join('');
     }
 
     // ---- Settings form ----
@@ -10941,6 +10972,7 @@
     function addBlock(type) {
       const def = blockTypes.find(b => b.type === type);
       if (!def) return;
+      if (!confirmAddAgain(def, blockUsage(def))) return;
       currentBlocks.push({
         type,
         props: { ...(def.defaultProps || {}) },
@@ -10976,6 +11008,7 @@
     function renderBlocksCanvas() {
       const canvas = document.getElementById('blocksCanvas');
       if (!canvas) return;
+      renderBlockLibrary();
       canvas.innerHTML = currentBlocks.map((b, idx) => {
         const def = blockTypes.find(t => t.type === b.type);
         const label = def ? def.label : b.type;
@@ -11023,6 +11056,18 @@
             return `<label>${escapeHtml(prettifyKey(key))}</label>
               <input type="number" value="${escapeAttr(value == null ? '' : value)}"${minAttr}${maxAttr}${stepAttr}
                      oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value === '' ? null : Number(this.value))" />`;
+          }
+
+          // Declared lines / time / datetime (v0.33.265).
+          if (declaredType && declaredType.type === 'lines') {
+            return `<label>${escapeHtml(prettifyKey(key))} <small style="opacity:.7;font-weight:400;">(one per line)</small></label>
+              <textarea rows="5" oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)">${escapeHtml(value || '')}</textarea>`;
+          }
+          if (declaredType && (declaredType.type === 'time' || declaredType.type === 'datetime')) {
+            const it = declaredType.type === 'time' ? 'time' : 'datetime-local';
+            return `<label>${escapeHtml(prettifyKey(key))}</label>
+              <input type="${it}" value="${escapeAttr(value || '')}"
+                     onchange="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
           }
 
           // Auto-inference fallback (the original behavior).

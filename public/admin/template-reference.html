@@ -101,6 +101,7 @@
   <a href="#progress">Progress bar</a>
   <a href="#visitor">Visitor messages</a>
   <a href="#listen">Listen on Phone</a>
+  <a href="#extras">Dates, countdowns, stats</a>
   <a href="#vars">CSS variables</a>
   <a href="#js">JavaScript</a>
   <a href="#tips">Tips</a>
@@ -302,11 +303,28 @@
   <section id="listen" data-s>
     <h2>Listen on Phone</h2>
     <p>The floating headphones button is <code>#of-listen-btn</code>; its colors come from Settings → Listen-on-Phone (or <code>--sp-launcher-bg</code> / <code>--sp-launcher-fg</code>).</p>
+<pre><code>&lt;p&gt;Tune your radio to 98.9 FM or tap {LISTEN_BUTTON} to listen on your phone.&lt;/p&gt;</code></pre>
+    <div class="card"><table>
+      <thead><tr><th>Placeholder / attribute</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>{LISTEN_BUTTON}</code> <span class="tag sp">SP</span></td><td>Becomes a small 🎧 button (<code>button.sp-listen-inline</code>) right in your text that opens Listen on Phone, just like the corner button. It hides itself whenever the corner button is hidden (phone audio off, or the visitor hasn't passed the location check), getting the class <code>.sp-listen-unavailable</code>.</td></tr>
+        <tr><td><code>data-showpilot-listen</code> <span class="tag sp">SP</span></td><td>Put it on any element of your own (a link, an image, a big button) to make it open Listen on Phone the same way.</td></tr>
+        <tr><td><code>data-sp-listen-icon</code></td><td>Put on an empty <code>&lt;span&gt;</code> in your help text and ShowPilot fills it with a copy of the Listen button's icon and colors, so instructions always match the real button.</td></tr>
+        <tr><td><code>data-showpilot-sync-help</code></td><td>The element is shown only while "sync help" is switched on in the admin (use it for "music out of sync?" tips).</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="extras" data-s>
+    <h2>Dates, countdowns and stats</h2>
+    <p class="lead">These are what the Countdown, Banner, Top Songs and Tonight's Stats blocks use; they work in hand-built templates too.</p>
     <div class="card"><table>
       <thead><tr><th>Attribute</th><th>Does</th></tr></thead>
       <tbody>
-        <tr><td><code>data-sp-listen-icon</code></td><td>Put on an empty <code>&lt;span&gt;</code> in your help text and ShowPilot fills it with a copy of the Listen button's icon and colors, so instructions always match the real button.</td></tr>
-        <tr><td><code>data-showpilot-sync-help</code></td><td>The element is shown only while "sync help" is switched on in the admin (use it for "music out of sync?" tips).</td></tr>
+        <tr><td><code>data-showpilot-from="12-01"</code><br><code>data-showpilot-until="12-26"</code> <span class="tag sp">SP</span></td><td>The element only shows between those dates (both included), checked on the visitor's phone. <code>MM-DD</code> repeats every year (and can wrap over New Year, e.g. <code>12-20</code> to <code>01-05</code>); <code>YYYY-MM-DD</code> is one date. Either can be left out. Add <code>hidden</code> too so it doesn't flash before the check.</td></tr>
+        <tr><td><code>data-showpilot-countdown="daily"</code> with <code>data-start="18:00"</code> <code>data-end="22:00"</code><br>or <code>data-showpilot-countdown="date"</code> with <code>data-date="2026-12-24T18:00"</code> <span class="tag sp">SP</span></td><td>A countdown. Inside it, <code>[data-showpilot-countdown-time]</code> gets the time left and <code>[data-showpilot-countdown-live]</code> is shown (the time hidden) while the show is on. The box gets <code>.sp-countdown--live</code> then.</td></tr>
+        <tr><td><code>data-showpilot-stat="played"</code> (or <code>requests</code>, <code>votes</code>, <code>visitors</code>) <span class="tag sp">SP</span></td><td>Filled with tonight's number (4 AM to 4 AM in the show's time zone), updated every minute.</td></tr>
+        <tr><td><code>data-showpilot-top-songs="tonight"</code> (or <code>week</code>, <code>all</code>), <code>data-count="5"</code> <span class="tag sp">SP</span></td><td>Inside it, <code>[data-showpilot-top-songs-list]</code> (an <code>&lt;ol&gt;</code>) gets the songs visitors picked most as <code>li.sp-top-song</code> with <code>.sp-top-song-name</code> and <code>.sp-top-song-artist</code>; <code>[data-showpilot-top-songs-empty]</code> shows while there are none.</td></tr>
       </tbody>
     </table></div>
   </section>

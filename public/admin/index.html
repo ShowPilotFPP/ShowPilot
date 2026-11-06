@@ -9,7 +9,7 @@
        the classic layout. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
-  <link rel="stylesheet" href="/admin/ui-new.css?v=258">
+  <link rel="stylesheet" href="/admin/ui-new.css?v=2582">
   <script src="/admin/ui-new.js?v=258"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=1"></script>
@@ -547,6 +547,15 @@
     }
     .tpl-ref-link { align-self: center; font-size: 0.85rem; color: var(--text-muted); text-decoration: none; padding: 0.3rem 0.5rem; white-space: nowrap; }
     .tpl-ref-link:hover { color: var(--accent); }
+    /* Updates page: What's new (v0.33.259) */
+    .whats-new { margin-top: 0.9rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); max-height: 420px; overflow-y: auto; }
+    .whats-new-head { font-weight: 600; margin-bottom: 0.35rem; }
+    .whats-new-item { padding: 0.35rem 0; border-top: 1px solid var(--border); }
+    .whats-new-item:first-of-type { border-top: 0; }
+    .whats-new-item summary { cursor: pointer; font-size: 0.9rem; line-height: 1.4; }
+    .whats-new-item ul { margin: 0.4rem 0 0.2rem 1.1rem; padding: 0; font-size: 0.85rem; line-height: 1.45; }
+    .whats-new-item li { margin: 0.2rem 0; }
+    .whats-new-item code { font-size: 0.8rem; }
     /* Song cooldown settings (v0.33.258) */
     .cooldown-box { margin-top: 1rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); }
     .cooldown-box code { font-size: 0.75rem; }
@@ -1430,7 +1439,7 @@
        scrolls sideways instead of crushing columns. */
     #sequencesTable { width: 100%; min-width: 1400px; }
     /* Text columns: resizable by dragging their header's right edge
-       (v0.33.258, widths kept per browser); double-click the edge to reset.
+       (v0.33.258/259, see initSeqColResize); double-click the edge to reset.
        Badge is narrower by default (labels are short). */
     #sequencesTable { --w-display: 26%; --w-seqname: 19%; --w-artist: 17%; --w-category: 19%; --w-badge: 9%; }
     #sequencesTable th.col-display, #sequencesTable td.col-display { width: var(--w-display); max-width: 0; }
@@ -1439,6 +1448,11 @@
     #sequencesTable th.col-category, #sequencesTable td.col-category { width: var(--w-category); max-width: 0; }
     #sequencesTable th.col-badge, #sequencesTable td.col-badge { width: var(--w-badge); max-width: 0; }
     #sequencesTable th[data-resize] { position: relative; }
+    /* After a column is resized: fixed layout with pixel widths per header. */
+    #sequencesTable.sp-fixed-cols { table-layout: fixed; min-width: 0; }
+    #sequencesTable.sp-fixed-cols th, #sequencesTable.sp-fixed-cols td { max-width: none; overflow: hidden; }
+    #sequencesTable.sp-fixed-cols th { white-space: nowrap; text-overflow: ellipsis; }
+    #sequencesTable.sp-fixed-cols td.col-actions { overflow: visible; }
     #sequencesTable .col-resize { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; touch-action: none; }
     #sequencesTable .col-resize::after { content: ''; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 1px; background: var(--border); }
     #sequencesTable th[data-resize]:hover .col-resize::after, #sequencesTable .col-resize.dragging::after { background: var(--accent, #dc2626); width: 2px; }
@@ -1991,7 +2005,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.258</span>
+        <span class="app-version">v0.33.259</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -5512,7 +5526,7 @@
         if (data.latestVersion) {
           statusHtml += `<div><strong>Latest version:</strong> ${escapeHtml(data.latestVersion)}`;
           if (data.latestRelease && data.latestRelease.url) {
-            statusHtml += ` &middot; <a href="${escapeAttr(data.latestRelease.url)}" target="_blank" rel="noopener">release notes</a>`;
+            statusHtml += ` &middot; <a href="${escapeAttr(data.latestRelease.url)}" target="_blank" rel="noopener" style="color: var(--accent);">release notes</a>`;
           }
           statusHtml += '</div>';
         } else {
@@ -5539,6 +5553,23 @@
           statusHtml += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.5rem;">
             In-app updates are disabled in demo mode.
           </div>`;
+        }
+
+        // What's new (v0.33.259): the changelog of every version between this
+        // install and the update, newest first; the newest is open, older
+        // ones fold away.
+        if (Array.isArray(data.whatsNew) && data.whatsNew.length) {
+          const fmt = (t) => escapeHtml(t).replace(/`([^`]+)`/g, '<code>$1</code>');
+          const many = data.whatsNew.length > 1;
+          statusHtml += `<div class="whats-new"><div class="whats-new-head">What's new${many ? ' since v' + escapeHtml(data.currentVersion) + ' (' + data.whatsNew.length + ' updates)' : ' in v' + escapeHtml(data.whatsNew[0].version)}</div>`;
+          data.whatsNew.forEach((n, i) => {
+            const when = n.publishedAt ? new Date(n.publishedAt).toLocaleDateString() : '';
+            const body = (n.items && n.items.length)
+              ? '<ul>' + n.items.map(x => '<li>' + fmt(x) + '</li>').join('') + '</ul>'
+              : '';
+            statusHtml += `<details class="whats-new-item"${i === 0 ? ' open' : ''}><summary><strong>v${escapeHtml(n.version)}</strong>${n.title ? ' — ' + fmt(n.title) : ''}${when ? ' <span class="muted">· ' + escapeHtml(when) + '</span>' : ''}</summary>${body}</details>`;
+          });
+          statusHtml += `</div>`;
         }
 
         if (data.lastCheckAt) {
@@ -8111,30 +8142,68 @@
 
     let _categoryOptionsLoaded = false;
 
-    // ======= Resizable text columns in the Sequences table (v0.33.258) =======
-    // Drag a header's right edge; widths are kept in this browser as
-    // percentages. The space a column gains or gives up comes from Display
-    // Name (or Artist while Display Name itself is dragged), so the total
-    // never changes and the table doesn't reshuffle. Double-click resets.
-    const SEQ_COLW_KEY = 'sp-seq-col-widths-v2';
-    const SEQ_COLW_DEFAULT = { display: 26, seqname: 19, artist: 17, category: 19, badge: 9 };
+    // ======= Resizable text columns in the Sequences table (v0.33.258, fixed in v0.33.259) =======
+    // Drag a header's right edge and that edge follows the pointer; only that
+    // column changes, and the table gets wider or narrower (it scrolls
+    // sideways when wider than the card). Widths (px) are kept in this
+    // browser; double-click an edge to go back to the automatic layout.
+    // How: the table switches to table-layout: fixed with every header's
+    // current width pinned (automatic layout would hand the space a column
+    // gives up to the others, so the edge didn't follow the pointer).
+    const SEQ_COLW_KEY = 'sp-seq-col-widths-v3';
+    const SEQ_COL_MIN = 50;
     function seqColWidths() {
-      let w = {};
-      try { w = JSON.parse(localStorage.getItem(SEQ_COLW_KEY) || '{}') || {}; } catch (e) { w = {}; }
-      const out = {};
-      for (const c of Object.keys(SEQ_COLW_DEFAULT)) out[c] = Number(w[c]) > 0 ? Number(w[c]) : SEQ_COLW_DEFAULT[c];
-      return out;
+      try { const w = JSON.parse(localStorage.getItem(SEQ_COLW_KEY) || 'null'); return w && typeof w === 'object' ? w : null; } catch (e) { return null; }
     }
-    function applySeqColWidths(w) {
+    function seqTableHeads(t) { return Array.from(t.tHead ? t.tHead.rows[0].cells : []); }
+    // Back to the automatic layout (and the CSS default widths).
+    function unpinSeqTable(t) {
+      t.classList.remove('sp-fixed-cols');
+      t.style.width = '';
+      seqTableHeads(t).forEach((th) => { th.style.width = ''; });
+    }
+    // Fixed layout, every visible header at its current width, then any saved
+    // widths on top. Needs the table on screen to measure it.
+    function pinSeqTable(t, saved) {
+      if (!t || !t.offsetParent) return false;
+      unpinSeqTable(t);
+      const ths = seqTableHeads(t);
+      const widths = ths.map((th) => th.getBoundingClientRect().width);
+      ths.forEach((th, i) => {
+        if (!th.offsetParent) return; // hidden column (Columns menu)
+        const col = th.getAttribute('data-resize');
+        const w = col && saved && saved[col] > 0 ? Math.max(SEQ_COL_MIN, saved[col]) : widths[i];
+        th.style.width = Math.round(w) + 'px';
+      });
+      t.classList.add('sp-fixed-cols');
+      t.style.width = Math.round(ths.reduce((sum, th) => sum + (th.offsetParent ? parseFloat(th.style.width) || 0 : 0), 0)) + 'px';
+      return true;
+    }
+    function applySeqColWidths() {
       const t = document.getElementById('sequencesTable');
       if (!t) return;
-      w = w || seqColWidths();
-      for (const c of Object.keys(SEQ_COLW_DEFAULT)) t.style.setProperty('--w-' + c, w[c].toFixed(2) + '%');
+      const saved = seqColWidths();
+      if (saved) pinSeqTable(t, saved); else unpinSeqTable(t);
+    }
+    // The table can't be measured while its page is hidden; apply saved
+    // widths once it shows up.
+    let _seqColWatch = null;
+    function watchSeqColWidths() {
+      const t = document.getElementById('sequencesTable');
+      if (!t || _seqColWatch || typeof ResizeObserver === 'undefined') return;
+      let wasShown = false;
+      _seqColWatch = new ResizeObserver(() => {
+        const shown = !!t.offsetParent;
+        if (shown && !wasShown && seqColWidths() && !t.classList.contains('sp-fixed-cols')) applySeqColWidths();
+        wasShown = shown;
+      });
+      _seqColWatch.observe(t);
     }
     function initSeqColResize() {
       const t = document.getElementById('sequencesTable');
       if (!t || t.__spResize) return;
       t.__spResize = true;
+      watchSeqColWidths();
       t.querySelectorAll('th[data-resize]').forEach((th) => {
         const col = th.getAttribute('data-resize');
         const h = document.createElement('span');
@@ -8144,35 +8213,31 @@
         h.addEventListener('dblclick', (e) => {
           e.stopPropagation();
           try { localStorage.removeItem(SEQ_COLW_KEY); } catch (err) {}
-          applySeqColWidths();
+          unpinSeqTable(t);
         });
         h.addEventListener('pointerdown', (e) => {
           e.preventDefault(); e.stopPropagation();
-          const slack = col === 'display' ? 'artist' : 'display';
-          const start = seqColWidths();
-          // Pixels per percent, measured from the text columns themselves (the
-          // fixed-size columns take their share first), so the edge follows
-          // the pointer.
-          let pxSum = 0, pctSum = 0;
-          t.querySelectorAll('th[data-resize]').forEach((x) => { pxSum += x.getBoundingClientRect().width; pctSum += start[x.getAttribute('data-resize')]; });
-          const pxPerPct = pxSum > 0 && pctSum > 0 ? pxSum / pctSum : (t.getBoundingClientRect().width || 1400) / 100;
-          const minPct = 60 / pxPerPct;  // no column narrower than ~60px
+          if (!pinSeqTable(t, seqColWidths())) return;
           const startX = e.clientX;
-          let cur = start;
+          const startW = parseFloat(th.style.width) || th.getBoundingClientRect().width;
+          const startTable = parseFloat(t.style.width) || t.getBoundingClientRect().width;
           h.classList.add('dragging');
+          document.body.style.cursor = 'col-resize';
           try { h.setPointerCapture(e.pointerId); } catch (err) {}
           const move = (ev) => {
-            let d = (ev.clientX - startX) / pxPerPct;
-            d = Math.max(minPct - start[col], Math.min(start[slack] - minPct, d));
-            cur = { ...start, [col]: start[col] + d, [slack]: start[slack] - d };
-            applySeqColWidths(cur);
+            const w = Math.max(SEQ_COL_MIN, Math.round(startW + ev.clientX - startX));
+            th.style.width = w + 'px';
+            t.style.width = Math.round(startTable + (w - startW)) + 'px';
           };
           const up = () => {
             h.classList.remove('dragging');
+            document.body.style.cursor = '';
             h.removeEventListener('pointermove', move);
             h.removeEventListener('pointerup', up);
             h.removeEventListener('pointercancel', up);
-            try { localStorage.setItem(SEQ_COLW_KEY, JSON.stringify(cur)); } catch (err) {}
+            const w = {};
+            t.querySelectorAll('th[data-resize]').forEach((x) => { if (x.offsetParent) w[x.getAttribute('data-resize')] = Math.round(parseFloat(x.style.width) || x.getBoundingClientRect().width); });
+            try { localStorage.setItem(SEQ_COLW_KEY, JSON.stringify(w)); } catch (err) {}
           };
           h.addEventListener('pointermove', move);
           h.addEventListener('pointerup', up);
@@ -8180,7 +8245,6 @@
         });
         th.appendChild(h);
       });
-      applySeqColWidths();
     }
 
     async function loadSequences() {
@@ -8221,6 +8285,8 @@
       // toolbar should hide).
       updateBulkToolbar();
       syncSelectAllState();
+      // Saved column widths need the rows in place to measure the others.
+      requestAnimationFrame(applySeqColWidths);
     }
 
     // Songs listed more than once in the synced playlist (v0.33.249+).
@@ -8470,6 +8536,7 @@
       if (!t) return;
       SEQ_COLS.concat(SEQ_BUTTONS).forEach(c => { if (!c.fixed) t.classList.toggle('hide-' + c.key, _seqHiddenCols.has(c.key)); });
       t.querySelectorAll('tr').forEach(orderSeqCells);
+      applySeqColWidths(); // saved widths: re-pin for the columns now shown
     }
     function setSeqColumnVisible(key, visible) {
       if (visible) { _seqHiddenCols.delete(key); _seqShownCols.add(key); }
@@ -11209,8 +11276,8 @@
       if (!n || dismissed === n.kind + ':' + n.latest) { el.style.display = 'none'; el.innerHTML = ''; return; }
       const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       let how;
-      if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">Open Updates</button>';
-      else if (n.isDocker) how = '<br>Pull the new image and recreate the container to update.';
+      if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new &amp; update</button>';
+      else if (n.isDocker) how = ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new</button><br>Pull the new image and recreate the container to update.';
       else how = '';
       el.innerHTML = '<b>⬆ ' + (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available') + '.</b> '
         + 'You have v' + esc(n.current) + '.' + how

@@ -23,7 +23,7 @@ jobs:
     # showpilot). Repo variable SPP_RUNNER=github switches to GitHub-hosted
     # runners. Pull requests from forks always run on GitHub's runners: their
     # code never runs on the self-hosted machine.
-    runs-on: ${{ (vars.SPP_RUNNER == 'github' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
+    runs-on: ${{ (vars.SPP_RUNNER == 'github' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

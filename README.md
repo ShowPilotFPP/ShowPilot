@@ -584,6 +584,15 @@ nssm start ShowPilot
 
 ## Updating
 
+### Update channels: Stable and Master
+
+**Settings → Updates → Update channel** picks how often you get updates:
+
+- **Stable** (default): only full releases. Fewer, bigger updates, each with release notes.
+- **Master**: every fix and feature as soon as it's ready, like FPP's master. Versions look like `0.33.277-master.3`.
+
+You can switch any time; going back to Stable offers the latest release. Docker: run `:latest` for Stable or `:master` for Master.
+
 ### From a release tarball
 
 ```bash

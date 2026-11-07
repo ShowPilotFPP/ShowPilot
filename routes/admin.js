@@ -255,6 +255,7 @@ router.put('/me/theme', requireAdmin, (req, res) => {
 router.get('/config', requireAdmin, (req, res) => {
   const cfg = getConfig();
   delete cfg.admin_password_hash;
+  if (config.audioLocked) cfg.audio_locked = true;
   res.json(cfg);
 });
 

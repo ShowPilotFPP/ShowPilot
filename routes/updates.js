@@ -70,7 +70,7 @@ async function buildStatusResponse({ force }) {
   const masterNotes = masterAvailable ? (masterCheck.master.changes || []).map((c) => {
     const first = String(c.message).split('\n')[0];
     const v = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\s*[—–-]/.exec(first);
-    return parseReleaseNote({ tag: v ? v[1] : c.shortSha, body: c.message, url: 'https://github.com/ShowPilotFPP/ShowPilot/commit/' + c.sha, publishedAt: c.date });
+    return parseReleaseNote({ tag: v ? v[1] : c.shortSha, body: c.message, url: 'https://github.com/' + updater.repoSlug() + '/commit/' + c.sha, publishedAt: c.date });
   }).filter(n => n.title || n.items.length).slice(0, 15) : null;
   const newList = masterNotes || (updateAvailable ? whatsNew(notes, current, latestTag) : recentNotes(notes, current));
 
@@ -94,6 +94,8 @@ async function buildStatusResponse({ force }) {
     onBeta,
     channel,
     onMaster,
+    updateRepo: updater.repoSlug(),
+    updateRepoIsDefault: updater.repoSlug() === updater.DEFAULT_REPO,
     master: masterCheck.master,
     masterAvailable,
     masterCheckError: masterCheck.error || null,
@@ -257,6 +259,40 @@ router.post('/apply', async (req, res) => {
 // ------------------------------------------------------------
 // Update channel (v0.33.276+): { channel: 'stable' | 'master' }
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// Update source (v0.33.277): { repo: 'owner/repo' | GitHub URL | '' }
+// ------------------------------------------------------------
+// '' (or ShowPilot's own) goes back to ShowPilot. Must be a public GitHub
+// repo with ShowPilot's history (a fork), checked here before saving.
+router.post('/repo', async (req, res) => {
+  const raw = String((req.body && req.body.repo) || '').trim();
+  let slug = '';
+  if (raw) {
+    slug = updater.normalizeRepo(raw);
+    if (!slug) return res.status(400).json({ error: 'Enter a GitHub repo as owner/repo or its github.com address.' });
+    if (slug.toLowerCase() === updater.DEFAULT_REPO.toLowerCase()) slug = '';
+  }
+  if (slug) {
+    // Must exist and be readable, and look like ShowPilot.
+    const https = require('https');
+    const get = (u) => new Promise((resolve) => {
+      https.get(u, { headers: { 'User-Agent': 'ShowPilot-Updater', Accept: 'application/vnd.github+json' }, timeout: 10000 }, (r) => {
+        let b = ''; r.on('data', (c) => { b += c; }); r.on('end', () => { let j = null; try { j = JSON.parse(b); } catch (_) {} resolve({ status: r.statusCode, body: j }); });
+      }).on('error', () => resolve({ status: 0, body: null })).on('timeout', function () { this.destroy(); });
+    });
+    const repo = await get('https://api.github.com/repos/' + slug);
+    if (repo.status === 404) return res.status(400).json({ error: 'GitHub has no public repo called ' + slug + '.' });
+    if (repo.status !== 200) return res.status(502).json({ error: 'Could not reach GitHub to check ' + slug + ' (HTTP ' + repo.status + '). Try again.' });
+    const pkg = await get('https://raw.githubusercontent.com/' + slug + '/' + ((repo.body && repo.body.default_branch) || 'main') + '/package.json');
+    if (!(pkg.status === 200 && pkg.body && pkg.body.name === 'showpilot')) {
+      return res.status(400).json({ error: slug + " doesn't look like a copy of ShowPilot (its package.json isn't ShowPilot's)." });
+    }
+  }
+  db.updateConfig({ update_repo: slug });
+  updater.resetChecks();
+  res.json(await buildStatusResponse({ force: true }));
+});
+
 router.post('/channel', async (req, res) => {
   const ch = req.body && req.body.channel;
   if (ch !== 'stable' && ch !== 'master') return res.status(400).json({ error: 'channel must be stable or master' });

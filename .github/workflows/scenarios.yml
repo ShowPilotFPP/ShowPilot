@@ -2,9 +2,14 @@ name: Scenario tests
 
 # The plain-English scenarios in tests/scenarios (see tests/README.md), run
 # against a throwaway ShowPilot with a fake show player and headless phones.
+# Runs once per change (v0.33.274): on the pull request. Not again when the
+# branch is pushed (that's the same code as the PR) or when the release lands
+# on main (ShipPilot commits exactly what the PR tested). Beta pushes have no
+# pull request, so they still run here. Run it by hand from the Actions tab
+# any time.
 on:
   push:
-    branches: [main, beta, 'claude/**']
+    branches: [beta]
   pull_request:
   workflow_dispatch:
 

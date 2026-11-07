@@ -84,6 +84,8 @@
         h += '<div class="spbe-row"><div class="spbe-row-head"><span class="spbe-num">' + (i + 1) + '</span>' + controls(i) + '</div>';
         for (const f of fields) {
           h += '<label class="spbe-lbl">' + esc(f.label) + '</label>';
+          // Formatting buttons for text (v0.33.278-master.1+), not for links or pictures.
+          if (root.SPFormatBar && root.SPFormatBar.wantsBar(f.key)) h += root.SPFormatBar.html();
           h += f.long
             ? '<textarea rows="2" data-i="' + i + '" data-f="' + esc(f.key) + '">' + esc(row[f.key] || '') + '</textarea>'
             : '<input type="text" data-i="' + i + '" data-f="' + esc(f.key) + '" value="' + esc(row[f.key] || '') + '">';

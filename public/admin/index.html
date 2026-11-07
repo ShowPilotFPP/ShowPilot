@@ -2061,7 +2061,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.275</span>
+        <span class="app-version">v0.33.276</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4249,6 +4249,9 @@
               roll back if needed.
             </p>
 
+            <!-- Update channel (v0.33.276+). Rendered by renderUpdateChannel(). -->
+            <div id="updateChannelBox" style="display: none; padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.75rem;"></div>
+
             <div id="updateStatusBox" style="padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.75rem;">
               <div class="muted" style="font-size: 0.8rem;">Loading update status…</div>
             </div>
@@ -5608,7 +5611,21 @@
         // Build the status header.
         let statusHtml = '';
         statusHtml += `<div><strong>Current version:</strong> v${escapeHtml(data.currentVersion)}</div>`;
-        if (data.latestVersion) {
+        if (data.onMaster) {
+          // Master channel (v0.33.276+): compare with the tip of main.
+          const m = data.master;
+          if (m) {
+            statusHtml += `<div><strong>Latest on Master:</strong> ${m.version ? 'v' + escapeHtml(m.version) : ''} <span class="muted">(${escapeHtml(m.shortSha)})</span>`
+              + (m.url ? ` &middot; <a href="${escapeAttr(m.url)}" target="_blank" rel="noopener" style="color: var(--accent);">on GitHub</a>` : '') + `</div>`;
+            if (data.masterAvailable) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-warning">${m.behindBy} new update${m.behindBy === 1 ? '' : 's'} on Master</span></div>`;
+            else if (m.behindBy === 0) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-success">Up to date with Master</span></div>`;
+            else statusHtml += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.5rem;">Can't tell how far behind this install is (its version isn't on GitHub). Installing the latest Master update fixes that.</div>`;
+          } else {
+            statusHtml += `<div class="muted" style="font-size: 0.85rem;">Latest on Master: unknown${data.masterCheckError ? ' (' + escapeHtml(data.masterCheckError) + ')' : ''}</div>`;
+          }
+        }
+        if (data.onMaster) { /* releases aren't offered on Master */ }
+        else if (data.latestVersion) {
           statusHtml += `<div><strong>Latest version:</strong> ${escapeHtml(data.latestVersion)}`;
           if (data.latestRelease && data.latestRelease.url) {
             statusHtml += ` &middot; <a href="${escapeAttr(data.latestRelease.url)}" target="_blank" rel="noopener" style="color: var(--accent);">release notes</a>`;
@@ -5623,7 +5640,8 @@
         }
 
         // Status pill — up to date / available / unavailable here.
-        if (data.updateAvailable) {
+        if (data.onMaster) { /* pill shown above */ }
+        else if (data.updateAvailable) {
           statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-warning">Update available</span></div>`;
         } else if (data.latestVersion) {
           statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-success">Up to date</span></div>`;
@@ -5686,7 +5704,12 @@
         actionRow.style.display = 'flex';
 
         // Show/hide the apply button.
-        if (data.updateAvailable && data.updaterAvailable) {
+        delete applyBtn.dataset.masterSha;
+        if (data.masterAvailable && data.updaterAvailable && data.master) {
+          applyBtn.style.display = '';
+          applyBtn.textContent = `Install ${data.master.behindBy} Master update${data.master.behindBy === 1 ? '' : 's'}`;
+          applyBtn.dataset.masterSha = data.master.sha;
+        } else if (data.updateAvailable && data.updaterAvailable) {
           applyBtn.style.display = '';
           applyBtn.textContent = `Update to ${data.latestVersion}`;
         } else {
@@ -5701,6 +5724,7 @@
           rollbackBtn.style.display = 'none';
         }
 
+        renderUpdateChannel(data);
         renderBetaChannel(data);
       } catch (err) {
         box.innerHTML = `<div style="color: var(--status-danger);">Could not load update status: ${escapeHtml(err.message)}</div>`;
@@ -5719,10 +5743,77 @@
       }
     }
 
+    // ---- Update channel (v0.33.276+): Stable (releases) or Master (every update) ----
+    function renderUpdateChannel(data) {
+      const box = document.getElementById('updateChannelBox');
+      if (!box) return;
+      if (data.isDemoMode || data.onBeta) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      const ch = data.channel === 'master' ? 'master' : 'stable';
+      const opt = (v, label, desc) => `<label style="display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.35rem 0; cursor: pointer;">
+          <input type="radio" name="updChannel" value="${v}" ${ch === v ? 'checked' : ''} onchange="setUpdateChannel('${v}')" style="margin-top: 0.2rem;" />
+          <span><strong>${label}</strong><br><span class="muted" style="font-size: 0.85rem;">${desc}</span></span></label>`;
+      let html = `<div style="font-weight: 600; margin-bottom: 0.25rem;">Update channel</div>`
+        + opt('stable', 'Stable', 'Only full releases. Fewer, bigger updates, each with release notes. Recommended for most shows.')
+        + opt('master', 'Master', 'Every fix and feature as soon as it\'s ready, like FPP\'s master. More frequent updates; newest things first.');
+      if (data.isDocker) {
+        html += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.4rem;">Docker: the channel is the image you run. Use <code>:latest</code> for Stable or <code>:master</code> for Master.</div>`;
+      } else if (ch === 'stable' && data.returnToStable) {
+        html += `<div style="margin-top: 0.4rem; font-size: 0.9rem;">This server is running a Master update (v${escapeHtml(data.currentVersion)}). <button type="button" onclick="applyUpdate()" style="margin-left: 0.4rem;">Go to Stable ${escapeHtml(data.returnToStable)}</button></div>`;
+      }
+      html += `<div id="updChannelStatus" class="muted" style="font-size: 0.8rem; margin-top: 0.3rem;"></div>`;
+      box.innerHTML = html;
+      box.style.display = '';
+    }
+    async function setUpdateChannel(ch) {
+      const st = document.getElementById('updChannelStatus');
+      if (st) st.textContent = 'Saving…';
+      const r = await fetch('/api/admin/updates/channel', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: ch }) });
+      if (!r.ok) { if (st) st.textContent = 'Could not change the channel.'; return; }
+      _spUpdAskedAt = 0;
+      await refreshUpdateStatus();
+    }
+
+    async function applyMasterUpdate(opts) {
+      opts = opts || {};
+      const status = document.getElementById('updateActionStatus');
+      const applyBtn = document.getElementById('updateApplyBtn');
+      const sha = applyBtn && applyBtn.dataset.masterSha;
+      if (!sha) return;
+      if (!opts.force) {
+        const ok = await showConfirm('Install the latest Master update?\n\nThis will restart the server. Active viewers will reconnect automatically.');
+        if (!ok) return;
+      }
+      applyBtn.disabled = true;
+      status.textContent = 'Installing — this may take 30–60 seconds. The server will restart when done.';
+      try {
+        const r = await fetch('/api/admin/updates/apply-master', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sha, force: !!opts.force }) });
+        const data = await r.json();
+        if (!r.ok) {
+          if (data.preflightErrors && Array.isArray(data.preflightErrors)) {
+            const items = data.preflightErrors.map(e => typeof e === 'string' ? { msg: e, override: false } : e);
+            status.innerHTML = 'Cannot update right now:<ul style="margin: 0.4rem 0 0 1.2rem;">' + items.map(e => '<li>' + escapeHtml(e.msg) + '</li>').join('') + '</ul>'
+              + (items.some(e => e.override) ? '<button id="updateForceBtn" class="btn btn-warning" style="margin-top: 0.6rem;">Update anyway</button>' : '');
+            const fb = document.getElementById('updateForceBtn');
+            if (fb) fb.addEventListener('click', async () => { if (await showConfirm('Update while a show is active?\n\nViewers in the middle of voting or the queue will be disrupted.')) applyMasterUpdate({ force: true }); });
+          } else {
+            status.textContent = 'Update failed: ' + (data.error || ('HTTP ' + r.status));
+          }
+          applyBtn.disabled = false;
+          return;
+        }
+        status.textContent = 'Master update installed. The server is restarting. This page will reload in a moment…';
+        setTimeout(() => { location.reload(); }, 8000);
+      } catch (err) {
+        status.textContent = 'Update failed: ' + err.message;
+        applyBtn.disabled = false;
+      }
+    }
+
     async function applyUpdate(opts) {
       opts = opts || {};
       const status = document.getElementById('updateActionStatus');
       const applyBtn = document.getElementById('updateApplyBtn');
+      if (applyBtn && applyBtn.dataset.masterSha && !opts.stable) return applyMasterUpdate(opts);
 
       // Read the latest known tag from the visible button label —
       // the button text was set by refreshUpdateStatus from server data.
@@ -11632,7 +11723,9 @@
       if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new &amp; update</button>';
       else if (n.isDocker) how = ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new</button><br>Pull the new image and recreate the container to update.';
       else how = '';
-      el.innerHTML = '<b>⬆ ' + (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available') + '.</b> '
+      el.innerHTML = '<b>⬆ ' + (n.kind === 'master'
+          ? esc(n.behindBy) + ' new ShowPilot update' + (n.behindBy === 1 ? '' : 's') + ' on Master (latest v' + esc(n.latest) + ')'
+          : (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available')) + '.</b> '
         + 'You have v' + esc(n.current) + '.' + how
         + ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPilotUpdate(\'' + esc(n.kind + ':' + n.latest) + '\')">Dismiss</button>';
       el.style.display = '';

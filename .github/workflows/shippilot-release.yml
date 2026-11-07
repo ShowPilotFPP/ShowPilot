@@ -94,8 +94,12 @@ jobs:
             REPO_SLUG=showpilot; TARGET_BRANCH=main; WITH_TAG=true
           fi
           VERSION=$(node -p "require('./package.json').version")
+          # Master channel (v0.33.276+): X.Y.Z-master.N ships to main WITHOUT a
+          # tag, so it reaches Master installs (and the :master image) but
+          # never becomes a release. A plain X.Y.Z on main is a release.
           case "$TARGET_BRANCH:$VERSION" in
-            main:*-*) echo "::error::$VERSION is a beta-style version; ship it to beta, or bump to a stable version for main."; exit 1 ;;
+            main:*-master.*) WITH_TAG=false ;;
+            main:*-*) echo "::error::$VERSION is a beta-style version; ship it to beta, use X.Y.Z-master.N for a Master update, or X.Y.Z for a release."; exit 1 ;;
             beta:*-beta.*) ;;
             beta:*) echo "::error::Beta releases need a version like 1.2.3-beta.1 (got $VERSION)."; exit 1 ;;
           esac

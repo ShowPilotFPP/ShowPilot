@@ -15,6 +15,11 @@
 //                            headers. The install never sends a location.
 // What we never store:       IP addresses, show names, URLs, anything else.
 // What we send back:         nothing (204 No Content).
+// Relayed check-ins:         a service that runs shows for their owners
+//                            (so its own address says nothing about where
+//                            the show is) can pass the show's location
+//                            itself, only with the relay key (RELAY_KEY)
+//                            and still only at the owner's chosen level.
 // ============================================================
 'use strict';
 const path = require('path');
@@ -27,6 +32,7 @@ const PORT = Number(process.env.PORT || 3040);
 const HOST = process.env.HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STATS_KEY = process.env.STATS_KEY || ''; // set to make the stats page private (?key=...)
+const RELAY_KEY = process.env.RELAY_KEY || '';  // set to accept relayed check-ins (X-Relay-Key)
 
 const PRODUCTS = ['showpilot', 'showpilot-lite'];
 const LEVELS = new Set(['off', 'country', 'region', 'city']);
@@ -61,11 +67,15 @@ CREATE TABLE IF NOT EXISTS daily (
 );
 `);
 
+// 1 = the check-in came through a relay (kept for the owner of the counter;
+// not shown on the stats page).
+try { db.exec('ALTER TABLE installs ADD COLUMN relayed INTEGER DEFAULT 0'); } catch { /* already there */ }
+
 const upsert = db.prepare(`
-  INSERT INTO installs (id_hash, product, version, country, region, city, lat, lon, first_seen, last_seen)
-  VALUES (@id_hash, @product, @version, @country, @region, @city, @lat, @lon, @now, @now)
+  INSERT INTO installs (id_hash, product, version, country, region, city, lat, lon, first_seen, last_seen, relayed)
+  VALUES (@id_hash, @product, @version, @country, @region, @city, @lat, @lon, @now, @now, @relayed)
   ON CONFLICT(id_hash) DO UPDATE SET product = @product, version = @version, country = @country,
-    region = @region, city = @city, lat = @lat, lon = @lon, last_seen = @now`);
+    region = @region, city = @city, lat = @lat, lon = @lon, last_seen = @now, relayed = @relayed`);
 
 // Cloudflare headers may be percent-encoded for non-ASCII names.
 function header(req, name) {
@@ -91,6 +101,36 @@ function locationFor(req, level) {
     } else { out.lat = out.lon = null; }
   }
   return out;
+}
+
+// A relayed check-in's own location, trimmed to the owner's level exactly
+// like the header version.
+function clean(v) {
+  if (typeof v !== 'string' || !v.trim()) return null;
+  return v.trim().slice(0, 80);
+}
+function locationFromRelay(geo, level) {
+  const out = { country: null, region: null, city: null, lat: null, lon: null };
+  if (level === 'off' || !geo || typeof geo !== 'object') return out;
+  const c = String(geo.country || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c) || c === 'XX' || c === 'T1') return out;
+  out.country = c;
+  if (level === 'region' || level === 'city') out.region = clean(geo.region);
+  if (level === 'city') {
+    out.city = clean(geo.city);
+    const la = Number(geo.lat), lo = Number(geo.lon);
+    if (out.city && Number.isFinite(la) && Number.isFinite(lo) && (la || lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180) {
+      out.lat = Math.round(la * 10) / 10; out.lon = Math.round(lo * 10) / 10;
+    }
+  }
+  return out;
+}
+
+function isRelay(req) {
+  if (!RELAY_KEY) return false;
+  const given = Buffer.from(String(req.get('x-relay-key') || ''));
+  const want = Buffer.from(RELAY_KEY);
+  return given.length === want.length && crypto.timingSafeEqual(given, want);
 }
 
 function snapshot() {
@@ -142,7 +182,9 @@ app.post('/ping', express.json({ limit: '1kb' }), (req, res) => {
   const level = LEVELS.has(b.location) ? b.location : 'off';
   const id_hash = crypto.createHash('sha256').update('showpilot-install:' + id).digest('hex');
   // Lowering or turning off the map option clears the extra detail on this check-in.
-  upsert.run({ id_hash, product, version, ...locationFor(req, level), now: Math.floor(Date.now() / 1000) });
+  const relayed = isRelay(req);
+  const where = relayed ? locationFromRelay(b.geo, level) : locationFor(req, level);
+  upsert.run({ id_hash, product, version, ...where, relayed: relayed ? 1 : 0, now: Math.floor(Date.now() / 1000) });
   res.status(204).end();
   pushSoon();
 });

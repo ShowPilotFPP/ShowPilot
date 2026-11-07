@@ -44,6 +44,14 @@ Then in Cloudflare:
    **Rules → Settings → Managed Transforms → Add visitor location headers**.
    Without it only countries show on the map.
 
+Optional: accept **relayed check-ins** by starting it with
+`RELAY_KEY=<long random string>`. A service that runs shows on its own
+servers (where its address says nothing about where a show is) can then
+send the show's location itself, with the header `X-Relay-Key`, in a
+`geo` object (`country`, `region`, `city`, `lat`, `lon`). The counter still
+keeps only the level the owner chose and rounds town positions to ~10 km.
+Without the key, `geo` is ignored and the usual headers are used.
+
 Optional: make the stats page private by starting it with `STATS_KEY=yourkey`
 and opening `/?key=yourkey`.
 

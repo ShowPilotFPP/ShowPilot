@@ -820,6 +820,8 @@ server.listen(config.port, config.host, () => {
   try {
     const { getConfig } = require('./lib/db');
     require('./lib/audio-position-relay').start(io, getConfig);
+    // Hosted only: the plugin dials in for live position (no-op otherwise).
+    require('./lib/plugin-link').attach(server, getConfig);
   } catch (err) {
     console.error('[audio-position-relay] failed to start:', err.message);
   }

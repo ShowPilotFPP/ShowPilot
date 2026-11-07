@@ -145,5 +145,30 @@
     if (e.target.matches && e.target.matches('[data-spfmt-color]')) e.stopPropagation();
   }, true);
 
-  root.SPFormatBar = { html, wantsBar };
+  // The codes as real HTML, for text that goes straight into a page's own
+  // code (the Sections tab's text boxes on hand-built pages, v0.33.278-master.5).
+  // Same rules as formatText() in lib/visual-designer.js; the input is
+  // already-escaped text, so only these exact codes become tags.
+  const TAGS = { b: 'strong', i: 'em', u: 'u', s: 's' };
+  function safeHref(v) {
+    const raw = String(v).replace(/&(lt|gt|quot|#39);/g, (m, e) => ({ lt: '<', gt: '>', quot: '"', '#39': "'" }[e])).replace(/&amp;/g, '&').trim();
+    if (!/^(https?:\/\/|mailto:)[^\s"'<>]+$/i.test(raw)) return '';
+    return raw.replace(/&/g, '&amp;');
+  }
+  function codesToHtml(escaped) {
+    let out = String(escaped || '');
+    if (out.indexOf('[') === -1) return out;
+    const A = (h, inner) => '<a href="' + h + '" target="_blank" rel="noopener">' + inner + '</a>';
+    for (let pass = 0; pass < 8; pass++) {
+      const before = out;
+      out = out.replace(/\[(b|i|u|s)\]([\s\S]*?)\[\/\1\]/gi, (m, t, inner) => { const g = TAGS[t.toLowerCase()]; return '<' + g + '>' + inner + '</' + g + '>'; });
+      out = out.replace(/\[color=(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})\]([\s\S]*?)\[\/color\]/gi, (m, c, inner) => '<span style="color:' + c + '">' + inner + '</span>');
+      out = out.replace(/\[url=([^\]\s]{1,500})\]([\s\S]*?)\[\/url\]/gi, (m, href, inner) => { const h = safeHref(href); return h ? A(h, inner) : inner; });
+      out = out.replace(/\[url\]([^\[\s]{1,500})\[\/url\]/gi, (m, href) => { const h = safeHref(href); return h ? A(h, href) : href; });
+      if (out === before) break;
+    }
+    return out;
+  }
+
+  root.SPFormatBar = { html, wantsBar, codesToHtml };
 })(window);

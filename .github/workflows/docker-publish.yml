@@ -57,9 +57,58 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# Several releases in a row build only the newest image: a newer release
+# replaces one that is still waiting or building. (v0.33.274)
+concurrency:
+  group: docker-publish-${{ startsWith(github.ref, 'refs/tags/') && 'release' || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # DOCKER RUNS LAST (v0.33.274): the image build is the longest job on the
+  # self-hosted runner (about half an hour), and a release's tag starts it
+  # while other releases are still waiting to ship. This small job runs on a
+  # GitHub-hosted runner (free for public repos) and waits until no scenario
+  # tests or ships are queued or running, so those go first. Gives up waiting
+  # after 90 minutes and builds anyway. Skipped when SPP_RUNNER=github, where
+  # jobs don't share one machine.
+  wait-turn:
+    name: Wait for ships and tests to finish
+    if: vars.SPP_RUNNER != 'github'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      actions: read
+    steps:
+      - name: Wait until the build runner is free of ships and tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          clear=0
+          for i in $(seq 1 180); do
+            busy=0
+            for st in queued in_progress waiting pending requested; do
+              n=$(gh api "repos/$REPO/actions/runs?status=$st&per_page=50" \
+                --jq '[.workflow_runs[] | select(.name == "Scenario tests" or .name == "Ship via ShipPilot")] | length')
+              busy=$((busy + n))
+            done
+            if [ "$busy" -eq 0 ]; then
+              clear=$((clear + 1))
+              # Two clear checks in a row, so a ship that's just about to
+              # start (e.g. the next /ship) gets its turn first.
+              [ "$clear" -ge 2 ] && { echo "Runner is free of ships and tests; building."; exit 0; }
+            else
+              clear=0
+              echo "$busy ship/test run(s) ahead; waiting..."
+            fi
+            sleep 30
+          done
+          echo "Waited 90 minutes; building anyway."
+
   build:
     name: Build ${{ matrix.platform }}
+    needs: wait-turn
+    if: always() && (needs.wait-turn.result == 'success' || needs.wait-turn.result == 'skipped')
     runs-on: ${{ vars.SPP_RUNNER == 'github' && matrix.hosted || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     strategy:
       fail-fast: false
@@ -146,6 +195,8 @@ jobs:
     name: Publish multi-arch manifest
     runs-on: ${{ vars.SPP_RUNNER == 'github' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     needs: build
+    # Explicit, so a skipped wait-turn (SPP_RUNNER=github) doesn't skip this.
+    if: always() && needs.build.result == 'success'
 
     permissions:
       contents: read

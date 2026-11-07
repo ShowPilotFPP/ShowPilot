@@ -144,7 +144,35 @@ router.get('/me', requireAdmin, (req, res) => {
     layoutNoticeSeen: req.user.layout_notice_seen === 1,
     // Cockpit tile layout; null = use the built-in default.
     cockpitLayout: (() => { try { const l = JSON.parse(req.user.cockpit_layout || 'null'); return Array.isArray(l) ? l : null; } catch (_) { return null; } })(),
+    // View preferences that follow the user (v0.33.277).
+    uiPrefs: readUiPrefs(req.user),
   });
+});
+
+function readUiPrefs(user) {
+  try {
+    const p = JSON.parse(user.ui_prefs || '{}');
+    return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+  } catch (_) { return {}; }
+}
+
+// Save view preferences for the signed-in user (v0.33.277). Body:
+// { prefs: { key: string | null } } — null forgets a key. Keys are the
+// admin's own sp_… / sp-… names; values are short strings.
+router.put('/me/prefs', requireAdmin, (req, res) => {
+  const given = req.body && req.body.prefs;
+  if (!given || typeof given !== 'object' || Array.isArray(given)) return res.status(400).json({ error: 'prefs object required' });
+  const user = require('../lib/db').getUserById(req.user.id) || req.user;
+  const cur = readUiPrefs(user);
+  for (const [k, v] of Object.entries(given).slice(0, 50)) {
+    if (!/^sp[-_][a-z0-9_-]{1,60}$/i.test(k)) continue;
+    if (v == null) delete cur[k];
+    else if (typeof v === 'string' && v.length <= 4000) cur[k] = v;
+  }
+  const keys = Object.keys(cur);
+  if (keys.length > 100) for (const k of keys.slice(0, keys.length - 100)) delete cur[k];
+  require('../lib/db').setUserUiPrefs(req.user.id, JSON.stringify(cur));
+  res.json({ ok: true });
 });
 
 // Per-user theme preference. Stored on the user so the choice follows them

@@ -10,7 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="/admin/ui-new.css?v=2582">
-  <script src="/admin/ui-new.js?v=258"></script>
+  <script src="/admin/user-prefs.js?v=1"></script>
+  <script src="/admin/ui-new.js?v=259"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=1"></script>
   <script src="/admin/sections.js?v=3"></script>
@@ -2061,7 +2062,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.276</span>
+        <span class="app-version">v0.33.277-master.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4266,6 +4267,24 @@
 
             <!-- Beta channel (v0.33.219+): debugging/testing builds only. Rendered by renderBetaChannel(). -->
             <div id="betaChannelBox" style="display: none; margin-top: 1.75rem;"></div>
+
+            <!-- Update source (v0.33.277). Rendered by renderUpdateSource(). -->
+            <details id="updateSourceBox" style="display: none; margin-top: 1.75rem;">
+              <summary style="cursor: pointer; font-weight: 600;">Update source <span id="updateSourceNow" class="muted" style="font-weight: normal; font-size: 0.85rem;"></span></summary>
+              <div style="padding: 0.75rem 0 0;">
+                <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+                  Updates come from ShowPilot's own GitHub repo. If you keep your own copy (a fork), you can update from it instead:
+                  releases, the Master channel and Beta all come from that repo. Only use a repo you trust: an update runs its code on this server.
+                </p>
+                <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                  <input type="text" id="updateRepoInput" placeholder="ShowPilotFPP/ShowPilot" style="max-width: 320px;" />
+                  <button type="button" class="secondary" onclick="saveUpdateRepo()">Use this repo</button>
+                  <button type="button" class="secondary" id="updateRepoResetBtn" onclick="saveUpdateRepo('')">Back to ShowPilot</button>
+                </div>
+                <div class="muted" style="font-size: 0.8rem; margin-top: 0.3rem;">Type <code>owner/repo</code> or paste its github.com address. It must be a public GitHub repo.</div>
+                <div id="updateRepoStatus" class="muted" style="font-size: 0.85rem; margin-top: 0.4rem;"></div>
+              </div>
+            </details>
           </div>
 
           <!-- DEBUG — diagnostics toggles for audio sync troubleshooting (v0.33.194+) -->
@@ -5726,6 +5745,7 @@
 
         renderUpdateChannel(data);
         renderBetaChannel(data);
+        renderUpdateSource(data);
       } catch (err) {
         box.innerHTML = `<div style="color: var(--status-danger);">Could not load update status: ${escapeHtml(err.message)}</div>`;
         actionRow.style.display = 'flex';
@@ -5764,6 +5784,34 @@
       box.innerHTML = html;
       box.style.display = '';
     }
+    // ---- Update source (v0.33.277): ShowPilot's repo or the owner's fork ----
+    function renderUpdateSource(data) {
+      const box = document.getElementById('updateSourceBox');
+      if (!box) return;
+      if (data.isDemoMode || data.isDocker) { box.style.display = 'none'; return; }
+      box.style.display = '';
+      const now = document.getElementById('updateSourceNow');
+      if (now) now.textContent = data.updateRepoIsDefault ? '— ShowPilot (default)' : '— ' + data.updateRepo;
+      const inp = document.getElementById('updateRepoInput');
+      if (inp && document.activeElement !== inp) inp.value = data.updateRepoIsDefault ? '' : data.updateRepo;
+      const reset = document.getElementById('updateRepoResetBtn');
+      if (reset) reset.style.display = data.updateRepoIsDefault ? 'none' : '';
+      if (!data.updateRepoIsDefault) box.open = true;
+    }
+    async function saveUpdateRepo(value) {
+      const inp = document.getElementById('updateRepoInput');
+      const st = document.getElementById('updateRepoStatus');
+      const repo = value === '' ? '' : (inp ? inp.value.trim() : '');
+      if (repo && !(await showConfirm('Update from ' + repo + '?\n\nReleases, Master and Beta updates will come from that repo. Only use a repo you trust: an update runs its code on this server.'))) return;
+      if (st) st.textContent = 'Checking…';
+      const r = await fetch('/api/admin/updates/repo', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { if (st) st.textContent = d.error || ('Could not save (HTTP ' + r.status + ').'); return; }
+      if (st) st.textContent = repo ? 'Updates now come from ' + d.updateRepo + '.' : 'Updates come from ShowPilot again.';
+      _spUpdAskedAt = 0;
+      await refreshUpdateStatus();
+    }
+
     async function setUpdateChannel(ch) {
       const st = document.getElementById('updChannelStatus');
       if (st) st.textContent = 'Saving…';
@@ -6504,6 +6552,8 @@
         // v0.33.209: new layout (default) unless the user chose classic.
         // Applied before the page is shown (v0.33.270), so the classic
         // layout never flashes up first while the data loads.
+        // View preferences follow the user (v0.33.277).
+        if (window.SPPrefs) window.SPPrefs.load(r.data.uiPrefs);
         if (window.SPNew) window.SPNew.apply(r.data);
         hide('loginView'); show('appView');
         await loadAll();
@@ -6600,6 +6650,7 @@
         }
         renderHeaderUser();
         // New layout before the page is shown (v0.33.270): no classic flash.
+        if (me.ok && window.SPPrefs) window.SPPrefs.load(me.data.uiPrefs);
         if (me.ok && window.SPNew) window.SPNew.apply(me.data);
         hide('loginView'); show('appView');
         await loadAll();
@@ -7796,10 +7847,10 @@
     // Top Sequences card (dashboard). "Hide PSAs" is remembered per browser.
     let _topStats = null;
     function topHidePsa() {
-      try { return localStorage.getItem('sp_top_hide_psa') === '1'; } catch (e) { return false; }
+      try { return SPPrefs.get('sp_top_hide_psa') === '1'; } catch (e) { return false; }
     }
     function toggleTopHidePsa(on) {
-      try { localStorage.setItem('sp_top_hide_psa', on ? '1' : '0'); } catch (e) {}
+      try { SPPrefs.set('sp_top_hide_psa', on ? '1' : '0'); } catch (e) {}
       if (_topStats) renderTopSequences(_topStats);
     }
     function renderTopSequences(d) {
@@ -8400,7 +8451,7 @@
     const SEQ_COLW_KEY = 'sp-seq-col-widths-v3';
     const SEQ_COL_MIN = 50;
     function seqColWidths() {
-      try { const w = JSON.parse(localStorage.getItem(SEQ_COLW_KEY) || 'null'); return w && typeof w === 'object' ? w : null; } catch (e) { return null; }
+      try { const w = JSON.parse(SPPrefs.get(SEQ_COLW_KEY) || 'null'); return w && typeof w === 'object' ? w : null; } catch (e) { return null; }
     }
     function seqTableHeads(t) { return Array.from(t.tHead ? t.tHead.rows[0].cells : []); }
     // Back to the automatic layout (and the CSS default widths).
@@ -8480,7 +8531,7 @@
         h.addEventListener('click', (e) => e.stopPropagation());
         h.addEventListener('dblclick', (e) => {
           e.stopPropagation();
-          try { localStorage.removeItem(SEQ_COLW_KEY); } catch (err) {}
+          try { SPPrefs.set(SEQ_COLW_KEY, null); } catch (err) {}
           unpinSeqTable(t);
         });
         h.addEventListener('pointerdown', (e) => {
@@ -8509,7 +8560,7 @@
             h.removeEventListener('pointercancel', up);
             const w = {};
             t.querySelectorAll('th[data-resize]').forEach((x) => { if (x.offsetParent) w[x.getAttribute('data-resize')] = Math.round(parseFloat(x.style.width) || x.getBoundingClientRect().width); });
-            try { localStorage.setItem(SEQ_COLW_KEY, JSON.stringify(w)); } catch (err) {}
+            try { SPPrefs.set(SEQ_COLW_KEY, JSON.stringify(w)); } catch (err) {}
             t.__spDragging = false;
             pinSeqTable(t, w); // fill the card again with the new proportions
           };
@@ -8765,13 +8816,13 @@
     let _seqColOrder = SEQ_DEFAULT_ORDER.slice();
     (function loadSeqColumnPrefs() {
       try {
-        const raw = JSON.parse(localStorage.getItem('sp_seq_hidden_cols') || '[]');
+        const raw = JSON.parse(SPPrefs.get('sp_seq_hidden_cols') || '[]');
         if (Array.isArray(raw)) _seqHiddenCols = new Set(raw);
         else { _seqHiddenCols = new Set(raw.hidden || []); _seqShownCols = new Set(raw.shown || []); }
       } catch (e) {}
       SEQ_COLS.forEach(c => { if (c.defaultHidden && !_seqShownCols.has(c.key)) _seqHiddenCols.add(c.key); });
       try {
-        const saved = JSON.parse(localStorage.getItem('sp_seq_col_order') || 'null');
+        const saved = JSON.parse(SPPrefs.get('sp_seq_col_order') || 'null');
         if (Array.isArray(saved)) {
           const known = saved.filter(k => SEQ_DEFAULT_ORDER.includes(k));
           SEQ_DEFAULT_ORDER.forEach((k, i) => {
@@ -8789,8 +8840,8 @@
 
     function saveSeqColumnPrefs() {
       try {
-        localStorage.setItem('sp_seq_hidden_cols', JSON.stringify({ hidden: Array.from(_seqHiddenCols), shown: Array.from(_seqShownCols) }));
-        localStorage.setItem('sp_seq_col_order', JSON.stringify(_seqColOrder));
+        SPPrefs.set('sp_seq_hidden_cols', JSON.stringify({ hidden: Array.from(_seqHiddenCols), shown: Array.from(_seqShownCols) }));
+        SPPrefs.set('sp_seq_col_order', JSON.stringify(_seqColOrder));
       } catch (e) {}
     }
 
@@ -8985,18 +9036,18 @@
     function setSeqCompact(on) {
       const t = document.getElementById('sequencesTable');
       if (t) t.classList.toggle('seq-compact', !!on);
-      try { localStorage.setItem('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
+      try { SPPrefs.set('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
     }
     // Visible / Vote / Jukebox / PSA as icons instead of switches (per browser).
     function setSeqFlagIcons(on) {
       const t = document.getElementById('sequencesTable');
       if (t) t.classList.toggle('seq-flag-icons', !!on);
-      try { localStorage.setItem('sp_seq_flag_icons', on ? '1' : '0'); } catch (e) {}
+      try { SPPrefs.set('sp_seq_flag_icons', on ? '1' : '0'); } catch (e) {}
       if (typeof applySeqColWidths === 'function') applySeqColWidths();
     }
     (function initSeqFlagIcons() {
       let on = false;
-      try { on = localStorage.getItem('sp_seq_flag_icons') === '1'; } catch (e) {}
+      try { on = SPPrefs.get('sp_seq_flag_icons') === '1'; } catch (e) {}
       const apply = () => {
         const cb = document.getElementById('seqFlagIcons');
         if (cb) cb.checked = on;
@@ -9007,7 +9058,7 @@
     })();
     (function initSeqCompact() {
       let on = false;
-      try { on = localStorage.getItem('sp_seq_compact') === '1'; } catch (e) {}
+      try { on = SPPrefs.get('sp_seq_compact') === '1'; } catch (e) {}
       const apply = () => {
         const cb = document.getElementById('seqCompact');
         if (cb) cb.checked = on;
@@ -11681,7 +11732,7 @@
       const el = document.getElementById('showPlayerUpdateBanner');
       if (!el) return;
       let dismissed = '';
-      try { dismissed = localStorage.getItem('sp_player_update_dismissed') || ''; } catch (e) {}
+      try { dismissed = SPPrefs.get('sp_player_update_dismissed') || ''; } catch (e) {}
       if (!u || (!u.belowRequired && dismissed === u.kind + ':' + u.latest)) { el.style.display = 'none'; el.innerHTML = ''; return; }
       const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const danger = !!u.belowRequired;
@@ -11716,7 +11767,7 @@
       const el = document.getElementById('showPilotUpdateBanner');
       if (!el) return;
       let dismissed = '';
-      try { dismissed = localStorage.getItem('sp_showpilot_update_dismissed') || ''; } catch (e) {}
+      try { dismissed = SPPrefs.get('sp_showpilot_update_dismissed') || ''; } catch (e) {}
       if (!n || dismissed === n.kind + ':' + n.latest) { el.style.display = 'none'; el.innerHTML = ''; return; }
       const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       let how;
@@ -11735,12 +11786,12 @@
       switchTab('updates');
     }
     function dismissShowPilotUpdate(key) {
-      try { localStorage.setItem('sp_showpilot_update_dismissed', key); } catch (e) {}
+      try { SPPrefs.set('sp_showpilot_update_dismissed', key); } catch (e) {}
       const el = document.getElementById('showPilotUpdateBanner');
       if (el) el.style.display = 'none';
     }
     function dismissShowPlayerUpdate(key) {
-      try { localStorage.setItem('sp_player_update_dismissed', key); } catch (e) {}
+      try { SPPrefs.set('sp_player_update_dismissed', key); } catch (e) {}
       const el = document.getElementById('showPlayerUpdateBanner');
       if (el) el.style.display = 'none';
     }

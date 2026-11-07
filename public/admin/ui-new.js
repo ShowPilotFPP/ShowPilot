@@ -178,7 +178,7 @@
       pin.querySelector('.spn-label').textContent = on ? 'Collapse menu' : 'Keep menu open';
       pin.querySelector('path').setAttribute('d', on ? ICON.unpin : ICON.pin);
     }
-    try { localStorage.setItem('sp_rail_pinned', on ? '1' : '0'); } catch (_) {}
+    try { SPPrefs.set('sp_rail_pinned', on ? '1' : '0'); } catch (_) {}
   }
 
   // ---------- Top bar ----------
@@ -415,11 +415,11 @@
     $('spnS4').textContent = ((dashState && dashState.sequences) || []).length;
     // "Hide PSAs" — same saved choice as the classic layout's box (sp_top_hide_psa).
     let hidePsa = false;
-    try { hidePsa = localStorage.getItem('sp_top_hide_psa') === '1'; } catch (e) {}
+    try { hidePsa = SPPrefs.get('sp_top_hide_psa') === '1'; } catch (e) {}
     const hideBox = $('spnTopHidePsa');
     hideBox.checked = hidePsa;
     hideBox.onchange = () => {
-      try { localStorage.setItem('sp_top_hide_psa', hideBox.checked ? '1' : '0'); } catch (e) {}
+      try { SPPrefs.set('sp_top_hide_psa', hideBox.checked ? '1' : '0'); } catch (e) {}
       if (typeof window.toggleTopHidePsa === 'function') window.toggleTopHidePsa(hideBox.checked);
       renderDash();
     };
@@ -513,7 +513,7 @@
       buildDash();
       showNotice(me);
       wrapNavigation();
-      setPinned((() => { try { return localStorage.getItem('sp_rail_pinned') === '1'; } catch (_) { return false; } })());
+      setPinned((() => { try { return SPPrefs.get('sp_rail_pinned') === '1'; } catch (_) { return false; } })());
       // Refresh the dashboard whenever the classic page refreshes its stats
       // (socket events, actions), and on a slow timer as a backstop.
       if (typeof window.loadStats === 'function') {

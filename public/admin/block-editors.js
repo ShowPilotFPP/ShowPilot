@@ -38,6 +38,9 @@
 
   function iconSvg(p, size) {
     if (!p) return '<span class="spbe-noicon" style="width:' + size + 'px;height:' + size + 'px;">–</span>';
+    // Logos that are already a circle are shown as themselves (v0.33.272).
+    if (p.badge) return '<span class="spbe-ico" style="width:' + size + 'px;height:' + size + 'px;background:none;">' +
+      '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '" aria-hidden="true"><circle cx="12" cy="12" r="11.5" fill="#fff"/><path fill="' + esc(p.color) + '" d="' + esc(p.path) + '"/></svg></span>';
     return '<span class="spbe-ico" style="width:' + size + 'px;height:' + size + 'px;background:' + esc(p.color) + ';">' +
       '<svg viewBox="0 0 24 24" width="' + Math.round(size * 0.55) + '" height="' + Math.round(size * 0.55) + '" aria-hidden="true"><path fill="#fff" d="' + esc(p.path) + '"/></svg></span>';
   }

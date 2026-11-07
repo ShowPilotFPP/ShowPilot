@@ -34,12 +34,14 @@
 # This replaces QEMU emulation of arm64 on the amd64 runner, which compiled
 # better-sqlite3 under emulation — slow, and intermittently crashing.
 #
-# SELF-HOSTED RUNNER (v0.33.238+): both platforms and the merge run on the
-# self-hosted arm64 build runner (labels self-hosted, linux, arm64, showpilot).
-# arm64 builds natively; amd64 uses the emulator the machine already has
-# (Rosetta under OrbStack on Apple Silicon) or QEMU via tonistiigi/binfmt.
-# Repo variable SPP_RUNNER=github switches back to the native GitHub-hosted
-# pair above (ubuntu-latest + ubuntu-24.04-arm).
+# GITHUB-HOSTED AGAIN (v0.33.275): v0.33.238 moved these builds to the
+# self-hosted arm64 runner, where amd64 had to build under emulation
+# (compiling better-sqlite3 emulated) and both platforms took turns on one
+# machine: about half an hour per release, holding up ships and tests behind
+# it. The native GitHub-hosted pair above builds both at once in a few
+# minutes and is free for public repos, so the image always builds there
+# now, whatever SPP_RUNNER says. The emulation step below only runs if a
+# platform ever lands on a runner of the other architecture.
 # ============================================================
 
 name: Build and publish Docker image
@@ -64,52 +66,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # DOCKER RUNS LAST (v0.33.274): the image build is the longest job on the
-  # self-hosted runner (about half an hour), and a release's tag starts it
-  # while other releases are still waiting to ship. This small job runs on a
-  # GitHub-hosted runner (free for public repos) and waits until no scenario
-  # tests or ships are queued or running, so those go first. Gives up waiting
-  # after 90 minutes and builds anyway. Skipped when SPP_RUNNER=github, where
-  # jobs don't share one machine.
-  wait-turn:
-    name: Wait for ships and tests to finish
-    if: vars.SPP_RUNNER != 'github'
-    runs-on: ubuntu-latest
-    timeout-minutes: 100
-    permissions:
-      actions: read
-    steps:
-      - name: Wait until the build runner is free of ships and tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          clear=0
-          for i in $(seq 1 180); do
-            busy=0
-            for st in queued in_progress waiting pending requested; do
-              n=$(gh api "repos/$REPO/actions/runs?status=$st&per_page=50" \
-                --jq '[.workflow_runs[] | select(.name == "Scenario tests" or .name == "Ship via ShipPilot")] | length')
-              busy=$((busy + n))
-            done
-            if [ "$busy" -eq 0 ]; then
-              clear=$((clear + 1))
-              # Two clear checks in a row, so a ship that's just about to
-              # start (e.g. the next /ship) gets its turn first.
-              [ "$clear" -ge 2 ] && { echo "Runner is free of ships and tests; building."; exit 0; }
-            else
-              clear=0
-              echo "$busy ship/test run(s) ahead; waiting..."
-            fi
-            sleep 30
-          done
-          echo "Waited 90 minutes; building anyway."
-
   build:
     name: Build ${{ matrix.platform }}
-    needs: wait-turn
-    if: always() && (needs.wait-turn.result == 'success' || needs.wait-turn.result == 'skipped')
-    runs-on: ${{ vars.SPP_RUNNER == 'github' && matrix.hosted || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
+    runs-on: ${{ matrix.hosted }}
     strategy:
       fail-fast: false
       matrix:
@@ -193,10 +152,8 @@ jobs:
 
   merge:
     name: Publish multi-arch manifest
-    runs-on: ${{ vars.SPP_RUNNER == 'github' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
+    runs-on: ubuntu-latest
     needs: build
-    # Explicit, so a skipped wait-turn (SPP_RUNNER=github) doesn't skip this.
-    if: always() && needs.build.result == 'success'
 
     permissions:
       contents: read

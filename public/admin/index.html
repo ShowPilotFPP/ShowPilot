@@ -2062,7 +2062,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.277-master.1</span>
+        <span class="app-version">v0.33.277-master.2</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4274,7 +4274,7 @@
               <div style="padding: 0.75rem 0 0;">
                 <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
                   Updates come from ShowPilot's own GitHub repo. If you keep your own copy (a fork), you can update from it instead:
-                  releases, the Master channel and Beta all come from that repo. Only use a repo you trust: an update runs its code on this server.
+                  this server then follows that repo's main branch (no Stable/Master choice). Only use a repo you trust: an update runs its code on this server.
                 </p>
                 <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                   <input type="text" id="updateRepoInput" placeholder="ShowPilotFPP/ShowPilot" style="max-width: 320px;" />
@@ -5629,18 +5629,26 @@
 
         // Build the status header.
         let statusHtml = '';
+        // GitHub's hourly limit for this network used up (v0.33.277-master.2).
+        const limitMsg = data.githubLimitedUntil
+          ? 'GitHub only answers 60 update checks an hour from one network without signing in, and this network has used them up. It resets at '
+            + new Date(data.githubLimitedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            + '; ShowPilot checks again by itself after that.'
+          : '';
+        const checkErr = (e) => (e && limitMsg && /hourly limit|HTTP 403/.test(e)) ? limitMsg : e;
         statusHtml += `<div><strong>Current version:</strong> v${escapeHtml(data.currentVersion)}</div>`;
         if (data.onMaster) {
           // Master channel (v0.33.276+): compare with the tip of main.
           const m = data.master;
           if (m) {
-            statusHtml += `<div><strong>Latest on Master:</strong> ${m.version ? 'v' + escapeHtml(m.version) : ''} <span class="muted">(${escapeHtml(m.shortSha)})</span>`
+            statusHtml += `<div><strong>Latest on ${data.updateRepoIsDefault ? 'Master' : escapeHtml(data.updateRepo)}:</strong> ${m.version ? 'v' + escapeHtml(m.version) : ''} <span class="muted">(${escapeHtml(m.shortSha)})</span>`
               + (m.url ? ` &middot; <a href="${escapeAttr(m.url)}" target="_blank" rel="noopener" style="color: var(--accent);">on GitHub</a>` : '') + `</div>`;
-            if (data.masterAvailable) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-warning">${m.behindBy} new update${m.behindBy === 1 ? '' : 's'} on Master</span></div>`;
+            if (data.masterAvailable) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-warning">${m.behindBy > 0 ? m.behindBy + ' new update' + (m.behindBy === 1 ? '' : 's') : 'New update'} on Master</span></div>`
+              + (m.behindBy > 0 || !limitMsg ? '' : `<div class="muted" style="font-size: 0.85rem; margin-top: 0.35rem;">The list of what changed will show after GitHub's limit resets; you can install now.</div>`);
             else if (m.behindBy === 0) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-success">Up to date with Master</span></div>`;
             else statusHtml += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.5rem;">Can't tell how far behind this install is (its version isn't on GitHub). Installing the latest Master update fixes that.</div>`;
           } else {
-            statusHtml += `<div class="muted" style="font-size: 0.85rem;">Latest on Master: unknown${data.masterCheckError ? ' (' + escapeHtml(data.masterCheckError) + ')' : ''}</div>`;
+            statusHtml += `<div class="muted" style="font-size: 0.85rem;">Latest on ${data.updateRepoIsDefault ? 'Master' : escapeHtml(data.updateRepo)}: unknown${data.masterCheckError ? ' (' + escapeHtml(checkErr(data.masterCheckError)) + ')' : ''}</div>`;
           }
         }
         if (data.onMaster) { /* releases aren't offered on Master */ }
@@ -5653,7 +5661,7 @@
         } else {
           statusHtml += '<div class="muted" style="font-size: 0.85rem;">Latest version: unknown';
           if (data.lastCheckError) {
-            statusHtml += ` (${escapeHtml(data.lastCheckError)})`;
+            statusHtml += ` (${escapeHtml(checkErr(data.lastCheckError))})`;
           }
           statusHtml += '</div>';
         }
@@ -5726,7 +5734,7 @@
         delete applyBtn.dataset.masterSha;
         if (data.masterAvailable && data.updaterAvailable && data.master) {
           applyBtn.style.display = '';
-          applyBtn.textContent = `Install ${data.master.behindBy} Master update${data.master.behindBy === 1 ? '' : 's'}`;
+          applyBtn.textContent = data.master.behindBy > 0 ? `Install ${data.master.behindBy} Master update${data.master.behindBy === 1 ? '' : 's'}` : `Install the latest Master update${data.master.version ? ' (v' + data.master.version + ')' : ''}`;
           applyBtn.dataset.masterSha = data.master.sha;
         } else if (data.updateAvailable && data.updaterAvailable) {
           applyBtn.style.display = '';
@@ -5768,6 +5776,19 @@
       const box = document.getElementById('updateChannelBox');
       if (!box) return;
       if (data.isDemoMode || data.onBeta) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      // Custom update source (v0.33.277-master.2): no channel choice; it
+      // follows that repo's main branch. Made to stand out.
+      if (!data.updateRepoIsDefault) {
+        box.innerHTML = `<div style="display: flex; gap: 0.6rem; align-items: flex-start;">
+            <span style="font-size: 1.3rem; line-height: 1;">⚠</span>
+            <div style="flex: 1;"><div style="font-weight: 600;">Custom update source: ${escapeHtml(data.updateRepo)}</div>
+            <div class="muted" style="font-size: 0.85rem; margin-top: 0.15rem;">This server updates from the main branch of <a href="https://github.com/${escapeAttr(data.updateRepo)}" target="_blank" rel="noopener" style="color: var(--accent);">${escapeHtml(data.updateRepo)}</a>, not from ShowPilot. Stable and Master come back when you switch back.</div>
+            <button type="button" class="secondary" style="margin-top: 0.5rem;" onclick="saveUpdateRepo('')">Back to ShowPilot</button></div></div>`;
+        box.style.border = '2px solid var(--warning, #e0a030)';
+        box.style.display = '';
+        return;
+      }
+      box.style.border = '1px solid var(--border)';
       const ch = data.channel === 'master' ? 'master' : 'stable';
       const opt = (v, label, desc) => `<label style="display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.35rem 0; cursor: pointer;">
           <input type="radio" name="updChannel" value="${v}" ${ch === v ? 'checked' : ''} onchange="setUpdateChannel('${v}')" style="margin-top: 0.2rem;" />
@@ -5802,7 +5823,7 @@
       const inp = document.getElementById('updateRepoInput');
       const st = document.getElementById('updateRepoStatus');
       const repo = value === '' ? '' : (inp ? inp.value.trim() : '');
-      if (repo && !(await showConfirm('Update from ' + repo + '?\n\nReleases, Master and Beta updates will come from that repo. Only use a repo you trust: an update runs its code on this server.'))) return;
+      if (repo && !(await showConfirm('Update from ' + repo + '?\n\nThis server will follow the main branch of that repo instead of ShowPilot (Stable and Master come back if you switch back). Only use a repo you trust: an update runs its code on this server.'))) return;
       if (st) st.textContent = 'Checking…';
       const r = await fetch('/api/admin/updates/repo', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo }) });
       const d = await r.json().catch(() => ({}));
@@ -11775,7 +11796,7 @@
       else if (n.isDocker) how = ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new</button><br>Pull the new image and recreate the container to update.';
       else how = '';
       el.innerHTML = '<b>⬆ ' + (n.kind === 'master'
-          ? esc(n.behindBy) + ' new ShowPilot update' + (n.behindBy === 1 ? '' : 's') + ' on Master (latest v' + esc(n.latest) + ')'
+          ? (n.behindBy > 0 ? esc(n.behindBy) + ' new ShowPilot update' + (n.behindBy === 1 ? '' : 's') : 'A new ShowPilot update') + ' on Master (latest v' + esc(n.latest) + ')'
           : (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available')) + '.</b> '
         + 'You have v' + esc(n.current) + '.' + how
         + ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPilotUpdate(\'' + esc(n.kind + ':' + n.latest) + '\')">Dismiss</button>';

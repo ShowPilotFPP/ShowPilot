@@ -23,7 +23,10 @@ router.use(express.json({ limit: '1mb' }));
 // difference being whether the GitHub fetch is forced).
 async function buildStatusResponse({ force }) {
   const current = updater.readPackageVersion();
-  const check = await updater.checkForUpdate({ force });
+  // On Master, releases aren't offered, so "Check now" doesn't re-ask
+  // GitHub for them (v0.33.277-master.2: fewer requests toward its limit).
+  const masterChannel = updater.getChannel() === 'master' && !updater.isBetaVersion(current);
+  const check = await updater.checkForUpdate({ force: force && !masterChannel });
   const updateState = db.getUpdateState();
   const snapshotMeta = updater.readSnapshotMeta();
 
@@ -66,7 +69,9 @@ async function buildStatusResponse({ force }) {
   }
   // Master (v0.33.276+): what's new = the updates on main since this
   // install, each commit message being that update's changelog.
-  const masterAvailable = !!(onMaster && masterCheck.master && masterCheck.master.behindBy > 0);
+  const masterHead = onMaster ? await updater.readHeadSha() : null;
+  const masterAvailable = !!(onMaster && masterCheck.master && masterCheck.master.head === masterHead &&
+    (masterCheck.master.available || masterCheck.master.behindBy > 0));
   const masterNotes = masterAvailable ? (masterCheck.master.changes || []).map((c) => {
     const first = String(c.message).split('\n')[0];
     const v = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\s*[—–-]/.exec(first);
@@ -105,6 +110,8 @@ async function buildStatusResponse({ force }) {
     beta: betaCheck.beta,
     betaAvailable,
     betaCheckError: betaCheck.error || null,
+    // GitHub's hourly limit for this network is used up until then (ISO), or null.
+    githubLimitedUntil: updater.githubLimitedUntil() ? new Date(updater.githubLimitedUntil()).toISOString() : null,
     rollback: (updateState && updateState.previous_version_sha && snapshotMeta) ? {
       previousVersionTag: updateState.previous_version_tag,
       snapshotVersion: snapshotMeta.version,

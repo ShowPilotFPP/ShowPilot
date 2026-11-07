@@ -86,6 +86,26 @@ app.use((req, res, next) => {
 // the top is simpler than re-applying per-route.
 app.use(cookieParser());
 
+// Hosted mode (v0.33.278-master.6+). See lib/config-loader.js. These features
+// manage the machine, which the host owns, so they answer as if absent.
+if (config.hosted) {
+  const HOSTED_OFF = [
+    '/api/admin/updates',
+    '/api/admin/cloudflared',
+    '/api/setup/restore-from-backup',
+    '/api/admin/tools/announcer/kokoro/install',
+  ];
+  app.use((req, res, next) => {
+    const p = req.path.toLowerCase().replace(/\/{2,}/g, '/').replace(/\/$/, '');
+    if (p === '/api/admin/updates/notice') return res.json({ notice: null });
+    if (p === '/api/setup/first-boot-status') return res.json({ firstBoot: false });
+    if (HOSTED_OFF.some((b) => p === b || p.startsWith(b + '/'))) {
+      return res.status(404).json({ error: 'Not available on hosted ShowPilot.' });
+    }
+    next();
+  });
+}
+
 // Backup & restore API (v0.25.0+) — mounted BEFORE the global
 // express.json() parser below, because backup files (with cover art)
 // can run 5-50 MB and the default 1MB limit would reject them with an
@@ -172,7 +192,7 @@ app.use('/api/admin/updates', adminRouter.requireAdmin, require('./routes/update
 // (Docker, demoMode) — we still want the UI to show "you're on
 // vX.Y.Z" but no need to hit GitHub from those deployments.
 const updater = require('./lib/updater');
-if (updater.isUpdaterAvailable()) {
+if (!config.hosted && updater.isUpdaterAvailable()) {
   updater.startBackgroundPolling();
 }
 
@@ -805,7 +825,7 @@ server.listen(config.port, config.host, () => {
   }
 
   try {
-    require('./lib/cloudflared').autoStartIfConfigured();
+    if (!config.hosted) require('./lib/cloudflared').autoStartIfConfigured();
   } catch (err) {
     console.error('[cloudflared] auto-start failed:', err.message);
   }

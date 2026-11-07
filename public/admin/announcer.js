@@ -203,7 +203,7 @@
   function renderVoice(card) {
     card.appendChild(h('h3', { style: 'margin:1rem 0 0.5rem;', text: '1. The voice' }));
     card.appendChild(h('div', { class: 'row', style: 'gap:0.5rem;flex-wrap:wrap;' },
-      ENGINES.map(e => h('button', { class: engine === e.id ? '' : 'secondary', text: e.label, onclick: () => { engine = e.id; err = ''; render(); } }))));
+      ENGINES.filter(e => !(st.hosted && e.id === 'kokoro')).map(e => h('button', { class: engine === e.id ? '' : 'secondary', text: e.label, onclick: () => { engine = e.id; err = ''; render(); } }))));
     const box = h('div', { style: 'margin-top:0.75rem;' });
     card.appendChild(box);
     if (engine === 'kokoro') renderKokoro(box);
@@ -510,6 +510,8 @@
       st = await call('/status');
       if (!voice && st.settings && st.settings.engine) engine = st.settings.engine;
       if (engine === 'kokoro' && !st.kokoro.ready && st.keys.openai) engine = 'openai';
+      // Hosted installs can't run the on-server voices (no engine install).
+      if (st.hosted && engine === 'kokoro') engine = 'openai';
     } catch (e) { err = e.message; }
     render();
   }

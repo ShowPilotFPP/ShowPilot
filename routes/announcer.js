@@ -42,6 +42,7 @@ router.get('/status', wrap(async (req, res) => {
   try { const np = getNowPlaying(); showActive = !!(np && np.sequence_name); } catch (_) {}
   res.json({
     demo: DEMO,
+    hosted: !!config.hosted,
     ffmpegOk: !!tools.ok,
     kokoro: tts.kokoroStatus(),
     settings: tts.getSettings(),

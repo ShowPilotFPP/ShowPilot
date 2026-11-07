@@ -40,7 +40,7 @@ const NEXT_RESET_PATH = path.join(__dirname, '..', 'data', 'demo-next-reset.json
 // public timestamp.
 router.get('/demo-status', (req, res) => {
   if (!config.demoMode) {
-    return res.json({ demoMode: false });
+    return res.json({ demoMode: false, hosted: !!config.hosted });
   }
 
   let nextResetAt = null;
@@ -67,6 +67,7 @@ router.get('/demo-status', (req, res) => {
 
   res.json({
     demoMode: true,
+    hosted: !!config.hosted,
     credentialsHint: String(config.demoCredentialsHint || '').trim() || null,
     resetIntervalMinutes: Number(config.demoResetIntervalMinutes) || 10,
     nextResetAt,

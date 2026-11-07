@@ -377,6 +377,16 @@
     document.getElementById('spnVc').addEventListener('click', () => window.toggleViewerControl());
     // The update banners (beta.18+) stay visible, above the new dashboard.
     Array.from(pane.querySelectorAll(':scope > .dash-banner')).reverse().forEach((b) => pane.insertBefore(b, pane.firstChild));
+    // The Viewer QR Code (v0.33.278-master.4): the classic dashboard's own
+    // cards, moved under the new dashboard so the same code keeps showing,
+    // copying and downloading it. Before this they were hidden with the
+    // rest of the classic dashboard.
+    const qr = ['qrCard', 'qrNoUrlCard'].map((id) => document.getElementById(id)).filter(Boolean);
+    if (qr.length) {
+      const wrap = el('<section class="spn-qr" aria-label="Viewer QR code"></section>');
+      qr.forEach((c) => wrap.appendChild(c));
+      document.getElementById('spnDash').appendChild(wrap);
+    }
   }
 
   const MODES = [['OFF', 'Off'], ['VOTING', 'Voting'], ['JUKEBOX', 'Jukebox'], ['RACE', 'Race'], ['LISTEN', 'Listen only']];

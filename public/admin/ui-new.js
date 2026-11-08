@@ -403,7 +403,9 @@
       await window.updateMode(b.dataset.mode);
       refreshDash();
     }));
-    const acts = mode === 'RACE' ? [['resetRace', 'Reset race']] : mode === 'JUKEBOX' ? [['purgeQueue', 'Purge queue']] : [['resetVotes', 'Reset votes'], ['purgeQueue', 'Purge queue']];
+    // Listen only (v0.33.278-master.10+): no votes or taps to reset; requests
+    // already queued still play, so only Purge queue applies.
+    const acts = mode === 'RACE' ? [['resetRace', 'Reset race']] : mode === 'JUKEBOX' || mode === 'LISTEN' ? [['purgeQueue', 'Purge queue']] : [['resetVotes', 'Reset votes'], ['purgeQueue', 'Purge queue']];
     $('spnActions').innerHTML = acts.map(a => '<button type="button" data-fn="' + a[0] + '">' + a[1] + '</button>').join('');
     $('spnActions').querySelectorAll('button').forEach(b => b.addEventListener('click', async () => { await window[b.dataset.fn](); refreshDash(); }));
 
@@ -419,7 +421,8 @@
 
     $('spnS1').textContent = dashStats.activeViewers ?? 0;
     $('spnS1H').textContent = 'on the viewer page' + (dashStats.listenersNow ? ' · ' + dashStats.listenersNow + ' listening on phones' : '');
-    if (mode === 'JUKEBOX') { $('spnS2L').textContent = 'Requests waiting'; $('spnS2').textContent = dashStats.queueLength ?? 0; $('spnS2H').textContent = 'in the jukebox queue'; }
+    if (mode === 'JUKEBOX' || mode === 'LISTEN') { $('spnS2L').textContent = 'Requests waiting'; $('spnS2').textContent = dashStats.queueLength ?? 0; $('spnS2H').textContent = 'in the jukebox queue'; }
+    else if (mode === 'RACE') { const t = ((dashState && dashState.race && dashState.race.tapCounts) || []).reduce((n, r) => n + (r.count || 0), 0); $('spnS2L').textContent = 'Taps this race'; $('spnS2').textContent = t; $('spnS2H').textContent = 'for the next song'; }
     else { $('spnS2L').textContent = 'Votes this round'; $('spnS2').textContent = dashStats.totalVotes ?? 0; $('spnS2H').textContent = 'for the next song'; }
     $('spnS3').textContent = dashStats.totalPlays ?? 0;
     $('spnS4').textContent = ((dashState && dashState.sequences) || []).length;
@@ -452,12 +455,17 @@
       const rows = ((dashState && dashState.voteCounts) || []).map(v => ({ name: v.sequence_name, count: v.count })).sort((a, b) => b.count - a.count).slice(0, 8);
       $('spnLiveT').textContent = 'Live vote'; $('spnLiveS').textContent = rows.length ? 'Round closes when the current song ends' : '';
       live.innerHTML = rows.length ? bars(rows) : '<div class="spn-empty"><strong>No votes yet this round.</strong><span class="spn-muted">Votes show up here the moment viewers cast them.</span></div>';
-    } else if (mode === 'JUKEBOX') {
+    } else if (mode === 'LISTEN' && !dashQueue.length) {
+      // Before v0.33.278-master.10 Listen only fell through to the race view.
+      $('spnLiveT').textContent = 'Listen only'; $('spnLiveS').textContent = '';
+      live.innerHTML = '<div class="spn-empty"><strong>Viewers can watch and listen, but not vote or request.</strong><span class="spn-muted">Switch to Voting, Jukebox or Race to let them pick songs.</span></div>';
+    } else if (mode === 'JUKEBOX' || mode === 'LISTEN') {
       // Every request that hasn't played, including those already handed to
       // the show player (they wait in its queue). Before v0.33.249 those were
       // left out, so the list emptied while songs were still waiting (#37).
       const pending = dashQueue.slice();
-      $('spnLiveT').textContent = 'Request queue'; $('spnLiveS').textContent = pending.length ? pending.length + ' waiting' : '';
+      // Listen only: no new requests, but ones already queued still play.
+      $('spnLiveT').textContent = mode === 'LISTEN' ? 'Still to play from the queue' : 'Request queue'; $('spnLiveS').textContent = mode === 'LISTEN' ? 'No new requests in Listen only' : pending.length ? pending.length + ' waiting' : '';
       live.innerHTML = pending.length ? pending.map((q, i) => '<div class="spn-q"><span class="spn-muted">' + (i + 1) + '</span><div><div style="font-weight:600">' + esc(q.display_name || q.sequence_name) + '</div><div class="spn-muted" style="font-size:13px">' + esc(q.artist || '') + (q.handed_off_at ? (q.artist ? ' · ' : '') + 'sent to the show player' : '') + '</div></div><span></span>' +
         (q.handed_off_at ? '<span></span></div>' : '<button type="button" class="spn-x" data-id="' + esc(q.id) + '" aria-label="Remove ' + esc(q.display_name || q.sequence_name) + ' from the queue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>')).join('')
         : '<div class="spn-empty"><strong>The queue is empty.</strong><span class="spn-muted">Requests from viewers appear here in the order they will play.</span></div>';
@@ -465,7 +473,10 @@
     } else {
       const race = dashState && dashState.race;
       const rows = ((race && race.tapCounts) || []).map(r => ({ name: r.sequence_name, count: r.count })).slice(0, 8);
-      $('spnLiveT').textContent = 'Tap race'; $('spnLiveS').textContent = race && race.targetTaps ? 'First to ' + race.targetTaps + ' taps plays next' : '';
+      $('spnLiveT').textContent = 'Tap race';
+      // How this race ends (no end time = it ends with the song).
+      const ends = race && race.active ? (race.endsAt ? 'the leader when the timer runs out' : 'the leader when the song ends') : '';
+      $('spnLiveS').textContent = race && race.winner ? 'Decided: plays next' : race && race.targetTaps ? 'First to ' + race.targetTaps + ' taps plays next' + (ends ? ', or ' + ends : '') : ends ? 'Plays next: ' + ends : '';
       live.innerHTML = rows.length ? bars(rows) : '<div class="spn-empty"><strong>No taps yet.</strong><span class="spn-muted">Race standings show up here as viewers tap.</span></div>';
     }
   }

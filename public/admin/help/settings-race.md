@@ -11,7 +11,9 @@ Every change saves straight away and applies from the next race.
 How long each race lasts.
 
 - **Race timer (seconds)** is the length of the race. Viewers see a shrinking bar and a countdown, and the bar turns red in the last 10 seconds. You can set 10 to 600 seconds; the default is **60**. When time runs out, the song with the most taps wins. If nobody tapped, there's no winner and your show carries on with its schedule.
-- **End race when the current song ends (ignore timer)** drops the timer. The race stays open for the rest of the current song, and viewers see "Race ends with this song" instead of a countdown. When it's ticked, the timer setting is hidden. Off by default.
+- **End race when the current song ends (ignore timer)** drops the timer. The race stays open for the rest of the current song, and viewers see "Race ends with this song" instead of a countdown. In the song's last few seconds the song with the most taps wins and plays right after the current one. If nobody tapped, your show carries on with its schedule. When it's ticked, the timer setting is hidden. Off by default.
+
+> **Important:** Ending with the song needs to know how long each song is. The FPP plugin sends song lengths when it syncs your playlist, so this works once your sequences have synced.
 
 > **Tip:** A short race (30 to 90 seconds) creates excitement. Make sure it ends well before a typical song does, so the winner is ready in time.
 
@@ -23,7 +25,7 @@ Pick a number your crowd can reach. Too high and it never triggers; too low and 
 
 ## Winner playback
 
-**Interrupt current song and play winner immediately** cuts off the song that's playing and starts the winner straight away. Off by default: the winner plays after the current song finishes, like in Voting mode.
+**Interrupt current song and play winner immediately** cuts off the song that's playing and starts the winner straight away. Off by default: the winner plays after the current song finishes, like in Voting mode. A race that ends with the song never interrupts, because by then the song is over anyway.
 
 Once a winner is decided, taps are turned away until the next song starts and a new race begins.
 

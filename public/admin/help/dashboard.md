@@ -32,7 +32,7 @@ The buttons on the right change with the mode. Each one asks you to confirm firs
 
 | Button | Shown in | What it does |
 | --- | --- | --- |
-| **Reset votes** | Voting, Listen only, Off | Clears every vote in the current round, so voting starts again from zero. |
+| **Reset votes** | Voting, Off | Clears every vote in the current round, so voting starts again from zero. |
 | **Purge queue** | Voting, Jukebox, Listen only, Off | Deletes every request that hasn't played yet. Played requests stay in the history. |
 | **Reset race** | Race | Clears all taps and starts a new race straight away. |
 
@@ -51,7 +51,7 @@ Shows the song that's playing, with its artist and an **ON AIR** light. When not
 | Number | What it counts |
 | --- | --- |
 | **Watching now** | People with your viewer page open right now. If anyone is listening through Listen on Phone, it adds how many. |
-| **Votes this round** | Votes cast for the next song. In Jukebox mode this becomes **Requests waiting**, the number of requests not yet sent to the show player. |
+| **Votes this round** | Votes cast for the next song. In Jukebox and Listen only it becomes **Requests waiting**, the number of requests not yet sent to the show player. In Race it becomes **Taps this race**. |
 | **Played by viewers** | Songs played because of votes, requests and PSAs, all time. Songs from your normal schedule don't count. |
 | **Sequences** | Songs on your viewer page. |
 
@@ -62,7 +62,8 @@ This panel follows the mode:
 - **Viewer control is off**: a reminder that viewers can watch but not take part, with a **Turn on viewer control** button.
 - **Live vote** (Voting): the top songs this round with vote bars. The round closes when the current song ends.
 - **Request queue** (Jukebox): every request that hasn't played, in the order it will play. Click the **×** next to a request to remove it. Requests marked **sent to the show player** are already handed over and can't be removed here.
-- **Tap race** (Race): the race standings, and how many taps win if you've set a target.
+- **Tap race** (Race): the race standings, and how this race ends: the leader when the timer runs out or when the song ends, or the first song to reach your tap target. Once a winner is decided it says **Decided: plays next**.
+- **Listen only**: a reminder that viewers can watch and listen but not pick songs. If requests were already queued before you switched, it lists them under **Still to play from the queue** instead, because they still play.
 
 ## Top sequences
 

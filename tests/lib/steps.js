@@ -233,6 +233,9 @@ const STEPS = [
       const n = ctx.sp.db.prepare('SELECT COUNT(*) AS n FROM jukebox_queue WHERE handed_off_at IS NOT NULL').get().n;
       assert(n === 0, `${n} request(s) were handed to the show player`);
     } },
+  { doc: '"A" is N seconds long   (its length, as the show player syncs it)',
+    re: new RegExp(`^${q} is (\\d+) seconds long$`, 'i'),
+    fn: async (ctx, name, n) => { ctx.sp.db.prepare('UPDATE sequences SET duration_seconds = ? WHERE name = ?').run(Number(n), name); } },
   { doc: '"A" has been playing for N seconds   (moves its start time back)',
     re: new RegExp(`^${q} has been playing for (\\d+) seconds$`, 'i'),
     fn: async (ctx, name, n) => {
@@ -303,6 +306,14 @@ const STEPS = [
       for (let i = 0; i < Number(n); i++) {
         const r = await http(ctx, 'POST', '/api/vote', { cookie: ctx.sp.viewerCookie(`bulk-${name}-${ctx.bulk++}`), body: { sequenceName: name } });
         assert(r.status < 400, `vote ${i + 1} refused: ${JSON.stringify(r.body)}`);
+      }
+    } },
+  { doc: 'N phones tap "A" in the race',
+    re: new RegExp(`^(\\d+) phones? taps? ${q} in the race$`, 'i'),
+    fn: async (ctx, n, name) => {
+      for (let i = 0; i < Number(n); i++) {
+        const r = await http(ctx, 'POST', '/api/race/tap', { cookie: ctx.sp.viewerCookie(`race-${name}-${ctx.bulk++}`), body: { sequenceName: name } });
+        assert(r.status < 400, `tap ${i + 1} refused: ${JSON.stringify(r.body)}`);
       }
     } },
   { doc: 'phone 1 requests "A"',
@@ -425,13 +436,22 @@ const STEPS = [
       const want = /^empty$/i.test(what) ? [] : names(what);
       assert(JSON.stringify(got) === JSON.stringify(want), `queue is [${got.join(', ')}], expected [${want.join(', ')}]`);
     }) },
-  { doc: '"A" plays next | "A" plays next as a vote | request | PSA',
-    re: new RegExp(`^${q} plays next(?: as an? (vote|request|psa))?$`, 'i'),
+  { doc: '"A" plays next | "A" plays next as a vote | request | PSA | race winner',
+    re: new RegExp(`^${q} plays next(?: as an? (vote|request|psa|race winner))?$`, 'i'),
     fn: async (ctx, name, why) => {
       const r = await ctx.player.playNext();
       ctx.last.played = r;
       assert(r.name === name, `"${r.name}" played next (${r.why}), expected "${name}"`);
-      if (why) assert(r.why === why.toLowerCase(), `"${name}" played as ${r.why}, expected ${why.toLowerCase()}`);
+      const want = why && why.toLowerCase() === 'race winner' ? 'race' : why && why.toLowerCase();
+      if (why) assert(r.why === want, `"${name}" played as ${r.why}, expected ${want}`);
+    } },
+  { doc: 'the race winner waits for the song to end | cuts the song off   (the interrupt flag the show player was given)',
+    re: /^the race winner (waits for the song to end|cuts the song off)$/i,
+    fn: async (ctx, how) => {
+      const rw = ctx.player.lastAnswer && ctx.player.lastAnswer.raceWinner;
+      assert(rw, 'the show player was not given a race winner');
+      const cuts = /cuts/i.test(how);
+      assert(!!rw.interrupt === cuts, `interrupt was ${!!rw.interrupt}, expected ${cuts}`);
     } },
   { doc: 'the show player is not given a song   (it follows its own schedule)',
     re: /^the show player is not given a song$/i,

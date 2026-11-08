@@ -2098,7 +2098,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.278-master.13</span>
+        <span class="app-version">v0.33.278-master.14</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4168,6 +4168,51 @@
                 Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color: var(--text-muted);">OpenStreetMap</a>.
               </div>
             </div>
+
+            <h3 id="appListingHeading">Show in the ShowPilot app</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Lists your show in the ShowPilot phone app, so people driving nearby can find it, open your viewer page and listen.
+              Uses the show location above and your Public base URL (Settings &rarr; Audio &rarr; External audio access). Off until you turn it on.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_app_listing_enabled" onchange="saveAppListing('app_listing_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_app_listing_enabled" style="margin: 0;">List my show in the ShowPilot app</label>
+            </div>
+            <div class="grid-3" style="margin-top: 0.5rem;">
+              <div>
+                <label for="cfg_app_listing_name">Name in the app</label>
+                <input type="text" id="cfg_app_listing_name" maxlength="60" placeholder="Your show name" onchange="saveAppListing('app_listing_name', this.value)" />
+              </div>
+              <div>
+                <label for="cfg_app_listing_town">Town</label>
+                <input type="text" id="cfg_app_listing_town" maxlength="60" placeholder="e.g. Oak Ridge" onchange="saveAppListing('app_listing_town', this.value)" />
+              </div>
+              <div>
+                <label for="cfg_app_listing_radius_miles">Show to phones within (miles)</label>
+                <input type="number" id="cfg_app_listing_radius_miles" step="0.5" min="0.5" max="100" onchange="saveAppListing('app_listing_radius_miles', this.value)" />
+              </div>
+            </div>
+            <div class="row" style="margin-top: 0.5rem;">
+              <input type="checkbox" id="cfg_app_listing_fuzz" onchange="saveAppListing('app_listing_fuzz', this.checked ? 1 : 0)" />
+              <label for="cfg_app_listing_fuzz" style="margin: 0;">Round my location to about a mile (recommended)</label>
+            </div>
+            <div class="row">
+              <input type="checkbox" id="cfg_app_listing_directions" onchange="saveAppListing('app_listing_directions', this.checked ? 1 : 0)" />
+              <label for="cfg_app_listing_directions" style="margin: 0;">Let the app give exact directions to my show</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.5rem;">
+              With rounding on, your exact spot isn't published anywhere: not in the app's list, not on your viewer page.
+              Exact directions puts the exact pin on your show's own info page, which anyone can read.
+            </p>
+            <div id="appListingProblems" class="muted" style="display: none; font-size: 0.85rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; margin-bottom: 0.5rem;"></div>
+            <div class="row" style="gap: 0.5rem; align-items: center;">
+              <button class="secondary" onclick="appListingCheckInNow(this)">Check in now</button>
+              <span id="appListingStatus" class="muted" style="font-size: 0.85rem;"></span>
+            </div>
+            <details style="margin: 0.5rem 0 1rem;">
+              <summary class="muted" style="font-size: 0.8rem; cursor: pointer;">What gets sent</summary>
+              <pre id="appListingSample" style="font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; margin-top: 0.4rem;"></pre>
+            </details>
 
             <h3>Location code</h3>
             <div class="row">
@@ -6916,6 +6961,15 @@
       setVal('cfg_show_latitude', c.show_latitude);
       setVal('cfg_show_longitude', c.show_longitude);
       setVal('cfg_check_radius_miles', c.check_radius_miles);
+      setChk('cfg_app_listing_enabled', c.app_listing_enabled === 1);
+      setVal('cfg_app_listing_name', c.app_listing_name || '');
+      const nameEl = document.getElementById('cfg_app_listing_name');
+      if (nameEl) nameEl.placeholder = c.show_name || 'Your show name';
+      setVal('cfg_app_listing_town', c.app_listing_town || '');
+      setVal('cfg_app_listing_radius_miles', c.app_listing_radius_miles || 15);
+      setChk('cfg_app_listing_fuzz', c.app_listing_fuzz !== 0);
+      setChk('cfg_app_listing_directions', c.app_listing_directions === 1);
+      loadAppListingStatus();
       setChk('cfg_location_code_enabled', c.location_code_enabled);
       setVal('cfg_location_code', c.location_code || '');
       setChk('cfg_audio_enabled', c.audio_enabled !== 0);
@@ -7817,6 +7871,56 @@
     }
 
     // Anonymous install count (v0.33.266+). See lib/install-count.js.
+    // ShowPilot app listing (lib/app-listing.js).
+    function renderAppListingStatus(st) {
+      if (!st) return;
+      const probs = document.getElementById('appListingProblems');
+      const status = document.getElementById('appListingStatus');
+      const sample = document.getElementById('appListingSample');
+      const chk = document.getElementById('cfg_app_listing_enabled');
+      if (chk) chk.disabled = !!st.demo;
+      if (probs) {
+        const list = st.demo ? ['Demo mode never lists a show.'] : (st.problems || []);
+        probs.textContent = list.join(' ');
+        probs.style.display = list.length && (st.enabled || st.demo) ? '' : 'none';
+      }
+      if (status) {
+        const lr = st.lastResult;
+        let t = '';
+        if (lr) {
+          const when = new Date(lr.at).toLocaleTimeString();
+          t = (lr.ok ? '\u2705 ' : '\u26a0\ufe0f ') + lr.message + ' (' + when + ')';
+        } else if (st.removePending) {
+          t = 'Removing from the app\u2026';
+        } else if (st.enabled) {
+          t = 'Waiting for the first check-in\u2026';
+        } else {
+          t = 'Not listed.';
+        }
+        status.textContent = t;
+      }
+      if (sample && st.sample) sample.textContent = JSON.stringify(st.sample, null, 2);
+    }
+    async function loadAppListingStatus() {
+      const r = await api('/app-listing');
+      if (r.ok) renderAppListingStatus(r.data);
+      return r.ok ? r.data : null;
+    }
+    async function saveAppListing(key, value) {
+      await saveSetting(key, value);
+      loadAppListingStatus();
+    }
+    async function appListingCheckInNow(btn) {
+      if (btn) btn.disabled = true;
+      const status = document.getElementById('appListingStatus');
+      if (status) status.textContent = 'Checking in\u2026';
+      try {
+        const r = await api('/app-listing/check-in', { method: 'POST' });
+        if (r.ok) renderAppListingStatus(r.data);
+        else if (status) status.textContent = 'Check-in failed.';
+      } finally { if (btn) btn.disabled = false; }
+    }
+
     async function loadInstallCountStatus() {
       const r = await api('/install-count');
       if (!r.ok) return null;

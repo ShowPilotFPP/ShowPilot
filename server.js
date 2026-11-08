@@ -154,6 +154,8 @@ app.use((req, res, next) => {
 // Public unauthenticated endpoints (v0.31.0+) — currently just demo-status.
 // Lives outside /api/plugin and /api/admin because it has neither bearer-token
 // nor cookie auth. Read-only by design.
+// GET /api/public/show-info for the ShowPilot app (lib/app-listing.js).
+app.use(require('./lib/app-listing').router());
 app.use('/api/public', require('./routes/public'));
 
 // FPP plugin endpoints — mounted at /api/plugin for the ShowPilot plugin
@@ -832,6 +834,8 @@ server.listen(config.port, config.host, () => {
 
   // Anonymous daily install count (see lib/install-count.js for exactly what's sent).
   try { require('./lib/install-count').start(); } catch (err) { /* never block startup */ }
+  // ShowPilot app listing heartbeat (only does anything when the owner turned it on).
+  try { require('./lib/app-listing').start(); } catch (err) { /* never block startup */ }
 });
 
 // Clean shutdown: tell the cloudflared supervisor to stop respawning

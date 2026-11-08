@@ -260,6 +260,17 @@ router.get('/config', requireAdmin, (req, res) => {
 });
 
 // Anonymous install count status for Settings → General (v0.33.266+).
+// ShowPilot app listing (lib/app-listing.js): what's sent and the last result.
+router.get('/app-listing', requireAdmin, (req, res) => {
+  try { res.json(require('../lib/app-listing').status()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.post('/app-listing/check-in', requireAdmin, async (req, res) => {
+  const al = require('../lib/app-listing');
+  try { await al.tick(); res.json(al.status()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/install-count', requireAdmin, (req, res) => {
   try { res.json(require('../lib/install-count').status()); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -305,6 +316,13 @@ router.put('/config', requireAdmin, (req, res) => {
     // Location code (v0.33.24+)
     'location_code_enabled',
     'location_code',
+    // ShowPilot app listing (lib/app-listing.js)
+    'app_listing_enabled',
+    'app_listing_name',
+    'app_listing_town',
+    'app_listing_radius_miles',
+    'app_listing_fuzz',
+    'app_listing_directions',
     // Race mode (v0.33.155+)
     'race_duration_seconds',
     'race_end_on_sequence_end',
@@ -409,6 +427,7 @@ router.put('/config', requireAdmin, (req, res) => {
   }
   require('../lib/visitor-messages').sanitizeSettings(updates);
   require('../lib/show-buttons').sanitizeSettings(updates);
+  require('../lib/app-listing').sanitizeSettings(updates);
   // Tiered cooldowns (v0.33.258, lib/cooldown.js)
   if ('cooldown_unit' in updates) updates.cooldown_unit = updates.cooldown_unit === 'songs' ? 'songs' : 'minutes';
   if ('cooldown_default' in updates) updates.cooldown_default = require('../lib/cooldown').toInt(updates.cooldown_default) || 0;
@@ -451,7 +470,9 @@ router.put('/config', requireAdmin, (req, res) => {
     if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) updates.last_active_mode = cfg.viewer_control_mode;
   }
 
+  const cfgBefore = getConfig();
   updateConfig(updates);
+  try { require('../lib/app-listing').onSettingsSaved(updates, cfgBefore); } catch { /* best effort */ }
 
   // If the admin actually changed viewer_control_mode (not just other
   // settings), emit the same event the plugin's mode-toggle endpoint

@@ -5526,12 +5526,16 @@
           // client-side. If they're missing (older server, gate enabled
           // without coords configured), fall back to the periodic check
           // alone — better than nothing.
-          if (
+          // App listing with a rounded location (audioGateServerWatch): the
+          // page carries no show coordinates, so the watcher asks the server
+          // whether this position is in range (at most every 30 seconds).
+          const gateHasCoords =
             typeof boot.audioGateLatitude === 'number' &&
             typeof boot.audioGateLongitude === 'number' &&
-            typeof boot.audioGateRadiusMiles === 'number' &&
-            'geolocation' in navigator
-          ) {
+            typeof boot.audioGateRadiusMiles === 'number';
+          let serverWatchLastMs = 0;
+          let serverWatchBusy = false;
+          if ((gateHasCoords || boot.audioGateServerWatch === true) && 'geolocation' in navigator) {
             try {
               watchPositionId = navigator.geolocation.watchPosition(
                 (pos) => {
@@ -5551,6 +5555,32 @@
                     return;
                   }
 
+                  if (!gateHasCoords) {
+                    if (serverWatchBusy || Date.now() - serverWatchLastMs < 30 * 1000) return;
+                    serverWatchBusy = true;
+                    serverWatchLastMs = Date.now();
+                    fetch('/api/visual-config?lat=' + encodeURIComponent(pos.coords.latitude) +
+                          '&lng=' + encodeURIComponent(pos.coords.longitude), { credentials: 'include' })
+                      .then((r) => (r.ok ? r.json() : null))
+                      .then((data) => {
+                        if (!data) return; // server hiccup: the periodic check still runs
+                        if (data.audioGateBlocked) {
+                          stopAudio();
+                          applyAudioGateState(
+                            true,
+                            data.audioGateReason || 'Audio is only available to listeners present at the show.',
+                            'proximity'
+                          );
+                          statusEl.textContent = 'Audio stopped — you have moved away from the show.';
+                        } else {
+                          lastWatcherInRangeMs = Date.now();
+                          liftProximityLatch();
+                        }
+                      })
+                      .catch(() => {})
+                      .then(() => { serverWatchBusy = false; });
+                    return;
+                  }
                   const dist = haversineMiles(
                     pos.coords.latitude,
                     pos.coords.longitude,

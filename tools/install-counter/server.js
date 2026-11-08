@@ -15,6 +15,10 @@
 //                            headers. The install never sends a location.
 // What we never store:       IP addresses, show names, URLs, anything else.
 // What we send back:         nothing (204 No Content).
+//
+// The same app also hosts the ShowPilot app's nearby-shows directory
+// (directory.js): a separate, opt-in list that only shows whose owner
+// turned on app listing check in to. See directory.js for what it keeps.
 // ============================================================
 'use strict';
 const path = require('path');
@@ -22,6 +26,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const Database = require('better-sqlite3');
+const { createDirectory } = require('./directory');
 
 const PORT = Number(process.env.PORT || 3040);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -102,6 +107,7 @@ function snapshot() {
     for (const p of PRODUCTS) { const r = rows.find(x => x.product === p); put.run(day, p, r ? r.n : 0); }
     db.prepare('DELETE FROM installs WHERE last_seen < ?').run(now - FORGET_AFTER_DAYS * DAY);
   })();
+  directory.cleanup();
 }
 
 function getStats() {
@@ -126,12 +132,17 @@ function getStats() {
     regions: db.prepare('SELECT country, region, COUNT(*) AS n FROM installs WHERE last_seen >= ? AND region IS NOT NULL GROUP BY country, region ORDER BY n DESC').all(since30),
     towns: db.prepare('SELECT country, region, city, ROUND(AVG(lat), 1) AS lat, ROUND(AVG(lon), 1) AS lon, COUNT(*) AS n FROM installs WHERE last_seen >= ? AND city IS NOT NULL AND lat IS NOT NULL GROUP BY country, region, city ORDER BY n DESC').all(since30),
     trend: db.prepare('SELECT day, product, active FROM daily WHERE day >= ? ORDER BY day').all(new Date((now - 365 * DAY) * 1000).toISOString().slice(0, 10)),
+    appShows: directory.counts(),
   };
 }
 
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', false); // we never look at the client IP
+
+// ShowPilot app nearby-shows directory (opt-in listings only).
+const directory = createDirectory(db);
+app.use(directory.router);
 
 app.post('/ping', express.json({ limit: '1kb' }), (req, res) => {
   const b = req.body || {};

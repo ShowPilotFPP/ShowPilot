@@ -984,11 +984,16 @@ router.get('/now-playing-audio', (req, res) => {
   {
     const listeners = require('../lib/listeners');
     const tok = req.cookies[config.sessionCookieName + '_viewer'];
-    const isAdmin = tok && require('../lib/admin-viewers').isAdminViewerToken(tok);
-    if (!isAdmin && !listeners.admit(tok)) {
+    // With a limit, only an admin signed in right now skips it (and isn't
+    // counted); without one, keep excluding recently-signed-in admin
+    // browsers from the listener stats as before.
+    const exempt = listeners.cap() > 0
+      ? require('../lib/admin-viewers').isSignedInAdmin(req)
+      : !!(tok && require('../lib/admin-viewers').isAdminViewerToken(tok));
+    if (!exempt && !listeners.admit(tok)) {
       return res.json({ playing: false, audioFull: true });
     }
-    if (tok && !isAdmin) listeners.touch(tok);
+    if (tok && !exempt) listeners.touch(tok);
   }
 
   // Audio distance gating — used for copyright compliance to prevent listeners
@@ -1273,8 +1278,8 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   // /api/now-playing-audio may download songs.
   {
     const tok = req.cookies[config.sessionCookieName + '_viewer'];
-    const isAdmin = tok && require('../lib/admin-viewers').isAdminViewerToken(tok);
-    if (!isAdmin && !require('../lib/listeners').admit(tok)) {
+    const exempt = require('../lib/admin-viewers').isSignedInAdmin(req);
+    if (!exempt && !require('../lib/listeners').admit(tok)) {
       return res.status(503).send('Phone audio is full right now.');
     }
   }

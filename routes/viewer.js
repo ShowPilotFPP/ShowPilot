@@ -953,6 +953,16 @@ function audioVersionParam(sequenceName) {
   return '';
 }
 
+// A phone closed its player or the page: stop counting it as listening right
+// away (lib/listeners.leave), so a listener limit lets the next phone in
+// without waiting for the 15 s timeout. Sent with navigator.sendBeacon; only
+// ever affects the caller's own viewer cookie.
+router.post('/listener-leave', (req, res) => {
+  const tok = req.cookies[config.sessionCookieName + '_viewer'];
+  if (tok) require('../lib/listeners').leave(tok);
+  res.status(204).end();
+});
+
 // Lightweight metadata endpoint — viewer page polls this to know what to play
 router.get('/now-playing-audio', (req, res) => {
   const np = getNowPlaying();

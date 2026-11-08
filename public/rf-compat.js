@@ -5119,6 +5119,17 @@
       }
     };
     minBtn.onclick = () => setMode('minimized');
+    // Tell the server this phone stopped listening (player closed, or the page
+    // is going away), so its place under a listener limit opens right away
+    // instead of after the 15 s timeout. Only sent if this page listened.
+    let listenedThisPage = false;
+    function leaveListening() {
+      if (!listenedThisPage) return;
+      listenedThisPage = false;
+      try { navigator.sendBeacon('/api/listener-leave'); } catch (_) {}
+    }
+    window.addEventListener('pagehide', leaveListening);
+
     closeBtn.onclick = () => setMode('closed');
     minimizedPill.onclick = () => setMode('open');
 
@@ -5195,6 +5206,7 @@
         userPaused = false; // reopening the player starts fresh
         stopAudio();
         teardown();
+        leaveListening();
       } else if (mode === 'open') {
         btn.style.display = 'none';
         minimizedPill.style.display = 'none';
@@ -5732,6 +5744,7 @@
         // Listener limit reached (hosted shows): stop, say so, and keep
         // polling — every poll asks again, so audio starts by itself as soon
         // as a place opens. Not a gate latch: nothing to refresh.
+        if (!data.audioFull) listenedThisPage = true;
         if (data.audioFull) {
           if (currentSource) stopAudio();
           currentSequence = null; // rebuild at the live position once let in

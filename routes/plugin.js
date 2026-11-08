@@ -49,6 +49,31 @@ function getLivePosition() {
   return livePosition;
 }
 
+// Seconds left in the playing song, or null if unknown. Uses the live
+// position the plugin reports (~2x/sec) when it's fresh and for the same
+// song, else the song's start time; both need the synced song length.
+const RACE_SONG_END_WINDOW_S = 5;
+function secondsLeftInSong() {
+  try {
+    const np = db.prepare(`SELECT sequence_name, started_at FROM now_playing WHERE id = 1`).get();
+    if (!np || !np.sequence_name) return null;
+    const seq = db.prepare(`SELECT duration_seconds FROM sequences WHERE name = ? COLLATE NOCASE`).get(np.sequence_name);
+    if (!seq || !(seq.duration_seconds > 0)) return null;
+    const now = Date.now();
+    const lp = livePosition;
+    if (lp && lp.sequence.toLowerCase() === np.sequence_name.toLowerCase() && now - lp.updatedAt < 10000) {
+      return seq.duration_seconds - (lp.position + (now - lp.updatedAt) / 1000);
+    }
+    if (np.started_at) {
+      const startedMs = new Date(np.started_at + 'Z').getTime();
+      if (isFinite(startedMs)) return seq.duration_seconds - (now - startedMs) / 1000;
+    }
+  } catch (e) {
+    console.warn('[race] could not work out time left in the song:', e.message);
+  }
+  return null;
+}
+
 // Bearer token auth
 function requireBearerToken(req, res, next) {
   const auth = req.header('authorization') || '';
@@ -448,14 +473,37 @@ router.get('/state', (req, res) => {
     // Race mode: plugin v0.13.58+ handles RACE natively via the raceWinner
     // field. Returns the winner with an interrupt flag when decided; plugin
     // follows FPP schedule while race is running (no raceWinner field).
-    if (cfg.race_winner && !cfg.race_active) {
-      const winSeq = db.prepare(`SELECT sort_order FROM sequences WHERE name = ? LIMIT 1`).get(cfg.race_winner);
+    //
+    // A race that ends with the song ("End race when the current song ends",
+    // or a race timer of 0) has no timer to pick a winner. Before
+    // v0.33.278-master.10 nothing picked one: the next song change just
+    // cleared the taps, so the leader never played. Now, in the song's last
+    // few seconds, the leader wins here (same as the timer would), and plays
+    // right after the current song — never cutting it off.
+    let rc = cfg;
+    const raceEndsWithSong = !!cfg.race_end_on_sequence_end || !(cfg.race_duration_seconds > 0);
+    if (raceEndsWithSong && cfg.race_active && !cfg.race_winner) {
+      const left = secondsLeftInSong();
+      if (left !== null && left <= RACE_SONG_END_WINDOW_S) {
+        const { getRaceLeader } = require('../lib/db');
+        const leader = getRaceLeader();
+        if (leader) {
+          const seqRow = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+          require('./viewer').resolveRace(req.app.get('io'), leader.sequence_name, seqRow?.display_name || leader.sequence_name, seqRow?.artist || '', leader.count);
+          console.log(`[race] song ending — "${leader.sequence_name}" wins with ${leader.count} tap${leader.count === 1 ? '' : 's'}`);
+          rc = getConfig();
+        }
+      }
+    }
+    if (rc.race_winner && !rc.race_active) {
+      const winSeq = db.prepare(`SELECT sort_order FROM sequences WHERE name = ? LIMIT 1`).get(rc.race_winner);
       response.raceWinner = {
-        sequence:     cfg.race_winner,
+        sequence:     rc.race_winner,
         playlistIndex: winSeq ? winSeq.sort_order : 0,
-        interrupt:    cfg.race_interrupt_winner === 1,
+        // A race that ends with the song plays its winner next, never mid-song.
+        interrupt:    !raceEndsWithSong && cfg.race_interrupt_winner === 1,
       };
-      rememberHandoff(cfg.race_winner, 'vote');
+      rememberHandoff(rc.race_winner, 'vote');
     }
   }
 

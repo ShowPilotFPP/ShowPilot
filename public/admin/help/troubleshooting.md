@@ -25,7 +25,7 @@ Viewers usually see a message saying why. Match it to the list below.
 The admin header says **plugin offline** or **plugin never connected**, and the **Plugin** tab shows **Offline** or **Never seen**. ShowPilot counts the plugin as online while it has checked in during the last minute.
 
 1. Make sure FPP is running and the ShowPilot plugin is installed. FPP must be version 10.0 or newer.
-2. Check the plugin's **Server URL**: open that exact address in a browser on FPP's network and you should see ShowPilot.
+2. Check the plugin's **ShowPilot Server URL**: open that exact address in a browser on FPP's network and you should see ShowPilot.
 3. Check the plugin's **Show Token** matches the one on ShowPilot's **Plugin** tab exactly. A wrong token is refused.
 4. Look at the plugin's log in FPP under **Status/Control › Logs**, or its **Diagnostics** tab.
 5. If the Dashboard shows a red banner saying the plugin needs updating, update it in FPP's **Plugin Manager**.

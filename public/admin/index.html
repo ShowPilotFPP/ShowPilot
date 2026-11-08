@@ -2097,7 +2097,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.278-master.11</span>
+        <span class="app-version">v0.33.278-master.12</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3528,6 +3528,7 @@
             <div class="sub-tab" data-subtab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
             <div class="sub-tab" data-subtab="voting" onclick="switchTab('voting')">Voting</div>
             <div class="sub-tab" data-subtab="race" onclick="switchTab('race')">Race</div>
+            <div class="sub-tab" data-subtab="show-buttons" onclick="switchTab('show-buttons')">Show Buttons</div>
             <div class="sub-tab" data-subtab="audio" onclick="switchTab('audio')">Audio</div>
             <div class="sub-tab" data-subtab="app" onclick="switchTab('app')">App</div>
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
@@ -3789,6 +3790,88 @@
               Use this if you've added custom <code>.race-row</code>, <code>.race-tap-btn</code>, etc. rules to your template.
               When off (default), ShowPilot injects sensible default styles that work with any template.
             </p>
+          </div>
+
+          <!-- SHOW BUTTONS (v0.33.278-master.12+, lib/show-buttons.js) -->
+          <div class="sub-tab-pane" data-subtab="show-buttons">
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
+              Buttons on your viewer page that visitors press to run something on your show while it plays: an FPP effect (<code>.eseq</code>) on top of the running sequence, an FPP command preset (anything FPP can do, like turning on a flood light or a fog machine) or an FPP script.
+              Put <code>{SHOW_BUTTONS}</code> in your template where the buttons should go, or add the <strong>Show Buttons</strong> block in the Visual Designer.
+            </p>
+
+            <div class="row">
+              <input type="checkbox" id="cfg_show_buttons_enabled" onchange="saveSetting('show_buttons_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_show_buttons_enabled" style="margin: 0;">Show the buttons on the viewer page</label>
+            </div>
+
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.75rem;">
+              <label for="cfg_show_buttons_when" style="margin: 0;">Buttons work:</label>
+              <select id="cfg_show_buttons_when" onchange="saveSetting('show_buttons_when', this.value)" style="width: auto;">
+                <option value="show">Only while a song is playing</option>
+                <option value="always">Any time (also between shows)</option>
+              </select>
+            </div>
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
+              <label for="cfg_show_buttons_viewer_gap_seconds" style="margin: 0;">Each visitor waits between presses (seconds):</label>
+              <input type="number" id="cfg_show_buttons_viewer_gap_seconds" min="0" max="600" step="1"
+                     onchange="saveSetting('show_buttons_viewer_gap_seconds', parseInt(this.value, 10) || 0)" style="max-width: 100px;" />
+            </div>
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
+              <label for="cfg_show_buttons_heading" style="margin: 0;">Heading above the buttons:</label>
+              <input type="text" id="cfg_show_buttons_heading" maxlength="80" placeholder="(none)"
+                     onchange="saveSetting('show_buttons_heading', this.value)" style="max-width: 280px;" />
+            </div>
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
+              <label for="cfg_show_buttons_layout" style="margin: 0;">Layout:</label>
+              <select id="cfg_show_buttons_layout" onchange="saveSetting('show_buttons_layout', this.value)" style="width: auto;">
+                <option value="row">A row that wraps</option>
+                <option value="grid">Two columns</option>
+              </select>
+            </div>
+
+            <h3 style="margin-top: 1.25rem;">Buttons</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+              After someone presses a button, it's greyed out for everyone until its wait is over, so the crowd can't keep the prop running nonstop.
+              Use <strong>Test</strong> to try a button on the show right now.
+            </p>
+            <div id="sbList" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+            <p class="muted" id="sbEmpty" style="font-size: 0.85rem; display: none;">No buttons yet.</p>
+            <div style="margin-top: 0.75rem;"><button type="button" class="secondary" onclick="sbEdit(null)">+ Add a button</button></div>
+
+            <div id="sbEditor" class="card" style="display: none; margin-top: 1rem;">
+              <h3 id="sbEditorTitle" style="margin-top: 0;">Add a button</h3>
+              <input type="hidden" id="sb_id" />
+              <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                <div><label for="sb_label">Label</label><input type="text" id="sb_label" maxlength="40" placeholder="Fog!" style="max-width: 220px;" /></div>
+                <div><label for="sb_icon">Emoji (optional)</label><input type="text" id="sb_icon" maxlength="8" placeholder="💨" style="max-width: 90px;" /></div>
+                <div>
+                  <label for="sb_color">Color</label>
+                  <div class="row" style="gap: 6px; align-items: center; margin: 0;">
+                    <input type="color" id="sb_color" value="#dc2626" style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                    <label style="margin: 0; font-size: 0.85rem;"><input type="checkbox" id="sb_color_default" /> Page default</label>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 0.5rem;">
+                <div>
+                  <label for="sb_action">What it does</label>
+                  <select id="sb_action" onchange="sbActionHint()" style="width: auto;"></select>
+                </div>
+                <div style="flex: 1; min-width: 220px;"><label for="sb_target" id="sb_target_label">Effect name in FPP</label><input type="text" id="sb_target" maxlength="200" /></div>
+                <div><label for="sb_cooldown">Wait after a press (seconds)</label><input type="number" id="sb_cooldown" min="0" max="3600" step="1" value="30" style="max-width: 110px;" /></div>
+              </div>
+              <p class="muted" id="sb_hint" style="font-size: 0.8rem; margin: 0.4rem 0 0;"></p>
+              <div class="row" style="margin-top: 0.5rem;">
+                <input type="checkbox" id="sb_enabled" checked />
+                <label for="sb_enabled" style="margin: 0;">On (shown on the page)</label>
+              </div>
+              <div class="row" style="gap: 8px; margin-top: 0.75rem;">
+                <button type="button" onclick="sbSave()">Save button</button>
+                <button type="button" class="secondary" onclick="sbCloseEditor()">Cancel</button>
+                <span id="sbEditorMsg" style="font-size: 0.85rem;"></span>
+              </div>
+            </div>
+            <p id="sbMsg" style="font-size: 0.85rem; margin-top: 0.5rem;"></p>
           </div>
 
           <!-- AUDIO -->
@@ -6890,6 +6973,12 @@
       setVal('cfg_launcher_bg_color', window._launcherColors.launcher_bg_color || LAUNCHER_DEFAULT_COLORS.launcher_bg_color);
       setVal('cfg_launcher_fg_color', window._launcherColors.launcher_fg_color || LAUNCHER_DEFAULT_COLORS.launcher_fg_color);
       updateLauncherIconPreview(c.launcher_icon_data || '');
+      // Show buttons (v0.33.278-master.12+)
+      setChk('cfg_show_buttons_enabled', c.show_buttons_enabled === 1);
+      setVal('cfg_show_buttons_when', c.show_buttons_when === 'always' ? 'always' : 'show');
+      setVal('cfg_show_buttons_viewer_gap_seconds', c.show_buttons_viewer_gap_seconds ?? 10);
+      setVal('cfg_show_buttons_heading', c.show_buttons_heading == null ? 'Light up the show' : c.show_buttons_heading);
+      setVal('cfg_show_buttons_layout', c.show_buttons_layout === 'grid' ? 'grid' : 'row');
       // Visitor messages (v0.33.250+)
       setChk('cfg_visitor_messages_enabled', c.visitor_messages_enabled === 1);
       setVal('cfg_visitor_messages_when', c.visitor_messages_when === 'always' ? 'always' : 'show');
@@ -7529,6 +7618,7 @@
       if (name === 'viewer-schedule') loadSchedules();
       if (name === 'viewer-globalcss') loadGlobalCss();
       if (name === 'debug') loadServerLog();
+      if (name === 'show-buttons') loadShowButtons();
       if (name === 'tools-normalizer' && window.SPNormalizer) window.SPNormalizer.open();
       if (name === 'tools-announcer' && window.SPAnnouncer) window.SPAnnouncer.open();
       if (name === 'updates') {
@@ -7539,6 +7629,137 @@
         refreshUpdateStatus({ force: false });
         updatesLoadedOnce = true;
       }
+    }
+
+    // ---- Show buttons (v0.33.278-master.12+, lib/show-buttons.js) ----
+    let sbButtons = [];
+    let sbActions = {};
+    const SB_TARGET = {
+      effect: ['Effect name in FPP', 'The effect file’s name as FPP lists it under Content Setup › File Manager › Effects, e.g. Flood.eseq. It plays once on its own channels, on top of the sequence.'],
+      preset: ['Command preset name in FPP', 'A preset from FPP’s Content Setup › Command Presets. Use this for anything FPP can do: an overlay model effect, a GPIO output, a script with arguments.'],
+      script: ['Script name in FPP', 'A script from FPP’s File Manager › Scripts, e.g. fog_on.sh.'],
+    };
+    async function sbFetch(path, body) {
+      const res = await fetch('/api/admin/show-buttons' + path, {
+        method: body ? 'POST' : 'GET', credentials: 'include',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      return { ok: res.ok, data };
+    }
+    function sbSay(id, text, ok) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.color = ok === false ? 'var(--danger, #dc2626)' : '';
+    }
+    async function loadShowButtons() {
+      const r = await sbFetch('');
+      if (!r.ok) { sbSay('sbMsg', 'Could not load the buttons.', false); return; }
+      sbButtons = r.data.buttons || [];
+      sbActions = r.data.actions || {};
+      const sel = document.getElementById('sb_action');
+      if (sel && !sel.options.length) {
+        Object.keys(sbActions).forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = sbActions[k]; sel.appendChild(o); });
+      }
+      renderShowButtons();
+    }
+    function renderShowButtons() {
+      const box = document.getElementById('sbList');
+      if (!box) return;
+      box.textContent = '';
+      document.getElementById('sbEmpty').style.display = sbButtons.length ? 'none' : '';
+      sbButtons.forEach((b, i) => {
+        const row = document.createElement('div');
+        row.className = 'sb-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:8px;' + (b.enabled ? '' : 'opacity:.6;');
+        const chip = document.createElement('span');
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;font-weight:700;background:' + (b.color || '#dc2626') + ';color:' + sbTextOn(b.color || '#dc2626') + ';';
+        chip.textContent = (b.icon ? b.icon + ' ' : '') + b.label;
+        const info = document.createElement('span');
+        info.className = 'muted';
+        info.style.cssText = 'flex:1;min-width:160px;font-size:0.85rem;';
+        info.textContent = (sbActions[b.action] || b.action) + ': ' + b.target + ' · wait ' + b.cooldownSeconds + 's' + (b.enabled ? '' : ' · off') + (b.pressCount ? ' · pressed ' + b.pressCount + '×' : '');
+        row.appendChild(chip);
+        row.appendChild(info);
+        const btn = (label, fn, cls, dis) => { const x = document.createElement('button'); x.type = 'button'; x.className = cls || 'secondary'; x.textContent = label; x.style.fontSize = '0.85rem'; x.disabled = !!dis; x.onclick = fn; row.appendChild(x); };
+        btn('↑', () => sbMove(i, -1), 'secondary', i === 0);
+        btn('↓', () => sbMove(i, 1), 'secondary', i === sbButtons.length - 1);
+        btn('Test', () => sbTest(b.id));
+        btn('Edit', () => sbEdit(b));
+        btn('Delete', () => sbDelete(b), 'danger');
+        box.appendChild(row);
+      });
+    }
+    function sbTextOn(hex) {
+      const n = parseInt(String(hex).slice(1), 16);
+      if (!Number.isFinite(n)) return '#fff';
+      return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6 ? '#111' : '#fff';
+    }
+    function sbActionHint() {
+      const a = document.getElementById('sb_action').value;
+      const t = SB_TARGET[a] || SB_TARGET.effect;
+      document.getElementById('sb_target_label').textContent = t[0];
+      document.getElementById('sb_hint').textContent = t[1];
+    }
+    function sbEdit(b) {
+      const ed = document.getElementById('sbEditor');
+      document.getElementById('sbEditorTitle').textContent = b ? 'Edit button' : 'Add a button';
+      document.getElementById('sb_id').value = b ? b.id : '';
+      document.getElementById('sb_label').value = b ? b.label : '';
+      document.getElementById('sb_icon').value = b ? b.icon : '';
+      document.getElementById('sb_color').value = b && b.color ? b.color : '#dc2626';
+      document.getElementById('sb_color_default').checked = b ? !b.color : false;
+      document.getElementById('sb_action').value = b ? b.action : 'effect';
+      document.getElementById('sb_target').value = b ? b.target : '';
+      document.getElementById('sb_cooldown').value = b ? b.cooldownSeconds : 30;
+      document.getElementById('sb_enabled').checked = b ? b.enabled : true;
+      sbSay('sbEditorMsg', '');
+      sbActionHint();
+      ed.style.display = '';
+      document.getElementById('sb_label').focus();
+    }
+    function sbCloseEditor() { document.getElementById('sbEditor').style.display = 'none'; }
+    async function sbSave() {
+      const id = document.getElementById('sb_id').value;
+      const body = {
+        id: id ? Number(id) : undefined,
+        label: document.getElementById('sb_label').value,
+        icon: document.getElementById('sb_icon').value,
+        color: document.getElementById('sb_color_default').checked ? '' : document.getElementById('sb_color').value,
+        action: document.getElementById('sb_action').value,
+        target: document.getElementById('sb_target').value,
+        cooldownSeconds: parseInt(document.getElementById('sb_cooldown').value, 10) || 0,
+        enabled: document.getElementById('sb_enabled').checked,
+      };
+      const r = await sbFetch('', body);
+      if (!r.ok) { sbSay('sbEditorMsg', r.data.error || 'Could not save the button.', false); return; }
+      sbCloseEditor();
+      sbSay('sbMsg', 'Saved.', true);
+      loadShowButtons();
+    }
+    async function sbDelete(b) {
+      if (!confirm('Delete the "' + b.label + '" button?')) return;
+      const r = await sbFetch('/delete', { id: b.id });
+      sbSay('sbMsg', r.ok ? 'Deleted.' : 'Could not delete the button.', r.ok);
+      loadShowButtons();
+    }
+    async function sbMove(i, d) {
+      const j = i + d;
+      if (j < 0 || j >= sbButtons.length) return;
+      const ids = sbButtons.map(b => b.id);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await sbFetch('/order', { ids });
+      loadShowButtons();
+    }
+    async function sbTest(id) {
+      const r = await sbFetch('/test', { id });
+      if (!r.ok) { sbSay('sbMsg', r.data.error || 'Could not run the button.', false); return; }
+      if (!r.data.pluginConnected) sbSay('sbMsg', 'Sent, but the FPP plugin isn’t connected, so nothing will happen until it is.', false);
+      else if (!r.data.pluginPolling) sbSay('sbMsg', 'Sent. The plugin only picks up presses while the buttons are turned on above (it checks within 15 seconds of turning them on).', false);
+      else sbSay('sbMsg', 'Sent to the show. Watch your prop!', true);
     }
 
     // Song progress bar color: '' means match the player theme (v0.33.207+).

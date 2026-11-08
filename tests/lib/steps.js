@@ -325,6 +325,61 @@ const STEPS = [
       for (let i = 0; i < Number(n); i++) await http(ctx, 'GET', '/api/now-playing-audio', { cookie: ctx.sp.viewerCookie('listener-' + i) });
     } },
 
+  // ===== Show buttons =====
+  { doc: 'the show has a button "Fog" that runs the effect | command preset | script "Fog.eseq" [with a wait of N seconds]',
+    re: new RegExp(`^the show has a button ${q} that runs the (effect|command preset|script) ${q}(?: with a wait of (\\d+) seconds?)?$`, 'i'),
+    fn: async (ctx, label, kind, target, wait) => {
+      const action = { effect: 'effect', 'command preset': 'preset', script: 'script' }[kind.toLowerCase()];
+      await adminOk(ctx, 'POST', '/show-buttons', { label, action, target, cooldownSeconds: wait === undefined ? 30 : Number(wait) });
+    } },
+  { doc: 'show buttons are on [any time]   (Settings → Show Buttons)',
+    re: /^show buttons are on( any time)?$/i,
+    fn: async (ctx, any) => { await adminOk(ctx, 'PUT', '/config', { show_buttons_enabled: 1, show_buttons_when: any ? 'always' : 'show' }); } },
+  { doc: 'show buttons are off',
+    re: /^show buttons are off$/i,
+    fn: async (ctx) => { await adminOk(ctx, 'PUT', '/config', { show_buttons_enabled: 0 }); } },
+  { doc: 'phone 1 presses the "Fog" button   (no browser)',
+    re: new RegExp(`^phone (\\w+) presses the ${q} button$`, 'i'),
+    fn: async (ctx, phone, label) => {
+      const row = ctx.sp.db.prepare('SELECT id FROM show_buttons WHERE label = ?').get(label);
+      assert(row, `no button "${label}"`);
+      ctx.last.answer = await http(ctx, 'POST', '/api/show-button', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { id: row.id }) });
+    } },
+  { doc: 'the admin tests the "Fog" button   (Settings → Show Buttons → Test)',
+    re: new RegExp(`^the admin tests the ${q} button$`, 'i'),
+    fn: async (ctx, label) => {
+      const row = ctx.sp.db.prepare('SELECT id FROM show_buttons WHERE label = ?').get(label);
+      assert(row, `no button "${label}"`);
+      await adminOk(ctx, 'POST', '/show-buttons/test', { id: row.id });
+    } },
+  { doc: 'the heartbeat tells the show player to check for button presses | not to check',
+    re: /^the heartbeat tells the show player (to|not to) check for button presses$/i,
+    fn: async (ctx, to) => {
+      const r = await ctx.player.heartbeat({ pluginVersion: '0.14.30' });
+      const want = to.toLowerCase() === 'to';
+      assert(r && r.showButtons === want, `heartbeat said showButtons: ${JSON.stringify(r && r.showButtons)}`);
+    } },
+  { doc: 'the show player checks for button presses',
+    re: /^the show player checks for button presses$/i,
+    fn: async (ctx) => {
+      const r = await ctx.player.call('GET', '/show-buttons');
+      assert(r && Array.isArray(r.presses), `no presses list: ${JSON.stringify(r)}`);
+      ctx.last.presses = r.presses;
+    } },
+  { doc: 'the show player runs "Effect Start" with "Fog.eseq"   (from the last check)',
+    re: new RegExp(`^the show player runs ${q} with ${q}$`, 'i'),
+    fn: async (ctx, command, arg) => {
+      const p = ctx.last.presses || [];
+      assert(p.some(x => x.command === command && x.args[0] === arg), `presses were ${JSON.stringify(p)}`);
+    } },
+  { doc: 'the show player is given N button presses | no button presses   (from the last check)',
+    re: /^the show player is given (no|\d+) button press(?:es)?$/i,
+    fn: async (ctx, n) => {
+      const want = n.toLowerCase() === 'no' ? 0 : Number(n);
+      const got = (ctx.last.presses || []).length;
+      assert(got === want, `got ${got}: ${JSON.stringify(ctx.last.presses)}`);
+    } },
+
   // ===== Phones in a browser =====
   { doc: 'phone 1 opens the viewer page [as an iPhone | in Facebook\'s browser]',
     re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser))?$/i,
@@ -369,6 +424,32 @@ const STEPS = [
       const page = pageOf(ctx, 'phone ' + phone);
       await page.click(tileSel(name));
       await page.waitForTimeout(1200);
+    } },
+  { doc: 'phone 1 taps the "Fog" button   (a show button on the page)',
+    re: new RegExp(`^phone (\\w+) taps the ${q} button$`, 'i'),
+    browser: true,
+    fn: async (ctx, phone, label) => {
+      const page = pageOf(ctx, 'phone ' + phone);
+      await page.locator('[data-showpilot-show-buttons]:not([hidden]) .sp-sb-btn', { hasText: label }).click({ timeout: 8000 });
+      await page.waitForTimeout(800);
+    } },
+  { doc: 'on phone 1, the "Fog" button can be pressed | is greyed out | is not shown',
+    re: new RegExp(`^on phone (\\w+), the ${q} button (can be pressed|is greyed out|is not shown)$`, 'i'),
+    browser: true,
+    fn: async (ctx, phone, label, how) => {
+      const page = pageOf(ctx, 'phone ' + phone);
+      const h = how.toLowerCase();
+      await eventually(async () => {
+        const st = await page.evaluate((label) => {
+          const sec = document.querySelector('[data-showpilot-show-buttons]');
+          if (!sec || sec.hidden || getComputedStyle(sec).display === 'none') return 'hidden';
+          const b = [...sec.querySelectorAll('.sp-sb-btn')].find(x => x.querySelector('.sp-sb-label').textContent === label);
+          if (!b) return 'hidden';
+          return b.disabled ? 'grey' : 'ready';
+        }, label);
+        const want = h.startsWith('can') ? 'ready' : h.includes('grey') ? 'grey' : 'hidden';
+        assert(st === want, `the button is ${st}`);
+      });
     } },
   { doc: 'the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats | Users page',
     re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings|tools|users) page$/i,

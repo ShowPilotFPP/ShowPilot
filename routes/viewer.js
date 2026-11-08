@@ -15,6 +15,7 @@ const categories = require('../lib/categories');
 const { progressBarConfig } = require('../lib/progress-bar');
 const { launcherColors } = require('../lib/launcher-style');
 const visitorMessages = require('../lib/visitor-messages');
+const showButtons = require('../lib/show-buttons');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -295,6 +296,7 @@ router.get('/state', (req, res) => {
     progressBar: progressBarConfig(cfg),
     launcherColors: launcherColors(cfg), // v0.33.249: Listen-on-Phone button colors
     messages: visitorMessages.viewerState(cfg, nowPlaying), // v0.33.250: visitor message box
+    showButtons: showButtons.viewerState(cfg, nowPlaying), // v0.33.278-master.12: {SHOW_BUTTONS}
     nextScheduled: nextUp,
     activeViewers,
     sequences,
@@ -377,6 +379,31 @@ router.post('/message', (req, res) => {
   // No socket broadcast: there's no admin-only room, and the count is
   // private. Admin pages pick it up from /api/admin/stats (polled every 5 s).
   res.json({ ok: true, onWall: !!result.onWall, needsApproval: !!result.needsApproval });
+});
+
+// POST /api/show-button (v0.33.278-master.12+, lib/show-buttons.js)
+// A visitor pressed one of the show buttons. Body: { id, locationCode?,
+// viewerLat?, viewerLng? }. Same IP block list and access code / GPS checks
+// as voting and requests (when those are on); the module checks the button's
+// cooldown, the visitor's gap between presses and a show-wide cap, then
+// queues it for the plugin. Every open page gets the new cooldown at once.
+router.post('/show-button', (req, res) => {
+  const cfg = getConfig();
+  const ip = getClientIp(req);
+  if (ipIsBlocked(cfg, ip)) return res.status(403).json({ error: 'Your IP has been blocked' });
+  if (cfg.show_buttons_enabled !== 1) return res.status(400).json({ error: 'The show buttons are off right now.', closed: true });
+  const presence = viewerPresenceCheck(req, cfg);
+  if (!presence.ok) return res.status(403).json({ error: presence.error, invalidLocationCode: !!presence.invalidLocationCode });
+  const token = ensureViewerToken(req, res);
+  const np = getNowPlaying();
+  const r = showButtons.press((req.body || {}).id, cfg, np, { viewer: showButtons.viewerHash(token, '') });
+  if (!r.ok) {
+    if (r.waitMs) res.set('Retry-After', String(Math.ceil(r.waitMs / 1000)));
+    return res.status(r.status || 400).json({ error: r.error, waitMs: r.waitMs || 0, viewerWait: !!r.viewerWait, closed: !!r.closed });
+  }
+  const io = req.app.get('io');
+  if (io) io.emit('showButtonsUpdate', showButtons.viewerState(cfg, np));
+  res.json({ ok: true });
 });
 
 router.post('/heartbeat', (req, res) => {

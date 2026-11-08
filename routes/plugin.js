@@ -1066,7 +1066,25 @@ router.post('/heartbeat', (req, res) => {
   // The FPP plugin (0.14.22+) shows a warning in FPP when a newer version is
   // out; tell it which. Other show players check for their own updates.
   const isFppPlugin = pluginStatus.version && !/^player-/i.test(String(pluginStatus.version));
-  res.json(isFppPlugin ? { ok: true, ...require('../lib/show-player-update').forPlugin() } : { ok: true });
+  // Show buttons (v0.33.278-master.12+): tells the plugin whether to ask for
+  // button presses (GET /show-buttons) about twice a second. Older plugins
+  // ignore it.
+  const showButtons = require('../lib/show-buttons').pluginWanted(getConfig());
+  res.json(isFppPlugin ? { ok: true, showButtons, ...require('../lib/show-player-update').forPlugin() } : { ok: true, showButtons });
+});
+
+// ============================================================
+// GET /api/plugin/show-buttons (v0.33.278-master.12+, lib/show-buttons.js)
+// The plugin takes the button presses waiting for it, oldest first, and runs
+// each with FPP's POST /api/command:
+//   { presses: [ { id, command: 'Effect Start', args: ['Fog.eseq', '0', ...] } ],
+//     showButtons: true|false }
+// showButtons false = turned off since the last heartbeat; stop asking.
+// Presses not taken within 15 s are dropped, so nothing fires late.
+// ============================================================
+router.get('/show-buttons', (req, res) => {
+  const sb = require('../lib/show-buttons');
+  res.json({ presses: sb.take(), showButtons: sb.pluginWanted(getConfig()) });
 });
 
 // ============================================================

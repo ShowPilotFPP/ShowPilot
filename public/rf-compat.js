@@ -575,6 +575,139 @@
     if (form) updateMessageCount(form);
   });
 
+  // ---- Show buttons (v0.33.278-master.12+) ----
+  // {SHOW_BUTTONS} renders section[data-showpilot-show-buttons]; the optional
+  // {show-buttons-dynamic-container} marks [data-showpilot-container="showbuttons"].
+  // State ({enabled, open, heading, layout, buttons:[{id,label,icon,color,
+  // textColor,waitMs}]}) comes from the bootstrap, every /api/state poll and
+  // the 'showButtonsUpdate' socket event (sent to every page when anyone
+  // presses one). Same markup as lib/show-buttons.js buttonsHtml().
+  // Pressing goes through buildBody(), so the access code / GPS checks match
+  // voting and requests.
+  const sbReadyAt = new Map(); // button id -> local ms when it can be pressed again
+  let sbMyWaitUntil = 0;       // this visitor's own gap between presses
+  let sbTimer = null;
+  let sbKey = '';
+  let sbGapMs = 0;             // the show's gap between one visitor's presses
+  function sbButton(b) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sp-sb-btn';
+    btn.setAttribute('data-sp-button-id', String(Number(b.id) || 0));
+    if (b.color && /^#[0-9a-f]{6}$/i.test(b.color)) {
+      btn.style.setProperty('--sp-sb-bg', b.color);
+      if (/^#[0-9a-f]{6}$/i.test(b.textColor || '')) btn.style.setProperty('--sp-sb-fg', b.textColor);
+    }
+    if (b.icon) {
+      const ic = document.createElement('span');
+      ic.className = 'sp-sb-icon';
+      ic.setAttribute('aria-hidden', 'true');
+      ic.textContent = b.icon;
+      btn.appendChild(ic);
+    }
+    const lb = document.createElement('span');
+    lb.className = 'sp-sb-label';
+    lb.textContent = b.label || '';
+    btn.appendChild(lb);
+    const w = document.createElement('span');
+    w.className = 'sp-sb-wait';
+    w.setAttribute('aria-hidden', 'true');
+    btn.appendChild(w);
+    return btn;
+  }
+  function applyShowButtonsState(st) {
+    if (!st || typeof st !== 'object') return;
+    const open = !!(st.enabled && st.open);
+    const list = Array.isArray(st.buttons) ? st.buttons : [];
+    const now = Date.now();
+    sbGapMs = Math.max(0, Number(st.viewerGapSeconds) || 0) * 1000;
+    list.forEach(b => sbReadyAt.set(String(b.id), now + Math.max(0, Number(b.waitMs) || 0)));
+    document.querySelectorAll('[data-showpilot-container="showbuttons"], [data-showpilot-show-buttons]').forEach(el => {
+      if (open) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
+    });
+    // Rebuild the buttons only when the set changed (added, removed, renamed,
+    // recolored); cooldown changes just repaint.
+    const key = JSON.stringify([st.layout, st.heading, list.map(b => [b.id, b.label, b.icon, b.color, b.textColor])]);
+    document.querySelectorAll('[data-showpilot-show-buttons]').forEach(sec => {
+      sec.setAttribute('data-layout', st.layout === 'grid' ? 'grid' : 'row');
+      const h = sec.querySelector('.sp-sb-heading');
+      if (h) { h.textContent = st.heading || ''; h.hidden = !st.heading; }
+      const box = sec.querySelector('.sp-sb-list');
+      if (box && (key !== sbKey || box.children.length !== list.length)) {
+        box.textContent = '';
+        list.forEach(b => box.appendChild(sbButton(b)));
+      }
+    });
+    sbKey = key;
+    paintShowButtons();
+  }
+  function paintShowButtons() {
+    const now = Date.now();
+    let waiting = false;
+    document.querySelectorAll('[data-showpilot-show-buttons] .sp-sb-btn').forEach(btn => {
+      const ready = sbReadyAt.get(btn.getAttribute('data-sp-button-id')) || 0;
+      const left = Math.max(ready, sbMyWaitUntil) - now;
+      const cooling = left > 0;
+      if (cooling) waiting = true;
+      btn.disabled = cooling || !!btn.__spSending;
+      btn.classList.toggle('sp-sb-cooling', cooling);
+      const w = btn.querySelector('.sp-sb-wait');
+      if (w) w.textContent = cooling ? Math.ceil(left / 1000) + 's' : '';
+    });
+    if (waiting && sbTimer === null) sbTimer = setInterval(paintShowButtons, 250);
+    else if (!waiting && sbTimer !== null) { clearInterval(sbTimer); sbTimer = null; }
+  }
+  function setShowButtonsStatus(sec, text) {
+    const s = sec && sec.querySelector('.sp-sb-status');
+    if (!s) return;
+    s.textContent = text || '';
+    clearTimeout(s.__spClear);
+    if (text) s.__spClear = setTimeout(() => { s.textContent = ''; }, 4000);
+  }
+  async function pressShowButton(btn) {
+    if (btn.disabled || btn.__spSending) return;
+    const sec = btn.closest('[data-showpilot-show-buttons]');
+    const id = Number(btn.getAttribute('data-sp-button-id'));
+    btn.__spSending = true;
+    btn.disabled = true;
+    try {
+      let body;
+      try { body = await buildBody({ id }); } catch (e) {
+        setShowButtonsStatus(sec, (e && e.help) || 'Location is needed to use the buttons.');
+        return;
+      }
+      const r = await postJson('/api/show-button', body);
+      if (r.ok) {
+        btn.classList.remove('sp-sb-fired');
+        void btn.offsetWidth; // restart the animation
+        btn.classList.add('sp-sb-fired');
+        if (navigator.vibrate) { try { navigator.vibrate(30); } catch (_) {} }
+        if (sbGapMs) sbMyWaitUntil = Date.now() + sbGapMs;
+        setShowButtonsStatus(sec, 'Watch the show!');
+        return; // the socket update (or next poll) starts the cooldown
+      }
+      const d = r.data || {};
+      if (d.waitMs > 0) {
+        if (d.viewerWait) sbMyWaitUntil = Date.now() + d.waitMs;
+        else sbReadyAt.set(String(id), Date.now() + d.waitMs);
+      }
+      setShowButtonsStatus(sec, d.error || 'That didn’t work. Please try again.');
+      if (d.invalidLocationCode) showMessage(mapErrorToId(d.error, d), 6000, null, d.error);
+      if (d.closed || r.status === 404) refreshState();
+    } catch (_) {
+      setShowButtonsStatus(sec, 'That didn’t work. Please try again.');
+    } finally {
+      btn.__spSending = false;
+      paintShowButtons();
+    }
+  }
+  document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-showpilot-show-buttons] .sp-sb-btn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    pressShowButton(btn);
+  });
+
   function applyProgressBarConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     const key = JSON.stringify(cfg);
@@ -641,6 +774,10 @@
   if (boot.messages) {
     if (document.body) applyMessagesState(boot.messages);
     else document.addEventListener('DOMContentLoaded', () => applyMessagesState(boot.messages));
+  }
+  if (boot.showButtons) {
+    if (document.body) applyShowButtonsState(boot.showButtons);
+    else document.addEventListener('DOMContentLoaded', () => applyShowButtonsState(boot.showButtons));
   }
   if (boot.progressBar) {
     if (document.body) applyProgressBarConfig(boot.progressBar);
@@ -1121,7 +1258,7 @@
     // 1) The song lists: each mode container's contents, in page order.
     //    (The access-code and after-hours blocks are left alone.)
     const pick = d => Array.from(d.querySelectorAll('[data-showpilot-container]'))
-      .filter(el => !/^(locationcode|afterhours|messages)$/.test(el.getAttribute('data-showpilot-container')));
+      .filter(el => !/^(locationcode|afterhours|messages|showbuttons)$/.test(el.getAttribute('data-showpilot-container')));
     const cur = pick(document), next = pick(doc);
     if (cur.length === next.length) cur.forEach((el, i) => { el.innerHTML = next[i].innerHTML; });
     // 2) The race grid: remove, replace or insert where the server puts it.
@@ -1253,6 +1390,7 @@
     if (data.progressBar) applyProgressBarConfig(data.progressBar);
     if (data.launcherColors) applyLauncherColors(data.launcherColors);
     if (data.messages) applyMessagesState(data.messages);
+    if (data.showButtons) applyShowButtonsState(data.showButtons);
 
     if (typeof data.currentVotingRound === 'number') {
       if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {
@@ -2219,6 +2357,7 @@
       socket.on('connect', () => refreshState());
 
       // ---- Race mode socket events (v0.33.155+) ----
+      socket.on('showButtonsUpdate', (data) => applyShowButtonsState(data));
       socket.on('raceStarted', (data) => {
         initRaceUI(data);
         refreshState();

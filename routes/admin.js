@@ -397,12 +397,18 @@ router.put('/config', requireAdmin, (req, res) => {
     'visitor_messages_wall_approve',
     'visitor_messages_wall_style',
     'visitor_messages_wall_count',
+    'show_buttons_enabled',
+    'show_buttons_when',
+    'show_buttons_viewer_gap_seconds',
+    'show_buttons_heading',
+    'show_buttons_layout',
   ];
   const updates = {};
   for (const k of allowed) {
     if (k in req.body) updates[k] = req.body[k];
   }
   require('../lib/visitor-messages').sanitizeSettings(updates);
+  require('../lib/show-buttons').sanitizeSettings(updates);
   // Tiered cooldowns (v0.33.258, lib/cooldown.js)
   if ('cooldown_unit' in updates) updates.cooldown_unit = updates.cooldown_unit === 'songs' ? 'songs' : 'minutes';
   if ('cooldown_default' in updates) updates.cooldown_default = require('../lib/cooldown').toInt(updates.cooldown_default) || 0;
@@ -456,6 +462,7 @@ router.put('/config', requireAdmin, (req, res) => {
     require('./viewer').applyModeEffects(req.app.get('io'), updates.viewer_control_mode);
   }
   if ('show_timezone' in updates) require('../lib/template-schedule').recomputeAll();
+  if (Object.keys(updates).some(k => k.startsWith('show_buttons_'))) pushShowButtons(req);
   // Install count (v0.33.267+): when the owner answers the notice or changes
   // the setting, check in now so the stats page reflects it right away.
   if ('install_count_enabled' in updates || 'install_count_location' in updates || 'install_count_notice_seen' in updates) {
@@ -940,6 +947,46 @@ router.get('/stats', requireAdmin, (req, res) => {
     pendingMessages: require('../lib/visitor-messages').pendingCount(), // waiting to go on the message wall
   });
 });
+
+// ---- Show buttons (v0.33.278-master.12+, lib/show-buttons.js) ----
+// GET → { buttons, actions }  (actions: { effect: 'FPP effect (.eseq)', ... })
+router.get('/show-buttons', requireAdmin, (req, res) => {
+  const sb = require('../lib/show-buttons');
+  const actions = {};
+  for (const k of Object.keys(sb.ACTIONS)) actions[k] = sb.ACTIONS[k].label;
+  res.json({ buttons: sb.list(), actions });
+});
+// POST { id?, label, icon, color, action, target, cooldownSeconds, enabled } → create or update
+router.post('/show-buttons', requireAdmin, (req, res) => {
+  const sb = require('../lib/show-buttons');
+  const r = sb.save(req.body || {});
+  if (r.error) return res.status(400).json(r);
+  pushShowButtons(req);
+  res.json(r);
+});
+router.post('/show-buttons/delete', requireAdmin, (req, res) => {
+  const deleted = require('../lib/show-buttons').remove((req.body || {}).id);
+  pushShowButtons(req);
+  res.json({ ok: true, deleted });
+});
+// POST { ids: [..] } in the new order
+router.post('/show-buttons/order', requireAdmin, (req, res) => {
+  const changed = require('../lib/show-buttons').reorder((req.body || {}).ids);
+  pushShowButtons(req);
+  res.json({ ok: true, changed });
+});
+// POST { id } → runs it now (no cooldowns), for trying a prop out
+router.post('/show-buttons/test', requireAdmin, (req, res) => {
+  const r = require('../lib/show-buttons').test((req.body || {}).id, getConfig());
+  if (r.error) return res.status(404).json(r);
+  res.json(r);
+});
+// Open viewer pages pick up added/edited/removed buttons straight away.
+function pushShowButtons(req) {
+  const io = req.app.get('io');
+  if (!io) return;
+  try { io.emit('showButtonsUpdate', require('../lib/show-buttons').viewerState(getConfig(), require('../lib/db').getNowPlaying())); } catch { /* best effort */ }
+}
 
 // ---- Visitor messages (v0.33.250+, lib/visitor-messages.js) ----
 // GET ?filter=all|unread&limit=&offset= → { messages, total, unread }

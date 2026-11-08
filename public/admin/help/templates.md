@@ -39,6 +39,7 @@ Some of the most used:
 | `{PLAYLISTS}` | The song list, with vote or request buttons depending on the mode. |
 | `{JUKEBOX_QUEUE}` | The songs waiting to play. |
 | `{LISTEN_BUTTON}` | A small Listen-on-Phone button inside your text. |
+| `{SHOW_BUTTONS}` | Buttons visitors press to run an effect on your show. See [Show Buttons](help:settings-show-buttons). |
 
 ### Show / hide sections
 
@@ -52,7 +53,7 @@ Some placeholders go *inside an opening tag* and make that part of the page appe
 <div {after-hours-message}>The show starts at 6 PM!</div>
 ```
 
-There are ones for Voting, Jukebox, Race, the access code, visitor messages and "show is off".
+There are ones for Voting, Jukebox, Race, the access code, visitor messages, show buttons and "show is off".
 
 ### Pop-up messages
 

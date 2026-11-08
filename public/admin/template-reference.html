@@ -100,6 +100,7 @@
   <div class="grp">Extras</div>
   <a href="#progress">Progress bar</a>
   <a href="#visitor">Visitor messages</a>
+  <a href="#showbuttons">Show buttons</a>
   <a href="#listen">Listen on Phone</a>
   <a href="#extras">Dates, countdowns, stats</a>
   <a href="#vars">CSS variables</a>
@@ -142,6 +143,7 @@
         <tr><td><code>{LOCATION_CODE}</code> <span class="tag rf">RF</span></td><td><code>input#locationCodeInput</code></td><td>The access-code box when an access code is required; nothing otherwise.</td></tr>
         <tr><td><code>{MESSAGE_BOX}</code> <span class="tag sp">SP</span></td><td><code>form.sp-message-box</code></td><td>The "send us a message" form. See <a href="#visitor">Visitor messages</a>.</td></tr>
         <tr><td><code>{MESSAGE_WALL}</code> <span class="tag sp">SP</span></td><td><code>section.sp-message-wall</code></td><td>Messages visitors chose to share, once approved.</td></tr>
+        <tr><td><code>{SHOW_BUTTONS}</code> <span class="tag sp">SP</span></td><td><code>section.sp-show-buttons</code></td><td>Buttons visitors press to run an effect on the show. See <a href="#showbuttons">Show buttons</a>.</td></tr>
         <tr><td><code>{VOTES}</code> <span class="tag rf">RF</span></td><td>nothing</td><td>Accepted so Remote Falcon templates don't show stray text; vote counts are in each song row.</td></tr>
         <tr><td><code>{VOTES_REMAINING}</code> <span class="tag rfonly">RF only</span></td><td>nothing</td><td>On Remote Falcon this shows "X of N votes left" when the show limits votes per viewer. ShowPilot has no vote limit, so it's left empty.</td></tr>
       </tbody>
@@ -163,6 +165,7 @@
         <tr><td><code>{location-code-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="locationcode"</code></td><td>An access code is required.</td></tr>
         <tr><td><code>{after-hours-message}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="afterhours"</code></td><td>Viewer control is off (outside show hours).</td></tr>
         <tr><td><code>{message-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="messages"</code></td><td>Visitor messages are open.</td></tr>
+        <tr><td><code>{show-buttons-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="showbuttons"</code></td><td>The show buttons can be pressed.</td></tr>
       </tbody>
     </table></div>
     <p>Put <code>{PLAYLISTS}</code> inside a Voting and a Jukebox section and each gets the right kind of rows. To hide other parts while the after-hours message shows:</p>
@@ -298,6 +301,14 @@
 <pre><code>.msg-closed { display: none; }
 .panel:has(form[data-showpilot-message-box][hidden]) .msg-closed { display: block; }</code></pre>
     <p><code>{MESSAGE_WALL}</code> gives <code>section.sp-message-wall[data-showpilot-message-wall]</code> with <code>data-style</code> = <code>cards</code>, <code>bubbles</code> or <code>ticker</code>. Both carry <code>data-sp-theme</code> = <code>dark</code> or <code>light</code> (the Box style setting). Inner classes start with <code>sp-message-</code> and <code>sp-wall-</code>. Your page's own CSS is kept away from them, so set the colors with the <code>--sp-message-*</code> <a href="#vars">variables</a>.</p>
+  </section>
+
+  <section id="showbuttons" data-s>
+    <h2>Show buttons</h2>
+    <p><code>{SHOW_BUTTONS}</code> gives <code>section.sp-show-buttons[data-showpilot-show-buttons]</code> with <code>data-layout</code> = <code>row</code> or <code>grid</code>, hidden while the buttons can't be pressed (turned off, viewer control off, between songs, or the FPP plugin not connected). Inside: <code>.sp-sb-heading</code>, <code>.sp-sb-list</code> with one <code>button.sp-sb-btn</code> per button (<code>.sp-sb-icon</code>, <code>.sp-sb-label</code>, <code>.sp-sb-wait</code> countdown), and <code>.sp-sb-status</code>. A button waiting after a press is <code>:disabled</code> with <code>.sp-sb-cooling</code>; one just pressed gets <code>.sp-sb-fired</code> for a moment.</p>
+    <p>Colors: <code>--sp-sb-bg</code> and <code>--sp-sb-fg</code> (a button's own color from Settings wins), and <code>--sp-sb-radius</code>. To show something else while the buttons are hidden:</p>
+<pre><code>.buttons-closed { display: none; }
+.panel:has(section[data-showpilot-show-buttons][hidden]) .buttons-closed { display: block; }</code></pre>
   </section>
 
   <section id="listen" data-s>

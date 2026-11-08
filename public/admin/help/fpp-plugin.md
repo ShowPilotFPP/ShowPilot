@@ -4,7 +4,7 @@ ShowPilot doesn't play your show itself. Falcon Player (FPP) does, and a small S
 
 For what each part of the **Plugin** tab shows, see [Plugin](help:plugin).
 
-> **Tip:** If someone else runs your ShowPilot server for you, set the plugin's **Connection** to **Hosted ShowPilot** and enter the address and show token your host gives you. The plugin then connects out to ShowPilot, so nothing needs opening on your home network.
+> **Tip:** If someone else runs your ShowPilot server for you, set the plugin's **Connection** to **Hosted ShowPilot** and enter the **ShowPilot Server URL** and **Show Token** your host gives you. The plugin then connects out to ShowPilot, so nothing needs opening on your home network.
 
 ## What the plugin does
 
@@ -27,7 +27,7 @@ Once paired, the plugin:
 
 1. In FPP, go to **Content Setup › Plugin Manager**.
 2. Paste the plugin's install address into the plugin URL box. You'll find it in the "Install the FPP plugin" section of ShowPilot's README.
-3. Press **Get Plugin Info**, then **Install**.
+3. Press **Get Plugin Info**, then **Install**. The plugin is called **ShowPilot Blackbox** in the Plugin Manager; its settings page is called **ShowPilot**.
 
 ## 2. Pair it with ShowPilot
 
@@ -35,7 +35,7 @@ Open the plugin's settings in FPP under **Content Setup › ShowPilot** and fill
 
 | Plugin setting | What to enter |
 |---|---|
-| **Server URL** | The address you use to open ShowPilot, without the `/admin` part and without a slash at the end. On your home network that's usually the server's local address and port (ShowPilot uses port 3100 unless you changed it). |
+| **ShowPilot Server URL** | (Called **Server URL** before plugin 0.14.24.) The address you use to open ShowPilot, without the `/admin` part and without a slash at the end. On your home network that's usually the server's local address and port (ShowPilot uses port 3100 unless you changed it). |
 | **Show Token** | The token you copied from ShowPilot's **Plugin** tab. |
 | **Remote Playlist** | The FPP playlist holding the songs viewers can pick. |
 | **Interrupt schedule** | Turn on if viewer picks should play right away instead of after the current song. |
@@ -70,7 +70,7 @@ If a newer plugin version is available, a banner at the top of the **Dashboard**
 
 ## If it won't connect
 
-- **Never seen** or **Offline**: check the **Server URL** in the plugin. Open that exact address in a browser on the same network as FPP; you should see ShowPilot.
+- **Never seen** or **Offline**: check the **ShowPilot Server URL** in the plugin. Open that exact address in a browser on the same network as FPP; you should see ShowPilot.
 - Check the **Show Token** in the plugin matches the one on ShowPilot's **Plugin** tab exactly, with no spaces at either end. A wrong token is refused.
 - Check FPP is version 10.0 or newer.
 - Look at the plugin's log in FPP under **Status/Control › Logs**, or the plugin's **Diagnostics** tab.

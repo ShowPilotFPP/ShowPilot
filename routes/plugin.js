@@ -996,7 +996,12 @@ router.post('/heartbeat', (req, res) => {
   // their source IP, an unvalidated value here would allow them to redirect
   // every audio-stream request to any internet host (SSRF). FPP only ever
   // runs on a LAN, so a private-IP-only check is correct.
-  if (fppHost && !isPrivateLanIp(fppHost)) {
+  // Hosted installs never use the FPP's address (live position arrives over
+  // the plugin's own link), and the FPP is on another network by design, so
+  // its public address is expected: drop it without logging every heartbeat.
+  if (fppHost && config.hosted) {
+    fppHost = null;
+  } else if (fppHost && !isPrivateLanIp(fppHost)) {
     console.warn(`[plugin] Rejecting non-private fppHost: ${fppHost} (heartbeat ignored for IP storage)`);
     fppHost = null;
   }

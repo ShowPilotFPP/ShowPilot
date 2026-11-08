@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShowPilot help</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="/admin/themes.css">
+  <link rel="stylesheet" href="/admin/help/help.css?v=1">
+  <style>
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Instrument Sans', system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="sph-page"></div>
+  <script>
+    // Same theme as the admin (saved in this browser by the admin).
+    try { var t = localStorage.getItem('showpilot_theme'); if (t && /^[a-z0-9-]+$/.test(t)) document.body.classList.add('theme-' + t); } catch (e) {}
+  </script>
+  <script src="/admin/help/help.js?v=1"></script>
+  <script>
+    // Hosted installs hide pages that don't apply there (same flag the admin uses).
+    fetch('/api/public/demo-status').then(function (r) { return r.json(); }).catch(function () { return {}; }).then(function (s) {
+      SPHelp.page({ base: '/admin/help/', hidden: function (d) { return !!(s && s.hosted && d.hideHosted); } });
+    });
+  </script>
+</body>
+</html>

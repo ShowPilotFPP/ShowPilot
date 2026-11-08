@@ -1,0 +1,54 @@
+{
+  "product": "ShowPilot help",
+  "home": "getting-started",
+  "sections": [
+    { "title": "Start here", "docs": ["getting-started", "how-it-works", "signing-in"] },
+    { "title": "Show control", "docs": ["dashboard", "sequences", "queue", "messages", "stats"] },
+    { "title": "Viewer page", "docs": ["viewer-editor", "viewer-effects", "viewer-phone", "viewer-schedule", "viewer-globalcss", "viewer-translation"] },
+    { "title": "Settings", "docs": ["settings-general", "settings-jukebox", "settings-voting", "settings-race", "settings-audio", "settings-app", "settings-safeguards", "settings-public-access", "settings-backup", "settings-cockpit", "settings-updates", "settings-debug"] },
+    { "title": "Player, tools & users", "docs": ["plugin", "tools-normalizer", "tools-announcer", "users"] },
+    { "title": "Guides", "docs": ["phone-audio", "fpp-plugin", "templates", "cockpit", "troubleshooting"] }
+  ],
+  "docs": {
+    "getting-started":       { "title": "Getting started", "file": "getting-started.md", "summary": "From first sign-in to a live viewer page." },
+    "how-it-works":          { "title": "How ShowPilot works", "file": "how-it-works.md", "summary": "Viewer control modes, the queue, and how the show player and ShowPilot talk." },
+    "signing-in":            { "title": "Signing in", "file": "signing-in.md", "context": ["login"], "summary": "Signing in, staying signed in, and lost passwords." },
+
+    "dashboard":             { "title": "Dashboard", "area": "Show control", "file": "dashboard.md", "context": ["dashboard"] },
+    "sequences":             { "title": "Sequences", "area": "Show control", "file": "sequences.md", "context": ["sequences"] },
+    "queue":                 { "title": "Queue", "area": "Show control", "file": "queue.md", "context": ["queue"] },
+    "messages":              { "title": "Messages", "area": "Show control", "file": "messages.md", "context": ["messages"] },
+    "stats":                 { "title": "Stats", "area": "Show control", "file": "stats.md", "context": ["stats"] },
+
+    "viewer-editor":         { "title": "Template Editor", "area": "Viewer page", "file": "viewer-editor.md", "context": ["viewer/viewer-editor", "viewer"] },
+    "viewer-effects":        { "title": "Page Effects", "area": "Viewer page", "file": "viewer-effects.md", "context": ["viewer/viewer-effects"] },
+    "viewer-phone":          { "title": "Listen-on-Phone", "area": "Viewer page", "file": "viewer-phone.md", "context": ["viewer/viewer-phone"] },
+    "viewer-schedule":       { "title": "Scheduled Switches", "area": "Viewer page", "file": "viewer-schedule.md", "context": ["viewer/viewer-schedule"] },
+    "viewer-globalcss":      { "title": "Global CSS", "area": "Viewer page", "file": "viewer-globalcss.md", "context": ["viewer/viewer-globalcss"] },
+    "viewer-translation":    { "title": "Translation", "area": "Viewer page", "file": "viewer-translation.md", "context": ["viewer/viewer-translation"] },
+
+    "settings-general":      { "title": "General", "area": "Settings", "file": "settings-general.md", "context": ["settings/general", "settings"] },
+    "settings-jukebox":      { "title": "Jukebox", "area": "Settings", "file": "settings-jukebox.md", "context": ["settings/jukebox"] },
+    "settings-voting":       { "title": "Voting", "area": "Settings", "file": "settings-voting.md", "context": ["settings/voting"] },
+    "settings-race":         { "title": "Race", "area": "Settings", "file": "settings-race.md", "context": ["settings/race"] },
+    "settings-audio":        { "title": "Audio", "area": "Settings", "file": "settings-audio.md", "context": ["settings/audio"] },
+    "settings-app":          { "title": "App", "area": "Settings", "file": "settings-app.md", "context": ["settings/app"] },
+    "settings-safeguards":   { "title": "Interaction Safeguards", "area": "Settings", "file": "settings-safeguards.md", "context": ["settings/safeguards"] },
+    "settings-public-access":{ "title": "Public Access", "area": "Settings", "file": "settings-public-access.md", "context": ["settings/public-access"], "hideHosted": true },
+    "settings-backup":       { "title": "Backup & Restore", "area": "Settings", "file": "settings-backup.md", "context": ["settings/backup"] },
+    "settings-cockpit":      { "title": "Cockpit settings", "area": "Settings", "file": "settings-cockpit.md", "context": ["settings/cockpit"] },
+    "settings-updates":      { "title": "Updates", "area": "Settings", "file": "settings-updates.md", "context": ["settings/updates"], "hideHosted": true },
+    "settings-debug":        { "title": "Debug", "area": "Settings", "file": "settings-debug.md", "context": ["settings/debug"] },
+
+    "plugin":                { "title": "Plugin", "area": "Show player", "file": "plugin.md", "context": ["plugin"] },
+    "tools-normalizer":      { "title": "Audio Normalizer", "area": "Tools", "file": "tools-normalizer.md", "context": ["tools/tools-normalizer", "tools"] },
+    "tools-announcer":       { "title": "Announcements", "area": "Tools", "file": "tools-announcer.md", "context": ["tools/tools-announcer"] },
+    "users":                 { "title": "Users", "area": "Admin", "file": "users.md", "context": ["users"] },
+
+    "phone-audio":           { "title": "Phone audio, start to finish", "area": "Guide", "file": "phone-audio.md", "summary": "How listeners hear your show on their phones, and keeping it in sync." },
+    "fpp-plugin":            { "title": "Connecting your show player", "area": "Guide", "file": "fpp-plugin.md", "summary": "Installing the FPP plugin, pairing it, and syncing songs." },
+    "templates":             { "title": "Viewer page templates", "area": "Guide", "file": "templates.md", "summary": "How templates work and where to find every placeholder." },
+    "cockpit":               { "title": "Cockpit (tablet remote)", "area": "Guide", "file": "cockpit.md", "context": ["cockpit-page"], "summary": "A big-button show remote for a tablet." },
+    "troubleshooting":       { "title": "Troubleshooting", "area": "Guide", "file": "troubleshooting.md", "summary": "Common problems and what to check." }
+  }
+}

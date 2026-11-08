@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="/admin/ui-new.css?v=2583">
+  <link rel="stylesheet" href="/admin/help/help.css?v=1">
   <script src="/admin/user-prefs.js?v=1"></script>
   <script src="/admin/ui-new.js?v=261"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
@@ -18,6 +19,26 @@
   <script src="/admin/social-icons.js?v=2"></script>
   <script src="/admin/block-editors.js?v=3"></script>
   <script src="/admin/text-format-bar.js?v=2"></script>
+  <script src="/admin/help/help.js?v=1"></script>
+  <script>
+    // Help (v0.33.278-master.9+): F1 or the ? button opens help for the page
+    // you're on — the open tab and sub-tab, in either admin layout. Docs live
+    // in /admin/help/ (manifest.json + Markdown) and work offline.
+    document.addEventListener('DOMContentLoaded', function () {
+      SPHelp.init({
+        base: '/admin/help/',
+        context: function () {
+          var login = document.getElementById('loginView');
+          if (login && !login.classList.contains('hidden')) return 'login';
+          var pane = document.querySelector('.tab-pane.active');
+          if (!pane) return '';
+          var sub = pane.querySelector('.sub-tab.active');
+          return sub ? pane.dataset.pane + '/' + sub.dataset.subtab : pane.dataset.pane;
+        },
+        hidden: function (d) { return !!(d.hideHosted && document.documentElement.classList.contains('sp-hosted')); },
+      });
+    });
+  </script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -2076,7 +2097,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.278-master.8</span>
+        <span class="app-version">v0.33.278-master.9</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>

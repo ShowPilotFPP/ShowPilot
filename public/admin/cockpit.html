@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="/admin/themes.css">
+  <link rel="stylesheet" href="/admin/help/help.css?v=1">
   <style>
     /* ShowPilot Cockpit — customizable tablet show remote (main v0.33.214 /
        Lite v0.5.61). Tiles come from cockpit-tiles.js and the user's saved
@@ -515,5 +516,7 @@
   })();
 })();
 </script>
+<script src="/admin/help/help.js?v=1"></script>
+<script>SPHelp.init({ base: '/admin/help/', context: function () { return 'cockpit-page'; } });</script>
 </body>
 </html>

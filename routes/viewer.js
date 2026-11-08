@@ -953,6 +953,26 @@ function audioVersionParam(sequenceName) {
   return '';
 }
 
+// Debug sync report (?debug=1 on the viewer page): a device sends its sync
+// readout every few seconds and it's written to the show's log as one line,
+// so several devices can be compared side by side without their consoles.
+// One line per device every 2 s at most; numbers only, label trimmed.
+const lastSyncReport = new Map();
+router.post('/sync-report', (req, res) => {
+  res.status(204).end();
+  const tok = req.cookies[config.sessionCookieName + '_viewer'];
+  if (!tok) return;
+  const now = Date.now();
+  if (now - (lastSyncReport.get(tok) || 0) < 2000) return;
+  lastSyncReport.set(tok, now);
+  if (lastSyncReport.size > 500) for (const [k, t] of lastSyncReport) if (now - t > 60000) lastSyncReport.delete(k);
+  const b = req.body || {};
+  const n = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '?');
+  const label = String(b.device || 'device').replace(/[^\w #.-]/g, '').slice(0, 32);
+  const track = String(b.track || '').replace(/[\r\n]/g, ' ').slice(0, 60);
+  console.log(`[sync] ${label.padEnd(20)} drift ${n(b.drift)}ms  clock ${n(b.clock)}ms  stale ${n(b.stale)}ms  late-by ${n(b.propagation)}ms  speed ${n(b.speed, 2)}%  outDelay ${b.outDelay == null ? 'n/a' : n(b.outDelay) + 'ms'}  pos ${n(b.fppPos, 2)}/${n(b.audioPos, 2)}s  ${track}`);
+});
+
 // A phone closed its player or the page: stop counting it as listening right
 // away (lib/listeners.leave), so a listener limit lets the next phone in
 // without waiting for the 15 s timeout. Sent with navigator.sendBeacon; only

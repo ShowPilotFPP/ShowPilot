@@ -5238,6 +5238,15 @@
     const debugMode = new URLSearchParams(window.location.search).get('debug') === '1'
       || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.debugOverlayEnabled);
     let debugEl = null;
+    let lastSyncReportAt = 0;
+    // A short label so devices can be told apart in the show's log.
+    const syncReportDevice = (() => {
+      const ua = navigator.userAgent || '';
+      const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+        : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /CrOS/.test(ua) ? 'Chromebook' : 'Other';
+      const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+      return `${os} ${br} #${Math.random().toString(36).slice(2, 6)}`;
+    })();
     if (debugMode) {
       debugEl = document.createElement('div');
       debugEl.style.cssText = `
@@ -5632,6 +5641,24 @@
     // separate connection just for this.
     let lastClockSyncAt = 0;
     let bestRttEverMs = Infinity; // best RTT seen across all bursts — guards against high-jitter overwrites
+
+    // Steady clock: one burst can come out tens of ms off on a busy or uneven
+    // connection (more delay one way than the other). Taking it as-is moved
+    // this device's idea of the show position by the same amount, and since
+    // drift is measured with the same clock the player then believed it was
+    // in sync while it wasn't. So the offset is the MEDIAN of the last few
+    // bursts: a lone odd measurement can't move it; a real change (the
+    // majority agreeing) still does. The first two bursts apply directly.
+    const clockHistory = [];
+    function applyClockMeasurement(v) {
+      if (!Number.isFinite(v)) return;
+      clockHistory.push(v);
+      if (clockHistory.length > 5) clockHistory.shift();
+      if (clockHistory.length < 3) { clockOffset = v; return; }
+      const sorted = clockHistory.slice().sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      clockOffset = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
     async function syncClockBurst(burstSize = 5) {
       // Use Socket.io timesync for accurate clock offset measurement.
       // Socket.io bypasses Cloudflare HTTP overhead giving 5-20ms accuracy
@@ -5665,10 +5692,10 @@
               // cause the drift display to jump, triggering spurious crossfades.
               if (bestRtt < bestRttEverMs) bestRttEverMs = bestRtt;
               if (bestRtt <= bestRttEverMs * 3) {
-                clockOffset = newOffset;
+                applyClockMeasurement(newOffset);
                 lastClockSyncAt = Date.now();
               }
-              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (best RTT:', bestRtt, 'ms' + (bestRtt > bestRttEverMs * 3 ? ' — REJECTED high jitter' : '') + ')');
+              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (measured ' + Math.round(newOffset) + ' ms, best RTT:', bestRtt, 'ms' + (bestRtt > bestRttEverMs * 3 ? ' — REJECTED high jitter' : '') + ')');
               resolve();
             }
           };
@@ -5712,9 +5739,9 @@
       const keep = samples.length >= 4 ? samples.slice(0, Math.ceil(samples.length / 2)) : samples;
       const offsets = keep.map(s => s.offset).sort((a, b) => a - b);
       const mid = Math.floor(offsets.length / 2);
-      clockOffset = offsets.length % 2 === 1
+      applyClockMeasurement(offsets.length % 2 === 1
         ? offsets[mid]
-        : (offsets[mid - 1] + offsets[mid]) / 2;
+        : (offsets[mid - 1] + offsets[mid]) / 2);
       lastClockSyncAt = Date.now();
     }
 
@@ -6604,6 +6631,24 @@
             `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
             ...probeLines(),
           ].join('\n');
+          // Debug sync report: every 3 s, send this readout to the show so
+          // every device can be compared side by side in the show's log
+          // (no phone console needed). Debug mode only.
+          if (Date.now() - lastSyncReportAt > 3000) {
+            lastSyncReportAt = Date.now();
+            try {
+              fetch('/api/sync-report', {
+                method: 'POST', credentials: 'include', keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  device: syncReportDevice, drift: driftMs, fppPos: +fppPositionNow.toFixed(3),
+                  audioPos: +htmlAudio.currentTime.toFixed(3), stale: msSinceFppUpdate, propagation: propagationMs,
+                  clock: Math.round(clockOffset), outDelay: outDelayMs, speed: +((currentRate - 1) * 100).toFixed(2),
+                  track: currentSequence || '',
+                }),
+              }).catch(() => {});
+            } catch (_) {}
+          }
         }
 
         // ---- PLL: correct drift via playbackRate ----

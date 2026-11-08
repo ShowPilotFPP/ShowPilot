@@ -3032,6 +3032,8 @@
   // never sees them. Falls back to English for any missing key or language.
   const _PLAYER_STRINGS = {
     es: {
+      'Phone audio is off right now.': 'El audio en el teléfono está apagado ahora.',
+      'Off': 'Apagado',
       'Phone audio is full right now. It will start when a spot opens.': 'El audio en el teléfono está lleno ahora. Empezará cuando haya un lugar libre.',
       'Full': 'Lleno',
       'Listen on phone': 'Escuchar en el teléfono',
@@ -3051,6 +3053,8 @@
       'Winner!': '¡Ganador!',
     },
     fr: {
+      'Phone audio is off right now.': 'L\'audio sur téléphone est désactivé pour le moment.',
+      'Off': 'Désactivé',
       'Phone audio is full right now. It will start when a spot opens.': 'L\'audio sur téléphone est complet pour le moment. Il démarrera dès qu\'une place se libère.',
       'Full': 'Complet',
       'Listen on phone': 'Écouter sur le téléphone',
@@ -3070,6 +3074,8 @@
       'Winner!': 'Gagnant !',
     },
     de: {
+      'Phone audio is off right now.': 'Das Handy-Audio ist gerade aus.',
+      'Off': 'Aus',
       'Phone audio is full right now. It will start when a spot opens.': 'Das Handy-Audio ist gerade voll. Es startet, sobald ein Platz frei wird.',
       'Full': 'Voll',
       'Listen on phone': 'Auf dem Telefon anhören',
@@ -3089,6 +3095,8 @@
       'Winner!': 'Gewinner!',
     },
     pt: {
+      'Phone audio is off right now.': 'O áudio no celular está desligado agora.',
+      'Off': 'Desligado',
       'Phone audio is full right now. It will start when a spot opens.': 'O áudio no celular está cheio agora. Vai começar quando abrir uma vaga.',
       'Full': 'Cheio',
       'Listen on phone': 'Ouvir no telefone',
@@ -3108,6 +3116,8 @@
       'Winner!': 'Vencedor!',
     },
     it: {
+      'Phone audio is off right now.': 'L\'audio sul telefono è spento in questo momento.',
+      'Off': 'Spento',
       'Phone audio is full right now. It will start when a spot opens.': 'L\'audio sul telefono è al completo. Partirà appena si libera un posto.',
       'Full': 'Completo',
       'Listen on phone': 'Ascolta sul telefono',
@@ -3127,6 +3137,8 @@
       'Winner!': 'Vincitore!',
     },
     pl: {
+      'Phone audio is off right now.': 'Dźwięk na telefonie jest teraz wyłączony.',
+      'Off': 'Wyłączone',
       'Phone audio is full right now. It will start when a spot opens.': 'Dźwięk na telefonie jest teraz pełny. Włączy się, gdy zwolni się miejsce.',
       'Full': 'Pełne',
       'Listen on phone': 'Słuchaj na telefonie',
@@ -5771,6 +5783,15 @@
         // Listener limit reached (hosted shows): stop, say so, and keep
         // polling — every poll asks again, so audio starts by itself as soon
         // as a place opens. Not a gate latch: nothing to refresh.
+        // Phone audio switched off while the page is open (a hosted show's plan
+        // changed): stop and say so; it starts again by itself when it's back.
+        if (data.audioDisabled) {
+          if (currentSource) stopAudio();
+          currentSequence = null;
+          statusEl.textContent = _pt('Phone audio is off right now.');
+          pillText.textContent = _pt('Off');
+          return;
+        }
         if (!data.audioFull) listenedThisPage = true;
         if (data.audioFull) {
           if (currentSource) stopAudio();

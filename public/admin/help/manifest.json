@@ -3,7 +3,7 @@
   "home": "getting-started",
   "sections": [
     { "title": "Start here", "docs": ["getting-started", "how-it-works", "signing-in"] },
-    { "title": "Show control", "docs": ["dashboard", "sequences", "queue", "messages", "stats"] },
+    { "title": "Show control", "docs": ["dashboard", "fpp-monitor", "sequences", "queue", "messages", "stats"] },
     { "title": "Viewer page", "docs": ["viewer-editor", "viewer-effects", "viewer-phone", "viewer-schedule", "viewer-globalcss", "viewer-translation"] },
     { "title": "Settings", "docs": ["settings-general", "settings-jukebox", "settings-voting", "settings-race", "settings-show-buttons", "settings-audio", "settings-app", "settings-safeguards", "settings-public-access", "settings-backup", "settings-cockpit", "settings-updates", "settings-debug"] },
     { "title": "Player, tools & users", "docs": ["plugin", "tools-normalizer", "tools-announcer", "users"] },
@@ -15,6 +15,7 @@
     "signing-in":            { "title": "Signing in", "file": "signing-in.md", "context": ["login"], "summary": "Signing in, staying signed in, and lost passwords." },
 
     "dashboard":             { "title": "Dashboard", "area": "Show control", "file": "dashboard.md", "context": ["dashboard"] },
+    "fpp-monitor":           { "title": "FPP Monitor", "area": "Show control", "file": "fpp-monitor.md", "context": ["fpp"] },
     "sequences":             { "title": "Sequences", "area": "Show control", "file": "sequences.md", "context": ["sequences"] },
     "queue":                 { "title": "Queue", "area": "Show control", "file": "queue.md", "context": ["queue"] },
     "messages":              { "title": "Messages", "area": "Show control", "file": "messages.md", "context": ["messages"] },

@@ -1070,7 +1070,22 @@ router.post('/heartbeat', (req, res) => {
   // button presses (GET /show-buttons) about twice a second. Older plugins
   // ignore it.
   const showButtons = require('../lib/show-buttons').pluginWanted(getConfig());
-  res.json(isFppPlugin ? { ok: true, showButtons, ...require('../lib/show-player-update').forPlugin() } : { ok: true, showButtons });
+  // FPP monitor (v0.33.278-master.13+): ask for status snapshots
+  // (POST /fpp-status). Older plugins ignore it.
+  const fppMonitor = true;
+  res.json(isFppPlugin ? { ok: true, showButtons, fppMonitor, ...require('../lib/show-player-update').forPlugin() } : { ok: true, showButtons, fppMonitor });
+});
+
+// ============================================================
+// POST /api/plugin/fpp-status (v0.33.278-master.13+, lib/fpp-monitor.js)
+// The show player's status snapshot for the FPP page:
+//   { status: <FPP /api/system/status>, multisync: <FPP /api/fppd/multiSyncSystems>,
+//     disk: {freeBytes, totalBytes}, now: <epoch s>, playlists?: [..], presets?: [..],
+//     results?: [{id, ok, message}], source?: 'fpp'|'player' }
+// Answer: { ok, commands: [{id, action, name?}], nextInSec }.
+// ============================================================
+router.post('/fpp-status', (req, res) => {
+  res.json(require('../lib/fpp-monitor').report(req.body || {}, { pluginVersion: pluginStatus.version }));
 });
 
 // ============================================================

@@ -12,9 +12,10 @@
   <link rel="stylesheet" href="/admin/ui-new.css?v=2583">
   <link rel="stylesheet" href="/admin/help/help.css?v=1">
   <script src="/admin/user-prefs.js?v=1"></script>
-  <script src="/admin/ui-new.js?v=262"></script>
+  <script src="/admin/ui-new.js?v=263"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
   <script src="/admin/announcer.js?v=2"></script>
+  <script src="/admin/fpp-monitor.js?v=1"></script>
   <script src="/admin/sections.js?v=3"></script>
   <script src="/admin/social-icons.js?v=2"></script>
   <script src="/admin/block-editors.js?v=3"></script>
@@ -2097,7 +2098,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.278-master.12</span>
+        <span class="app-version">v0.33.278-master.13</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2155,6 +2156,7 @@
     <!-- Tab nav -->
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="dashboard" onclick="switchMainTab('dashboard')">Dashboard</button>
+      <button class="tab-btn" data-tab="fpp" onclick="switchMainTab('fpp')">FPP Monitor</button>
       <button class="tab-btn" data-tab="sequences" onclick="switchMainTab('sequences')">Sequences</button>
       <button class="tab-btn" data-tab="queue" onclick="switchMainTab('queue')">Queue</button>
       <button class="tab-btn" data-tab="messages" onclick="switchMainTab('messages')">Messages</button>
@@ -2177,6 +2179,7 @@
         <!-- Newer ShowPilot available (beta.19+): filled by renderShowPilotUpdate() -->
         <div id="showPilotUpdateBanner" data-hosted-hide class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-success); background: var(--status-success-soft); font-size: 0.9rem; line-height: 1.45;"></div>
         <div id="showPlayerUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-warning); background: var(--status-warning-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <div id="fppDashCard" class="dash-banner" role="status" onclick="switchMainTab('fpp')" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); font-size: 0.9rem; line-height: 1.45;"></div>
         <div id="messagesBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--accent-soft); font-size: 0.9rem; line-height: 1.45;"></div>
 
         <div class="now-playing-card" style="margin-bottom: 1.25rem;">
@@ -4492,6 +4495,14 @@
       <!-- ============================================================
            TAB: PLUGIN
            ============================================================ -->
+      <!-- ============================================================
+           TAB: FPP MONITOR (v0.33.278-master.13+, public/admin/fpp-monitor.js)
+           Filled by SPFpp from GET /api/admin/fpp while the tab is open.
+           ============================================================ -->
+      <div class="tab-pane" data-pane="fpp">
+        <div id="fppMonRoot"></div>
+      </div>
+
       <div class="tab-pane" data-pane="plugin">
         <div class="card card-accent-blue">
           <h2>Plugin Status</h2>
@@ -4851,6 +4862,8 @@
     // MAIN TAB SWITCHER
     // ============================================================
     function switchMainTab(name) {
+      // FPP Monitor polls only while it's showing (v0.33.278-master.13).
+      if (window.SPFpp) { if (name === 'fpp') window.SPFpp.open(); else window.SPFpp.close(); }
       // Leaving Sequences stops an audio preview (v0.33.248-beta.3).
       if (name !== 'sequences' && typeof closeSeqPreview === 'function') closeSeqPreview();
       document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -12217,6 +12230,7 @@
       document.getElementById('statPlayed').textContent = d.totalPlays ?? 0;
 
       updateMessageBadge(d); // visitor messages (v0.33.250+)
+      if (window.SPFpp) window.SPFpp.dashboard(d.fpp); // FPP Monitor strip (v0.33.278-master.13+)
 
       // Header count
       document.getElementById('headerViewerCount').innerHTML = '<strong>' + (d.activeViewers ?? 0) + '</strong> viewers';

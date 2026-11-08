@@ -110,7 +110,7 @@ async function openAdmin(ctx, section) {
     page.on('pageerror', e => ctx.pageErrors.push(`admin: ${e.message}`));
     ctx.pages.set('admin', page);
   }
-  const map = { dashboard: 'dashboard', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools', users: 'users' };
+  const map = { dashboard: 'dashboard', 'fpp monitor': 'fpp', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools', users: 'users' };
   const key = map[section.toLowerCase()];
   assert(key, `unknown admin page "${section}"`);
   await page.goto(ctx.sp.base + '/admin/?section=' + key);
@@ -380,6 +380,86 @@ const STEPS = [
       assert(got === want, `got ${got}: ${JSON.stringify(ctx.last.presses)}`);
     } },
 
+  // ===== FPP monitor =====
+  { doc: 'the show player reports FPP playing "A.fseq" from "Christmas" | idle [, the CPU at N°C] [, N% disk free] [, with the remote "Name" online | offline]',
+    re: new RegExp(`^the show player reports FPP (playing ${q} from ${q}|idle)(?:, the CPU at (\\d+)°C)?(?:, (\\d+)% disk free)?(?:, with the remote ${q} (online|offline))?$`, 'i'),
+    fn: async (ctx, _w, seq, pl, temp, disk, remote, online) => {
+      const now = Math.floor(Date.now() / 1000);
+      const playing = !!seq;
+      const body = {
+        source: 'fpp', now,
+        status: {
+          status_name: playing ? 'playing' : 'idle', mode_name: 'player', host_name: 'ShowFPP',
+          current_playlist: playing ? { playlist: pl, index: '2', count: '12' } : { playlist: '', index: '0', count: '0' },
+          current_sequence: playing ? seq : '', seconds_played: playing ? '30' : '0', seconds_remaining: playing ? '150' : '0',
+          scheduler: { enabled: 1, nextPlaylist: { playlistName: 'Halloween', scheduledStartTimeStr: 'Sat @ 18:00' } },
+          sensors: temp ? [{ label: 'CPU: ', formatted: temp + '.0°C', value: Number(temp), valueType: 'Temperature' }] : [],
+          uptimeStr: '3 days, 2 hours',
+          advancedView: { HostName: 'ShowFPP', Platform: 'Raspberry Pi', Variant: 'Pi 4', Version: '10.1', Branch: 'master', IPs: ['10.0.0.20'], Utilization: { CPU: 12.5, Memory: 40.2, Uptime: '3 days' } },
+        },
+        multisync: { systems: [{ local: 1, hostname: 'ShowFPP', address: '10.0.0.20', fppModeString: 'player', lastSeen: now }].concat(remote
+          ? [{ local: 0, hostname: remote, address: '10.0.0.21', fppModeString: 'remote', version: '10.1', lastSeen: online.toLowerCase() === 'online' ? now - 5 : now - 600 }] : []) },
+        disk: disk ? { freeBytes: Number(disk) * 1e9, totalBytes: 100e9 } : { freeBytes: 40e9, totalBytes: 100e9 },
+        playlists: ['Christmas', 'Halloween'], presets: ['Flood On', 'Fog'],
+        results: (ctx.last.fppCommands || []).map(c => ({ id: c.id, ok: true, message: '' })),
+      };
+      const r = await ctx.player.call('POST', '/fpp-status', body);
+      assert(r && Array.isArray(r.commands), `bad answer: ${JSON.stringify(r)}`);
+      ctx.last.fppCommands = r.commands;
+      ctx.last.fppAnswer = r;
+    } },
+  { doc: 'the heartbeat asks the show player for FPP status',
+    re: /^the heartbeat asks the show player for FPP status$/i,
+    fn: async (ctx) => {
+      const r = await ctx.player.heartbeat({ pluginVersion: '0.14.30' });
+      assert(r && r.fppMonitor === true, `heartbeat said fppMonitor: ${JSON.stringify(r && r.fppMonitor)}`);
+    } },
+  { doc: 'the admin asks FPP to start the playlist "A" | run the preset "A" | stop gracefully | stop now | restart FPPD',
+    re: new RegExp(`^the admin asks FPP to (start the playlist ${q}|run the preset ${q}|stop gracefully|stop now|restart fppd)$`, 'i'),
+    fn: async (ctx, what, pl, preset) => {
+      const w = what.toLowerCase();
+      const action = pl !== undefined ? 'startPlaylist' : preset !== undefined ? 'preset' : w === 'stop gracefully' ? 'stopGracefully' : w === 'stop now' ? 'stopNow' : 'restartFppd';
+      ctx.last.answer = await admin(ctx, 'POST', '/fpp/command', { action, name: pl || preset || '' });
+    } },
+  { doc: 'the show player is told to startPlaylist "A" | preset "A" | stopNow | stopGracefully | restartFppd   (from its last report)',
+    re: new RegExp(`^the show player is told to (\\w+)(?: ${q})?$`, 'i'),
+    fn: async (ctx, action, name) => {
+      const c = ctx.last.fppCommands || [];
+      assert(c.some(x => x.action === action && (name === undefined || x.name === name)), `commands were ${JSON.stringify(c)}`);
+    } },
+  { doc: 'the show player is told nothing   (from its last report)',
+    re: /^the show player is told nothing$/i,
+    fn: async (ctx) => { assert(!(ctx.last.fppCommands || []).length, `commands were ${JSON.stringify(ctx.last.fppCommands)}`); } },
+  { doc: 'the show player is asked to report every N seconds',
+    re: /^the show player is asked to report every (\d+) seconds?$/i,
+    fn: async (ctx, n) => { assert(ctx.last.fppAnswer && ctx.last.fppAnswer.nextInSec === Number(n), `nextInSec ${ctx.last.fppAnswer && ctx.last.fppAnswer.nextInSec}`); } },
+  { doc: 'the FPP page shows "text"   (from /api/admin/fpp, any field)',
+    re: new RegExp(`^the FPP page (shows|does not show) ${q}$`, 'i'),
+    fn: async (ctx, how, text) => {
+      await eventually(async () => {
+        const r = await adminOk(ctx, 'GET', '/fpp');
+        const has = JSON.stringify(r).toLowerCase().includes(text.toLowerCase());
+        assert(how.toLowerCase() === 'shows' ? has : !has, `FPP page: ${JSON.stringify(r).slice(0, 400)}`);
+      });
+    } },
+  { doc: 'the last FPP control worked | is waiting   (Recent controls on the FPP page)',
+    re: /^the last FPP control (worked|is waiting)$/i,
+    fn: async (ctx, how) => {
+      await eventually(async () => {
+        const r = await adminOk(ctx, 'GET', '/fpp');
+        const a = r.activity[0];
+        assert(a, 'no controls yet');
+        if (how.toLowerCase() === 'worked') assert(a.result && a.result.ok, `last control: ${JSON.stringify(a)}`);
+        else assert(!a.result, `last control: ${JSON.stringify(a)}`);
+      });
+    } },
+  { doc: 'the FPP health is ok | warn | bad',
+    re: /^the FPP health is (ok|warn|bad)$/i,
+    fn: async (ctx, level) => {
+      const r = await adminOk(ctx, 'GET', '/fpp');
+      assert(r.health.level === level.toLowerCase(), `health ${JSON.stringify(r.health)}`);
+    } },
+
   // ===== Phones in a browser =====
   { doc: 'phone 1 opens the viewer page [as an iPhone | in Facebook\'s browser]',
     re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser))?$/i,
@@ -452,7 +532,7 @@ const STEPS = [
       });
     } },
   { doc: 'the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats | Users page',
-    re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings|tools|users) page$/i,
+    re: /^the admin opens the (dashboard|fpp monitor|sequences|viewer page|queue|stats|settings|tools|users) page$/i,
     browser: true,
     fn: async (ctx, section) => { await openAdmin(ctx, section); } },
   { doc: 'the admin logs out [in the classic layout]',

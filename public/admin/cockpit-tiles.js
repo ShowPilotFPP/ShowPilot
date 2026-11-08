@@ -17,7 +17,15 @@
 (function () {
   'use strict';
 
-  const GROUPS = ['Show control', 'Safeguards', 'Songs & categories', 'Viewer page', 'Status', 'Layout'];
+  const GROUPS = ['Show control', 'Safeguards', 'Songs & categories', 'Viewer page', 'Status', 'FPP', 'Layout'];
+
+  // FPP tiles read the FPP Monitor's answer (ctx.fpp); its view is null
+  // until the show player has reported.
+  const fppV = (c) => (c.fpp && c.fpp.view) || null;
+  const pct = (n) => (n === null || n === undefined || !isFinite(n) ? '—' : Math.round(n) + '%');
+  // True when a layout uses any FPP tile, so the Cockpit only asks for FPP
+  // data when it shows some.
+  const usesFpp = (layout) => (layout || []).some((t) => /^fpp[A-Z]/.test(String(t && t.id)));
 
   const cfgSwitch = (id, group, label, key, hint) =>
     ({ id, group, label, kind: 'switch', key, hint, size: 1 });
@@ -74,6 +82,22 @@
         return SP.fmtTime(v.nowPlayingDurationSeconds - (SP.serverNow() - Date.parse(v.nowPlayingStartedAtIso)) / 1000); } },
     { id: 'sFpp', group: 'Status', label: 'Player', kind: 'status', size: 1, value: (c) => (c.fppOnline ? 'Online' : 'Offline') },
 
+    // ---- FPP (v0.33.278-master.15) ----
+    // The FPP Monitor's cards as tiles (kind 'fpp', drawn by fppHtml() in
+    // cockpit.html from GET /api/admin/fpp), plus single numbers as status
+    // tiles. c.fpp is that answer, or null before the first one arrives.
+    { id: 'fppState', group: 'FPP', label: 'FPP status', kind: 'fpp', panel: 'state', size: 2, hint: 'Playing or idle, and any problems' },
+    { id: 'fppNow', group: 'FPP', label: 'Now playing on FPP', kind: 'fpp', panel: 'now', size: 2, hint: 'Sequence, playlist and what the scheduler plays next' },
+    { id: 'fppHealth', group: 'FPP', label: 'FPP health', kind: 'fpp', panel: 'health', size: 2, hint: 'Temperature, CPU, memory, disk and uptime' },
+    { id: 'fppSystem', group: 'FPP', label: 'FPP system', kind: 'fpp', panel: 'system', size: 2, hint: 'Mode, version, hardware and IP address' },
+    { id: 'fppControls', group: 'FPP', label: 'FPP controls', kind: 'fpp', panel: 'controls', size: 2, hint: 'Start a playlist, run a preset, stop, restart FPPD' },
+    { id: 'fppRemotes', group: 'FPP', label: 'MultiSync', kind: 'fpp', panel: 'remotes', size: 4, hint: 'Each remote with its temperature, CPU, memory and uptime' },
+    { id: 'fppTemp', group: 'FPP', label: 'FPP CPU temperature', kind: 'status', size: 1, value: (c) => (fppV(c) && fppV(c).cpuTemp != null ? Math.round(fppV(c).cpuTemp) + '°C' : '—') },
+    { id: 'fppCpu', group: 'FPP', label: 'FPP CPU', kind: 'status', size: 1, value: (c) => pct(fppV(c) && fppV(c).cpuPercent) },
+    { id: 'fppMem', group: 'FPP', label: 'FPP memory', kind: 'status', size: 1, value: (c) => pct(fppV(c) && fppV(c).memoryPercent) },
+    { id: 'fppDisk', group: 'FPP', label: 'FPP disk free', kind: 'status', size: 1, value: (c) => (fppV(c) && fppV(c).disk ? Math.round(fppV(c).disk.freeFraction * 100) + '%' : '—') },
+    { id: 'fppUptime', group: 'FPP', label: 'FPP uptime', kind: 'status', size: 1, value: (c) => (fppV(c) && fppV(c).uptime) || '—' },
+
     // ---- Layout (v0.33.249) ----
     // Empty space to arrange the other tiles. Can be added any number of
     // times (each copy gets its own id, spacer1, spacer2, ...); width S/W/L
@@ -108,5 +132,5 @@
   // Layout ids that are copies of a repeatable tile ('spacer3' -> 'spacer').
   function baseId(id) { const m = /^(spacer)\d+$/.exec(String(id || '')); return m ? m[1] : id; }
 
-  window.SPTiles = { GROUPS, catalog, DEFAULT_LAYOUT, parseCategories, baseId };
+  window.SPTiles = { GROUPS, catalog, DEFAULT_LAYOUT, parseCategories, baseId, usesFpp };
 })();

@@ -1081,7 +1081,8 @@ router.post('/heartbeat', (req, res) => {
 // The show player's status snapshot for the FPP page:
 //   { status: <FPP /api/system/status>, multisync: <FPP /api/fppd/multiSyncSystems>,
 //     disk: {freeBytes, totalBytes}, now: <epoch s>, playlists?: [..], presets?: [..],
-//     results?: [{id, ok, message}], source?: 'fpp'|'player' }
+//     results?: [{id, ok, message}], source?: 'fpp'|'player',
+//     remoteStatus?: { '<remote address>': <that remote's /api/system/status> } }  (plugin 0.14.27+)
 // Answer: { ok, commands: [{id, action, name?}], nextInSec }.
 // ============================================================
 router.post('/fpp-status', (req, res) => {

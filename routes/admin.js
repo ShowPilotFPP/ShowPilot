@@ -982,8 +982,10 @@ router.get('/stats', requireAdmin, (req, res) => {
 // ---- FPP monitor (v0.33.278-master.13+, lib/fpp-monitor.js) ----
 // GET → everything the FPP page shows. Polling it also asks the show player
 // to report every second while the page is open.
+// ?watch=0 (the Cockpit's FPP tiles): read without counting as someone
+// watching, so the show player stays on its normal 5-second reports.
 router.get('/fpp', requireAdmin, (req, res) => {
-  res.json(require('../lib/fpp-monitor').adminState(getConfig()));
+  res.json(require('../lib/fpp-monitor').adminState(getConfig(), { watch: req.query.watch !== '0' }));
 });
 // POST { action: startPlaylist|stopGracefully|stopNow|preset|restartFppd, name? }
 router.post('/fpp/command', requireAdmin, (req, res) => {

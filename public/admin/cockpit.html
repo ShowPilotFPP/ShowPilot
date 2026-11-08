@@ -109,6 +109,30 @@
     .row .small { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-hover); background: transparent; font-weight: 600; }
     .empty { color: var(--text-muted); padding: 6px 0; }
 
+    /* FPP tiles (v0.33.278-master.15): the FPP Monitor's cards */
+    .fpp-head { display: flex; align-items: center; gap: 12px; }
+    .fpp-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; background: currentColor; }
+    .fpp-state { font: 800 26px/1.1 var(--font-display); }
+    .fpp-sub { color: var(--text-muted); font-size: 14px; overflow-wrap: anywhere; }
+    .fpp-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .fpp-issues li { padding: 6px 10px; border-radius: 8px; font-size: 14px; }
+    .fpp-issues li[data-level="bad"] { background: var(--status-danger-soft); color: var(--status-danger); }
+    .fpp-issues li[data-level="warn"] { background: var(--status-warning-soft); color: var(--status-warning); }
+    .fpp-big { font: 800 24px/1.15 var(--font-display); overflow-wrap: anywhere; }
+    .fpp-temp { font: 700 40px/1 var(--font-mono); }
+    .fpp-meter { display: grid; grid-template-columns: 74px 1fr 52px; align-items: center; gap: 10px; font-size: 14px; }
+    .fpp-meter .bar { margin: 0; }
+    .fpp-meter b { text-align: right; font-family: var(--font-mono); }
+    .fpp-kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 15px; }
+    .fpp-kv dt { color: var(--text-muted); } .fpp-kv dd { margin: 0; overflow-wrap: anywhere; }
+    .fpp-ctl { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fpp-ctl select { flex: 1; min-width: 140px; }
+    .fpp-ctl .action { flex: 1; min-width: 120px; }
+    .fpp-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    .fpp-table th, .fpp-table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .fpp-table th { color: var(--text-muted); font-weight: 600; font-size: 13px; }
+    .fpp-table td.n { font-family: var(--font-mono); }
+
     /* Catalog drawer (edit mode) */
     .catalog { display: none; position: sticky; top: 14px; width: 320px; flex: 0 0 320px; max-height: calc(100vh - 40px); overflow-y: auto; padding: 14px; border-radius: 18px; border: 1px solid var(--border); background: var(--bg-elevated); }
     body.editing .catalog { display: block; }
@@ -164,7 +188,7 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/admin/shared.js"></script>
-<script src="/admin/cockpit-tiles.js"></script>
+<script src="/admin/cockpit-tiles.js?v=2"></script>
 <script>
 (function () {
   'use strict';
@@ -188,7 +212,10 @@
       if (!r.ok) SP.toast('Could not save the layout', true);
     }, 400);
   }
-  function setLayout(next) { layout = next; saveLayout(); render(); }
+  function setLayout(next) {
+    layout = next; saveLayout(); render();
+    if (SPTiles.usesFpp(layout) && !ctx.fpp) loadFpp().then(() => { if (!dragging) render(); });
+  }
   function defsById() {
     const m = {};
     SPTiles.catalog(ctx).forEach(d => { m[d.id] = d; });
@@ -246,8 +273,104 @@
         return '<span class="status-v" data-live="' + (d.live ? 1 : 0) + '">' + esc(d.value(ctx)) + '</span>';
       case 'now': return nowHtml();
       case 'board': return boardHtml(d.board);
+      case 'fpp': return fppHtml(d);
     }
     return '';
+  }
+
+  // ---------- FPP tiles (v0.33.278-master.15) ----------
+  // Built from GET /api/admin/fpp?watch=0 (the FPP Monitor's data; watch=0 so
+  // an open Cockpit doesn't keep the show player on its 1-second schedule).
+  // MultiSync systems hidden on the FPP Monitor page stay hidden here.
+  const FPP_STATE = { playing: 'Playing', idle: 'Idle', paused: 'Paused', stopping: 'Stopping', testing: 'Test mode', unknown: 'Unknown' };
+  const FPP_COLOR = { ok: 'var(--status-success)', warn: 'var(--status-warning)', bad: 'var(--status-danger)', unknown: 'var(--text-muted)' };
+  const fppPick = { playlist: '', preset: '' };
+  function fppHidden() {
+    let raw = null;
+    try { raw = (ctx.me && ctx.me.uiPrefs && ctx.me.uiPrefs.sp_fpp_hidden_remotes) || localStorage.getItem('sp_fpp_hidden_remotes'); } catch (_) { raw = null; }
+    try { const a = JSON.parse(raw || '[]'); return new Set(Array.isArray(a) ? a.map(String) : []); } catch (_) { return new Set(); }
+  }
+  function fppHealth(f) {
+    const hl = (f && f.health) || { level: 'unknown', items: [] };
+    if (hl.level === 'unknown') return hl;
+    const hidden = fppHidden();
+    const items = (hl.items || []).filter(i => !i.remote || !hidden.has(i.remote));
+    return { level: items.some(i => i.level === 'bad') ? 'bad' : items.length ? 'warn' : 'ok', items };
+  }
+  function fppPct(n) { return n === null || n === undefined || !isFinite(n) ? '—' : Math.round(n) + '%'; }
+  function fppTempColor(t) { return t === null || t === undefined ? '' : t >= 80 ? 'var(--status-danger)' : t >= 70 ? 'var(--status-warning)' : 'var(--status-success)'; }
+  function fppMeter(label, p, warnAt, badAt) {
+    const ok = p !== null && p !== undefined && isFinite(p);
+    const w = ok ? Math.max(0, Math.min(100, p)) : 0;
+    const col = !ok ? '' : w >= badAt ? 'var(--status-danger)' : w >= warnAt ? 'var(--status-warning)' : 'var(--accent)';
+    return '<div class="fpp-meter"><span class="muted">' + esc(label) + '</span><div class="bar"><div style="width:' + w + '%;background:' + col + '"></div></div><b>' + (ok ? Math.round(w) + '%' : '—') + '</b></div>';
+  }
+  function fppHtml(d) {
+    const f = ctx.fpp;
+    if (!f) return '<div class="empty">Loading FPP…</div>';
+    if (!f.receivedAt) return '<div class="empty">Waiting for your show player. On FPP this needs the ShowPilot plugin 0.14.26 or newer.</div>';
+    const v = f.view;
+    const hl = fppHealth(f);
+    if (d.panel === 'state') {
+      const level = f.connected ? hl.level : 'bad';
+      return '<div class="fpp-head"><span class="fpp-dot" style="color:' + (FPP_COLOR[level] || FPP_COLOR.unknown) + '"></span><div style="min-width:0">' +
+        '<div class="fpp-state">' + esc(!f.connected ? 'Not checking in' : (FPP_STATE[v && v.state] || (v && v.statusName) || 'Unknown')) + '</div>' +
+        '<div class="fpp-sub">' + esc([v && v.hostName, v && v.mode].filter(Boolean).join(' · ')) + '</div></div></div>' +
+        (hl.items.length ? '<ul class="fpp-issues">' + hl.items.slice(0, 4).map(i => '<li data-level="' + esc(i.level) + '">' + esc(i.text) + '</li>').join('') + '</ul>' : '<div class="fpp-sub">No problems.</div>');
+    }
+    if (!v) return '<div class="empty">No report from FPP yet.</div>';
+    if (d.panel === 'now') {
+      const playing = v.state === 'playing' || v.state === 'paused' || v.state === 'stopping';
+      return '<div class="fpp-big">' + esc(playing ? (v.sequence || v.media || v.playlist || '—') : 'Nothing playing') + '</div>' +
+        (playing && v.playlist ? '<div class="fpp-sub">Playlist: ' + esc(v.playlist) + (v.playlistIndex && v.playlistCount ? ' (item ' + esc(v.playlistIndex) + ' of ' + esc(v.playlistCount) + ')' : '') + '</div>' : '') +
+        '<dl class="fpp-kv"><dt>Next</dt><dd>' + esc(v.next && v.next.playlist ? v.next.playlist + (v.next.when ? ' — ' + v.next.when : '') : 'Nothing scheduled') + '</dd>' +
+        '<dt>Scheduler</dt><dd>' + esc(v.schedulerEnabled === null ? '—' : v.schedulerEnabled ? 'On' : 'Off') + '</dd></dl>';
+    }
+    if (d.panel === 'health') {
+      return '<div style="display:flex;align-items:baseline;gap:10px"><span class="fpp-temp" style="color:' + fppTempColor(v.cpuTemp) + '">' + esc(v.cpuTemp === null ? '—' : Math.round(v.cpuTemp) + '°C') + '</span><span class="muted">CPU temperature</span></div>' +
+        fppMeter('CPU', v.cpuPercent, 80, 95) + fppMeter('Memory', v.memoryPercent, 85, 95) + fppMeter('Disk used', v.disk ? (1 - v.disk.freeFraction) * 100 : null, 85, 95) +
+        '<dl class="fpp-kv"><dt>Uptime</dt><dd>' + esc(v.uptime || '—') + '</dd></dl>';
+    }
+    if (d.panel === 'system') {
+      const rows = [['Mode', v.mode ? v.mode.charAt(0).toUpperCase() + v.mode.slice(1) : ''], ['Version', v.version], ['Hardware', [v.platform, v.variant].filter(Boolean).join(' · ')],
+        ['Host name', v.hostName], ['IP address', (v.ips || []).join(', ')], ['Plugin', f.pluginVersion ? 'v' + String(f.pluginVersion).replace(/^v/, '') : '']].filter(r => r[1]);
+      return '<dl class="fpp-kv">' + rows.map(r => '<dt>' + esc(r[0]) + '</dt><dd>' + esc(r[1]) + '</dd>').join('') + '</dl>';
+    }
+    if (d.panel === 'controls') {
+      const dis = f.connected ? '' : ' disabled';
+      const pls = f.playlists || [], prs = f.presets || [];
+      if (!pls.includes(fppPick.playlist)) fppPick.playlist = pls[0] || '';
+      if (!prs.includes(fppPick.preset)) fppPick.preset = prs[0] || '';
+      const sel = (which, list, empty) => '<select data-act="fppsel" data-which="' + which + '" aria-label="' + (which === 'playlist' ? 'Playlist' : 'Command preset') + '">' +
+        (list.length ? list.map(n => '<option value="' + esc(n) + '"' + (n === fppPick[which] ? ' selected' : '') + '>' + esc(n) + '</option>').join('') : '<option value="">' + esc(empty) + '</option>') + '</select>';
+      const btn = (a, label) => confirmId === d.id + ':' + a
+        ? '<button type="button" class="action confirm" data-act="fppgo" data-a="' + a + '"' + dis + '>Tap again to confirm</button>'
+        : '<button type="button" class="action" data-act="fpparm" data-a="' + a + '"' + dis + '>' + esc(label) + '</button>';
+      return '<div class="fpp-ctl">' + sel('playlist', pls, 'No playlists reported yet') + btn('startPlaylist', 'Start playlist') + '</div>' +
+        '<div class="fpp-ctl">' + sel('preset', prs, 'No command presets') + btn('preset', 'Run preset') + '</div>' +
+        '<div class="fpp-ctl">' + btn('stopGracefully', 'Stop gracefully') + btn('stopNow', 'Stop now') + btn('restartFppd', 'Restart FPPD') + '</div>' +
+        (f.connected ? '' : '<div class="fpp-sub">Controls work while your show player is checking in.</div>');
+    }
+    if (d.panel === 'remotes') {
+      const hidden = fppHidden();
+      const list = (v.remotes || []).filter(r => !hidden.has(r.hostName || r.address));
+      if (!list.length) return '<div class="empty">' + ((v.remotes || []).length ? 'All systems are hidden (on the FPP Monitor page).' : 'FPP doesn’t see any other systems.') + '</div>';
+      const any = list.some(r => r.stats);
+      return '<div style="overflow-x:auto"><table class="fpp-table"><thead><tr><th>System</th><th>Mode</th>' + (any ? '<th>Status</th><th>CPU temp</th><th>CPU</th><th>Memory</th><th>Uptime</th>' : '') + '</tr></thead><tbody>' +
+        list.map(r => { const s = r.stats, t = s ? s.cpuTemp : null;
+          return '<tr><td><span class="fpp-dot" style="display:inline-block;width:10px;height:10px;margin-right:8px;color:' + (r.online === null ? FPP_COLOR.unknown : r.online ? FPP_COLOR.ok : FPP_COLOR.bad) + '"></span>' + esc(r.hostName || r.address) + '</td>' +
+            '<td>' + esc(r.mode || r.type || '') + '</td>' +
+            (any ? '<td>' + esc(!s ? '—' : (FPP_STATE[s.state] || s.state || '—') + (s.state === 'playing' && s.sequence ? ' · ' + s.sequence : '')) + '</td>' +
+              '<td class="n" style="color:' + fppTempColor(t) + '">' + esc(t === null || t === undefined ? '—' : Math.round(t) + '°C') + '</td>' +
+              '<td class="n">' + fppPct(s && s.cpuPercent) + '</td><td class="n">' + fppPct(s && s.memoryPercent) + '</td><td>' + esc((s && s.uptime) || '—') + '</td>' : '') + '</tr>'; }).join('') +
+        '</tbody></table></div>';
+    }
+    return '';
+  }
+  async function loadFpp() {
+    if (!SPTiles.usesFpp(layout)) { ctx.fpp = null; return; }
+    const r = await SP.api('/fpp?watch=0');
+    if (r.ok && r.data) ctx.fpp = r.data;
   }
 
   function info(name) {
@@ -331,7 +454,7 @@
     if (!editing) return;
     const used = new Set(layout.map(t => t.id));
     const all = SPTiles.catalog(ctx);
-    const kindLabel = { spacer: 'Empty space · any size', switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel' };
+    const kindLabel = { spacer: 'Empty space · any size', switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel', fpp: 'FPP panel' };
     $('catalogList').innerHTML = SPTiles.GROUPS.map(g => {
       const items = all.filter(d => d.group === g);
       if (!items.length) return '';
@@ -401,9 +524,27 @@
       if (!window.confirm('Remove "' + el.dataset.title + '" from the queue?')) return;
       return run(SP.api('/queue/' + encodeURIComponent(el.dataset.id), { method: 'DELETE' }), 'Removed from the queue');
     }
+    if (act === 'fpparm') {
+      confirmId = d.id + ':' + el.dataset.a; render();
+      clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { confirmId = null; render(); }, 4000);
+      return;
+    }
+    if (act === 'fppgo') {
+      confirmId = null; clearTimeout(confirmTimer);
+      const a = el.dataset.a;
+      const name = a === 'startPlaylist' ? fppPick.playlist : a === 'preset' ? fppPick.preset : '';
+      if ((a === 'startPlaylist' || a === 'preset') && !name) { SP.toast(a === 'preset' ? 'Pick a command preset' : 'Pick a playlist', true); return render(); }
+      return SP.post('/fpp/command', { action: a, name }).then((r) => {
+        SP.toast(r && r.ok ? 'Sent to your show player' : ((r && r.data && r.data.error) || 'That did not work — try again'), !(r && r.ok));
+        setTimeout(() => loadFpp().then(() => { if (!dragging) render(); }), 2500);
+        render();
+      });
+    }
     if (act === 'song') return run(SP.put('/sequences/' + encodeURIComponent(el.dataset.id), { visible: el.dataset.vis === '1' ? 0 : 1 })).then(loadSeqs).then(render);
   });
   $('grid').addEventListener('change', (e) => {
+    const fs = e.target.closest('[data-act="fppsel"]');
+    if (fs) { fppPick[fs.dataset.which] = fs.value; return; }
     const el = e.target.closest('[data-act="select"]');
     if (!el || editing) return;
     const d = defsById()[layout[Number(el.closest('.tile').dataset.i)].id];
@@ -487,7 +628,7 @@
     if (busy) return;
     busy = true;
     try {
-      const [c, s, v, q] = await Promise.all([SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue')]);
+      const [c, s, v, q] = await Promise.all([SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue'), loadFpp()]);
       if (c.ok && c.data) ctx.cfg = c.data;
       if (s.ok && s.data) ctx.stats = s.data;
       if (v) ctx.vstate = v;
@@ -500,6 +641,7 @@
 
   (async function start() {
     const me = await SP.requireLogin();
+    ctx.me = me;
     $('themeSelect').value = me.theme || (() => { try { return localStorage.getItem('showpilot_theme'); } catch (_) { return null; } })() || 'stage-dark';
     if (Array.isArray(me.cockpitLayout)) layout = me.cockpitLayout;
     await Promise.all([loadSeqs(), loadTemplates(), loadPlugin()]);

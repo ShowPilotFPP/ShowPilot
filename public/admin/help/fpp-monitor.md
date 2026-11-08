@@ -13,8 +13,8 @@ While the page is open it updates about every second. When it's closed, your sho
 A colored dot and the state: **Playing**, **Idle**, **Paused**, **Stopping** or **Test mode**, with FPP's host name and when the last report arrived.
 
 - **Green** means everything looks fine.
-- **Amber** means something to keep an eye on: a warm CPU (70°C or more), a disk getting full (15% free or less), a MultiSync remote FPP hasn't seen for two minutes, or a warning FPP itself shows.
-- **Red** means act now: a hot CPU (80°C or more), a disk almost full (5% free or less), or no report from your show player for over a minute (**Not checking in**).
+- **Amber** means something to keep an eye on: a warm CPU (70°C or more), a disk getting full (15% free or less), a MultiSync remote FPP hasn't seen for two minutes, a remote's CPU at 70°C or more, or a warning FPP itself shows.
+- **Red** means act now: a hot CPU (80°C or more, on the main FPP or a remote), a disk almost full (5% free or less), or no report from your show player for over a minute (**Not checking in**).
 
 Each problem is listed under the state. **Open FPP** opens FPP's own pages in a new tab. It only works when your device is on the same network as FPP.
 
@@ -50,6 +50,10 @@ Controls only work while your show player is checking in. Each one runs within a
 ## MultiSync
 
 Every other system FPP sees on its network (remotes, other players, controllers that answer MultiSync), with its address, mode, version and when FPP last heard from it. A green dot means it was seen in the last two minutes.
+
+With the ShowPilot plugin 0.14.27 or newer, each FPP in the list also shows what it's doing (**Status**), its **CPU temp**, **CPU**, **Memory** and **Uptime**. A remote's temperature is flagged like the main FPP's: amber at 70°C, red at 80°C. Systems that aren't FPP (controllers, for example) show "—".
+
+The **eye** at the end of each row works like the Visible switch on the Sequences page: click the green eye to hide a system (it turns grey), which takes it off the list and its warnings off this page and the Dashboard strip. Use it for things you don't need to watch, such as a spare Pi. **Show hidden** lists hidden systems again (dimmed); click its grey eye to bring it back. What you hide is remembered for your account.
 
 ## Dashboard strip
 

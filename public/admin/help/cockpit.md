@@ -66,6 +66,18 @@ Switches for **Location check**, **Location code**, **One vote per round**, **Vi
 
 Read-only tiles: **Watching now**, **Votes this round**, **Requests waiting**, **Time left in song** and **Player** (**Online** or **Offline**).
 
+### FPP
+
+The cards from the [FPP Monitor](help:fpp-monitor) page, as tiles. They need the ShowPilot plugin on FPP (0.14.26 or newer).
+
+- **FPP status**: playing or idle, colored green, amber or red, with any problems listed.
+- **Now playing on FPP**: the sequence and playlist, and what FPP's scheduler starts next.
+- **FPP health**: CPU temperature, CPU, memory and disk bars, and uptime.
+- **FPP system**: mode, version, hardware, host name, IP address and plugin version.
+- **FPP controls**: start a playlist, run a command preset, **Stop gracefully**, **Stop now** and **Restart FPPD**. Each button asks you to tap again to confirm.
+- **MultiSync**: every remote with its status, CPU temperature, CPU, memory and uptime (plugin 0.14.27 or newer). Systems you hid on the FPP Monitor page stay hidden here.
+- Single numbers: **FPP CPU temperature**, **FPP CPU**, **FPP memory**, **FPP disk free** and **FPP uptime**.
+
 ### Layout
 
 **Spacer** adds empty space to arrange the other tiles. You can add as many as you like. They're only visible while editing.

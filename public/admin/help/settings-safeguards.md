@@ -34,6 +34,8 @@ Turn on **Require viewers be within radius of show location** so only people nea
 - **Show latitude** and **Show longitude** are your display's position.
 - **Radius (miles)** is how close viewers must be. The default is **0.5**; you can set 0.1 to 50.
 
+> **Miles or kilometres:** ShowPilot picks the unit from your show's location: miles in the US and UK, kilometres elsewhere. All radius fields, and the message viewers see when they're too far away, use it. It changes on its own a moment after you set the location.
+
 You don't have to type the coordinates yourself:
 
 - Type your address in the box and press **Find Coordinates**. ShowPilot looks it up and fills in both fields.

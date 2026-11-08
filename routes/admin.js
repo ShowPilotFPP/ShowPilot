@@ -260,6 +260,13 @@ router.get('/config', requireAdmin, (req, res) => {
 });
 
 // Anonymous install count status for Settings → General (v0.33.266+).
+// Miles or kilometres for this show (lib/units.js). ?refresh=1 looks up the
+// country first if the show's coordinates changed.
+router.get('/units', requireAdmin, async (req, res) => {
+  try { res.json(await require('../lib/units').status(req.query.refresh === '1')); }
+  catch (err) { res.json({ units: 'mi', country: '' }); }
+});
+
 // ShowPilot app listing (lib/app-listing.js): what's sent and the last result.
 router.get('/app-listing', requireAdmin, (req, res) => {
   try { res.json(require('../lib/app-listing').status()); }
@@ -473,6 +480,9 @@ router.put('/config', requireAdmin, (req, res) => {
   const cfgBefore = getConfig();
   updateConfig(updates);
   try { require('../lib/app-listing').onSettingsSaved(updates, cfgBefore); } catch { /* best effort */ }
+  if ('show_latitude' in updates || 'show_longitude' in updates) {
+    try { require('../lib/units').refreshSoon(); } catch { /* best effort */ }
+  }
 
   // If the admin actually changed viewer_control_mode (not just other
   // settings), emit the same event the plugin's mode-toggle endpoint

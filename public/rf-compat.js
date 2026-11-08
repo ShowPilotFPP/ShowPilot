@@ -187,7 +187,7 @@
     const msg = (error || '').toLowerCase();
     if (msg.startsWith('you already have')) return MSG_IDS.alreadyRequested;
     if (msg.includes('requested the maximum number')) return MSG_IDS.alreadyQueued;
-    if (msg.includes('miles of the show')) return MSG_IDS.invalidLocation;
+    if (/(miles?|km) of the show/.test(msg)) return MSG_IDS.invalidLocation;
     if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
     if (msg.includes('location')) return MSG_IDS.invalidLocation;
     if (msg.includes('already voted')) return MSG_IDS.alreadyVoted;
@@ -1009,7 +1009,7 @@
   function showFailure(data) {
     const err = data && data.error;
     const id = mapErrorToId(err, data);
-    if (id === MSG_IDS.invalidLocation && /miles of the show/i.test(err || '')) {
+    if (id === MSG_IDS.invalidLocation && /(miles?|km) of the show/i.test(err || '')) {
       const hint = roughLocationHint();
       showMessage(id, hint ? 9000 : undefined, hint ? err + hint : undefined, err + hint);
       return;

@@ -119,7 +119,7 @@ function viewerPresenceCheck(req, cfg) {
     }
     const dist = distanceMiles(cfg.show_latitude, cfg.show_longitude, lat, lng);
     if (dist > cfg.check_radius_miles) {
-      return { ok: false, error: `You must be within ${cfg.check_radius_miles} miles of the show to interact.` };
+      return { ok: false, error: `You must be within ${require('../lib/units').formatMiles(cfg.check_radius_miles, cfg)} of the show to interact.` };
     }
   }
   // Location code check (v0.33.24+)

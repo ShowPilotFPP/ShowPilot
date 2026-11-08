@@ -836,6 +836,8 @@ server.listen(config.port, config.host, () => {
   try { require('./lib/install-count').start(); } catch (err) { /* never block startup */ }
   // ShowPilot app listing heartbeat (only does anything when the owner turned it on).
   try { require('./lib/app-listing').start(); } catch (err) { /* never block startup */ }
+  // Miles or kilometres: look up the show's country if it isn't known yet.
+  try { require('./lib/units').start(); } catch (err) { /* never block startup */ }
 });
 
 // Clean shutdown: tell the cloudflared supervisor to stop respawning

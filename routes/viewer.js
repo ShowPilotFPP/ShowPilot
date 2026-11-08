@@ -969,9 +969,16 @@ router.get('/now-playing-audio', (req, res) => {
 
   // Listener count (v0.33.249+): a phone with its player open polls here
   // about once a second, so each poll counts it as listening (lib/listeners).
+  // Hosted installs may have a listener limit: a phone that doesn't fit is
+  // told the show is full (and isn't counted) until a place opens.
   {
+    const listeners = require('../lib/listeners');
     const tok = req.cookies[config.sessionCookieName + '_viewer'];
-    if (tok && !require('../lib/admin-viewers').isAdminViewerToken(tok)) require('../lib/listeners').touch(tok);
+    const isAdmin = tok && require('../lib/admin-viewers').isAdminViewerToken(tok);
+    if (!isAdmin && !listeners.admit(tok)) {
+      return res.json({ playing: false, audioFull: true });
+    }
+    if (tok && !isAdmin) listeners.touch(tok);
   }
 
   // Audio distance gating — used for copyright compliance to prevent listeners
@@ -1250,6 +1257,16 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   const cfg = getConfig();
   if (cfg.audio_enabled === 0) {
     return res.status(404).send('Audio is disabled for this show.');
+  }
+
+  // Listener limit (hosted installs): only phones that were let in by
+  // /api/now-playing-audio may download songs.
+  {
+    const tok = req.cookies[config.sessionCookieName + '_viewer'];
+    const isAdmin = tok && require('../lib/admin-viewers').isAdminViewerToken(tok);
+    if (!isAdmin && !require('../lib/listeners').admit(tok)) {
+      return res.status(503).send('Phone audio is full right now.');
+    }
   }
 
   // Case-insensitive lookup in case viewer page or admin renamed the sequence

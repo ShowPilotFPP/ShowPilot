@@ -3032,6 +3032,8 @@
   // never sees them. Falls back to English for any missing key or language.
   const _PLAYER_STRINGS = {
     es: {
+      'Phone audio is full right now. It will start when a spot opens.': 'El audio en el teléfono está lleno ahora. Empezará cuando haya un lugar libre.',
+      'Full': 'Lleno',
       'Listen on phone': 'Escuchar en el teléfono',
       'Preparing…': 'Preparando…',
       'Play/pause': 'Reproducir/pausar',
@@ -3049,6 +3051,8 @@
       'Winner!': '¡Ganador!',
     },
     fr: {
+      'Phone audio is full right now. It will start when a spot opens.': 'L\'audio sur téléphone est complet pour le moment. Il démarrera dès qu\'une place se libère.',
+      'Full': 'Complet',
       'Listen on phone': 'Écouter sur le téléphone',
       'Preparing…': 'Préparation…',
       'Play/pause': 'Lecture/pause',
@@ -3066,6 +3070,8 @@
       'Winner!': 'Gagnant !',
     },
     de: {
+      'Phone audio is full right now. It will start when a spot opens.': 'Das Handy-Audio ist gerade voll. Es startet, sobald ein Platz frei wird.',
+      'Full': 'Voll',
       'Listen on phone': 'Auf dem Telefon anhören',
       'Preparing…': 'Vorbereitung…',
       'Play/pause': 'Abspielen/Pause',
@@ -3083,6 +3089,8 @@
       'Winner!': 'Gewinner!',
     },
     pt: {
+      'Phone audio is full right now. It will start when a spot opens.': 'O áudio no celular está cheio agora. Vai começar quando abrir uma vaga.',
+      'Full': 'Cheio',
       'Listen on phone': 'Ouvir no telefone',
       'Preparing…': 'Preparando…',
       'Play/pause': 'Reproduzir/pausar',
@@ -3100,6 +3108,8 @@
       'Winner!': 'Vencedor!',
     },
     it: {
+      'Phone audio is full right now. It will start when a spot opens.': 'L\'audio sul telefono è al completo. Partirà appena si libera un posto.',
+      'Full': 'Completo',
       'Listen on phone': 'Ascolta sul telefono',
       'Preparing…': 'Preparazione…',
       'Play/pause': 'Riproduci/pausa',
@@ -3117,6 +3127,8 @@
       'Winner!': 'Vincitore!',
     },
     pl: {
+      'Phone audio is full right now. It will start when a spot opens.': 'Dźwięk na telefonie jest teraz pełny. Włączy się, gdy zwolni się miejsce.',
+      'Full': 'Pełne',
       'Listen on phone': 'Słuchaj na telefonie',
       'Preparing…': 'Przygotowanie…',
       'Play/pause': 'Odtwórz/pauza',
@@ -5716,6 +5728,17 @@
         if (!r.ok) return;
         const data = await r.json();
         const reqEnd = Date.now();
+
+        // Listener limit reached (hosted shows): stop, say so, and keep
+        // polling — every poll asks again, so audio starts by itself as soon
+        // as a place opens. Not a gate latch: nothing to refresh.
+        if (data.audioFull) {
+          if (currentSource) stopAudio();
+          currentSequence = null; // rebuild at the live position once let in
+          statusEl.textContent = _pt('Phone audio is full right now. It will start when a spot opens.');
+          pillText.textContent = _pt('Full');
+          return;
+        }
 
         // Server says viewer is outside the audio gate radius — stop audio
         // and signal the launcher to hide. /api/visual-config polling will

@@ -1935,7 +1935,10 @@
       font-variant-numeric: tabular-nums;
       font-weight: 600;
     }
-  </style>
+      /* "Coming soon" style tag on a sub-tab label (data-tag="…"). */
+    .sub-tab[data-tag]::after { content: attr(data-tag); display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.4rem; border-radius: 999px; font-size: 0.68em; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft, rgba(245, 158, 11, 0.18)); color: var(--accent-text, #f59e0b); vertical-align: 1px; }
+    .sp-page-link { color: var(--accent-text, var(--accent, #f59e0b)); }
+</style>
   <script src="/vendor/chart.umd.min.js"></script>
   <script src="/vendor/monaco/vs/loader.js"></script>
   <script>
@@ -2098,7 +2101,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.279-beta.7</span>
+        <span class="app-version">v0.33.279-beta.8</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3533,7 +3536,8 @@
             <div class="sub-tab" data-subtab="race" onclick="switchTab('race')">Race</div>
             <div class="sub-tab" data-subtab="show-buttons" onclick="switchTab('show-buttons')">Show Buttons</div>
             <div class="sub-tab" data-subtab="audio" onclick="switchTab('audio')">Audio</div>
-            <div class="sub-tab" data-subtab="app" onclick="switchTab('app')">App</div>
+            <div class="sub-tab" data-subtab="app" onclick="switchTab('app')">Install as App</div>
+            <div class="sub-tab" data-subtab="showpilot-app" data-tag="Coming soon" onclick="switchTab('showpilot-app')">ShowPilot App</div>
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
             <div class="sub-tab" data-hosted-hide data-subtab="public-access" onclick="switchTab('public-access')">Public Access</div>
             <div class="sub-tab" data-subtab="backup" onclick="switchTab('backup')">Backup &amp; Restore</div>
@@ -4085,6 +4089,59 @@
             </div>
           </div>
 
+          <!-- SHOWPILOT APP (the official phone app; lib/app-listing.js) -->
+          <div class="sub-tab-pane" data-subtab="showpilot-app">
+            <h3 id="appListingHeading">Show in the ShowPilot app</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Everything for the ShowPilot phone app is on this page. Listing your show lets people near it find it,
+              open your viewer page and listen, and puts it in the app's Directory of Shows. Off until you turn it on.
+            </p>
+            <div class="row" style="align-items: center; gap: 0.6rem;">
+              <input type="checkbox" id="cfg_app_listing_enabled" onchange="appListingSetListed(this)" />
+              <label for="cfg_app_listing_enabled" style="margin: 0;">List my show in the ShowPilot app</label>
+            </div>
+            <div class="row" style="gap: 0.5rem; align-items: center; margin: 0.35rem 0 0.75rem;">
+              <span id="appListingStatus" class="muted" style="font-size: 0.85rem;"></span>
+              <button id="appListingRetry" class="secondary" style="display: none;" onclick="appListingRetry(this)">Try again</button>
+            </div>
+            <div id="appListingProblems" class="muted" style="display: none; font-size: 0.85rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; margin-bottom: 0.75rem;"></div>
+
+            <label>Name in the app</label>
+            <div id="appListingName" style="font-weight: 600; margin: 0.15rem 0 0.15rem;"></div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.75rem;">
+              Your show name. Change it in <a href="#" class="sp-page-link" onclick="switchTab('general'); return false;">Settings &rarr; General</a>.
+            </p>
+
+            <label for="cfg_app_listing_town">Town <span class="muted" style="font-weight: normal;">(optional)</span></label>
+            <input type="text" id="cfg_app_listing_town" maxlength="60" placeholder="e.g. Oak Ridge" onchange="saveAppListing('app_listing_town', this.value)" />
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">Shown under your name. Leave it blank and the app shows no town.</p>
+
+            <label for="cfg_app_listing_address">Show address <span class="muted" style="font-weight: normal;">(optional)</span></label>
+            <div class="row" style="gap: 0.5rem; align-items: stretch;">
+              <input type="text" id="cfg_app_listing_address" maxlength="160" placeholder="e.g. 1234 Main St, Oak Ridge" style="flex: 1; margin: 0;"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();saveAppAddress();}" />
+              <button class="secondary" onclick="saveAppAddress()" style="white-space: nowrap;">Save address</button>
+            </div>
+            <div id="appAddressStatus" class="muted" style="font-size: 0.8rem; margin-top: 0.25rem; min-height: 1.1rem;"></div>
+            <div class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px;">
+              <strong>With an address:</strong> the app shows it on your listing with a <strong>Navigate</strong> button that opens the phone's maps app,
+              your pin in the Directory of Shows is exact, and saving it also sets your show location (used by the GPS check and the
+              audio distance limit in <a href="#" class="sp-page-link" onclick="switchTab('safeguards'); return false;">Interaction Safeguards</a>).<br />
+              <strong>Without an address:</strong> there's no Navigate button, and your location stays rounded to about a mile everywhere
+              it's public (the app and your viewer page). The app still lists your show from the location in Interaction Safeguards.
+            </div>
+
+            <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;">
+              It also needs a Public base URL that starts with https:// (<a href="#" class="sp-page-link" onclick="switchTab('audio'); return false;">Settings &rarr; Audio</a> &rarr; External audio access):
+              phones on cellular reach your show through it. The app's main list shows your show to phones within about a mile of it,
+              the same for every show; the Directory of Shows lets people search farther.
+            </p>
+            <details style="margin: 0.5rem 0 1rem;">
+              <summary class="muted" style="font-size: 0.8rem; cursor: pointer;">What gets sent</summary>
+              <pre id="appListingSample" style="font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; margin-top: 0.4rem;"></pre>
+            </details>
+          </div>
+
           <!-- INTERACTION SAFEGUARDS -->
           <div class="sub-tab-pane" data-subtab="safeguards">
             <h3>PSA injection</h3>
@@ -4143,6 +4200,9 @@
               </div>
             </div>
 
+            <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
+              Saving a show address on <a href="#" class="sp-page-link" onclick="switchTab('showpilot-app'); return false;">Settings &rarr; ShowPilot App</a> also sets this location.
+            </p>
             <!-- Address lookup — geocode an address into lat/lng -->
             <div class="row" style="margin-top: 0.75rem; gap: 0.5rem; align-items: stretch;">
               <input type="text" id="addressLookupInput"
@@ -4168,48 +4228,6 @@
                 Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color: var(--text-muted);">OpenStreetMap</a>.
               </div>
             </div>
-
-            <h3 id="appListingHeading">Show in the ShowPilot app</h3>
-            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-              Lists your show in the ShowPilot phone app, so people driving nearby can find it, open your viewer page and listen.
-              Uses the show location above and your Public base URL (Settings &rarr; Audio &rarr; External audio access). Off until you turn it on.
-              Phones see your show when they're within about a mile of it; that distance is the same for every show.
-            </p>
-            <div class="row">
-              <input type="checkbox" id="cfg_app_listing_enabled" onchange="saveAppListing('app_listing_enabled', this.checked ? 1 : 0)" />
-              <label for="cfg_app_listing_enabled" style="margin: 0;">List my show in the ShowPilot app</label>
-            </div>
-            <div class="grid-2" style="margin-top: 0.5rem;">
-              <div>
-                <label for="cfg_app_listing_name">Name in the app</label>
-                <input type="text" id="cfg_app_listing_name" maxlength="60" placeholder="Your show name" onchange="saveAppListing('app_listing_name', this.value)" />
-              </div>
-              <div>
-                <label for="cfg_app_listing_town">Town</label>
-                <input type="text" id="cfg_app_listing_town" maxlength="60" placeholder="e.g. Oak Ridge" onchange="saveAppListing('app_listing_town', this.value)" />
-              </div>
-            </div>
-            <div class="row" style="margin-top: 0.5rem;">
-              <input type="checkbox" id="cfg_app_listing_fuzz" onchange="saveAppListing('app_listing_fuzz', this.checked ? 1 : 0)" />
-              <label for="cfg_app_listing_fuzz" style="margin: 0;">Round my location to about a mile (recommended)</label>
-            </div>
-            <div class="row">
-              <input type="checkbox" id="cfg_app_listing_directions" onchange="saveAppListing('app_listing_directions', this.checked ? 1 : 0)" />
-              <label for="cfg_app_listing_directions" style="margin: 0;">Let the app give exact directions to my show</label>
-            </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.5rem;">
-              With rounding on, your exact spot isn't published anywhere: not in the app's list, not on your viewer page.
-              Exact directions puts the exact pin on your show's own info page, which anyone can read.
-            </p>
-            <div id="appListingProblems" class="muted" style="display: none; font-size: 0.85rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; margin-bottom: 0.5rem;"></div>
-            <div class="row" style="gap: 0.5rem; align-items: center;">
-              <button class="secondary" onclick="appListingCheckInNow(this)">Check in now</button>
-              <span id="appListingStatus" class="muted" style="font-size: 0.85rem;"></span>
-            </div>
-            <details style="margin: 0.5rem 0 1rem;">
-              <summary class="muted" style="font-size: 0.8rem; cursor: pointer;">What gets sent</summary>
-              <pre id="appListingSample" style="font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; margin-top: 0.4rem;"></pre>
-            </details>
 
             <h3>Location code</h3>
             <div class="row">
@@ -6958,14 +6976,11 @@
       setVal('cfg_show_latitude', c.show_latitude);
       setVal('cfg_show_longitude', c.show_longitude);
       setVal('cfg_check_radius_miles', spToUnits(c.check_radius_miles));
-      setChk('cfg_app_listing_enabled', c.app_listing_enabled === 1);
-      setVal('cfg_app_listing_name', c.app_listing_name || '');
-      const nameEl = document.getElementById('cfg_app_listing_name');
-      if (nameEl) nameEl.placeholder = c.show_name || 'Your show name';
+      if (!_appListingBusy) setChk('cfg_app_listing_enabled', c.app_listing_enabled === 1);
       setVal('cfg_app_listing_town', c.app_listing_town || '');
+      setVal('cfg_app_listing_address', c.app_listing_address || '');
+      { const n = document.getElementById('appListingName'); if (n) n.textContent = c.show_name || 'Light show'; }
       if (!_spUnitsLoaded) { _spUnitsLoaded = true; loadUnits(false); }
-      setChk('cfg_app_listing_fuzz', c.app_listing_fuzz !== 0);
-      setChk('cfg_app_listing_directions', c.app_listing_directions === 1);
       loadAppListingStatus();
       setChk('cfg_location_code_enabled', c.location_code_enabled);
       setVal('cfg_location_code', c.location_code || '');
@@ -7927,22 +7942,75 @@
         probs.textContent = list.join(' ');
         probs.style.display = list.length && (st.enabled || st.demo) ? '' : 'none';
       }
+      const retry = document.getElementById('appListingRetry');
+      const lr = st.lastResult;
+      // Only the result that matches the switch counts (a removal result
+      // says nothing about a listing that was just turned on, and back).
+      const current = lr && ((st.enabled && lr.action === 'checkin') || (!st.enabled && lr.action === 'remove'));
       if (status) {
-        const lr = st.lastResult;
         let t = '';
-        if (lr) {
-          const when = new Date(lr.at).toLocaleTimeString();
-          t = (lr.ok ? '\u2705 ' : '\u26a0\ufe0f ') + lr.message + ' (' + when + ')';
+        if (st.demo) t = '';
+        else if (st.enabled) {
+          if (current && lr.ok) t = '\u2705 Listed in the ShowPilot app. It updates itself when anything here changes.';
+          else if (current) t = (lr.pending ? '' : '\u26a0\ufe0f ') + lr.message;
+          else t = 'Listing\u2026';
         } else if (st.removePending) {
-          t = 'Removing from the app\u2026';
-        } else if (st.enabled) {
-          t = 'Waiting for the first check-in\u2026';
+          t = (current && !lr.ok) ? '\u26a0\ufe0f ' + lr.message : 'Removing from the app\u2026';
         } else {
-          t = 'Not listed.';
+          t = (current && lr.ok) ? 'Removed from the ShowPilot app.' : 'Not listed.';
         }
         status.textContent = t;
       }
+      if (retry) retry.style.display = (st.enabled && current && !lr.ok && !lr.pending && !(st.problems || []).length) ? '' : 'none';
       if (sample && st.sample) sample.textContent = JSON.stringify(st.sample, null, 2);
+    }
+    // The switch lists or removes the show right away and shows the result.
+    let _appListingBusy = false;
+    async function appListingSetListed(chk) {
+      const status = document.getElementById('appListingStatus');
+      _appListingBusy = true;
+      chk.disabled = true;
+      if (status) status.textContent = chk.checked ? 'Listing\u2026' : 'Removing from the app\u2026';
+      try {
+        const r = await api('/app-listing/listed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listed: chk.checked }) });
+        if (r.ok) renderAppListingStatus(r.data);
+        else if (status) status.textContent = '\u26a0\ufe0f Couldn\u2019t save that. Try again.';
+      } finally { chk.disabled = false; _appListingBusy = false; }
+    }
+    async function appListingRetry(btn) {
+      if (btn) btn.disabled = true;
+      const status = document.getElementById('appListingStatus');
+      if (status) status.textContent = 'Listing\u2026';
+      try {
+        const r = await api('/app-listing/check-in', { method: 'POST' });
+        if (r.ok) renderAppListingStatus(r.data);
+      } finally { if (btn) btn.disabled = false; }
+    }
+    // Saving the address also sets the show location from it.
+    async function saveAppAddress() {
+      const input = document.getElementById('cfg_app_listing_address');
+      const st = document.getElementById('appAddressStatus');
+      const addr = input.value.trim();
+      const setSt = (t, color) => { st.textContent = t; st.style.color = color || 'var(--text-muted)'; };
+      if (!addr) {
+        await saveAppListing('app_listing_address', '');
+        setSt('Address removed. Your location stays rounded and there\u2019s no Navigate button.');
+        return;
+      }
+      setSt('Looking up the address\u2026');
+      const g = await api('/geocode?q=' + encodeURIComponent(addr));
+      await saveAppListing('app_listing_address', addr);
+      if (g.ok && g.data && g.data.lat && g.data.lng) {
+        await saveSetting('show_latitude', g.data.lat);
+        await saveSetting('show_longitude', g.data.lng);
+        setVal('cfg_show_latitude', g.data.lat.toFixed(6));
+        setVal('cfg_show_longitude', g.data.lng.toFixed(6));
+        if (typeof updateLocationMap === 'function') updateLocationMap();
+        loadAppListingStatus();
+        setSt('\u2713 Saved. Show location set to: ' + (g.data.displayName || addr), 'var(--status-success, #16a34a)');
+      } else {
+        setSt('Saved, but the map couldn\u2019t find that address, so your show location wasn\u2019t changed. Check it in Interaction Safeguards.', 'var(--status-warning, #d97706)');
+      }
     }
     async function loadAppListingStatus() {
       const r = await api('/app-listing');
@@ -7953,17 +8021,6 @@
       await saveSetting(key, value);
       loadAppListingStatus();
     }
-    async function appListingCheckInNow(btn) {
-      if (btn) btn.disabled = true;
-      const status = document.getElementById('appListingStatus');
-      if (status) status.textContent = 'Checking in\u2026';
-      try {
-        const r = await api('/app-listing/check-in', { method: 'POST' });
-        if (r.ok) renderAppListingStatus(r.data);
-        else if (status) status.textContent = 'Check-in failed.';
-      } finally { if (btn) btn.disabled = false; }
-    }
-
     async function loadInstallCountStatus() {
       const r = await api('/install-count');
       if (!r.ok) return null;

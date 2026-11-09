@@ -1,6 +1,8 @@
-# Settings › App
+# Settings › Install as App
 
 Lets people add ShowPilot to their home screen as an app that opens full-screen, without the browser's address bar. You can turn this on separately for your admin pages and for your viewer page.
+
+This is about installing your own pages as a home-screen app. Listing your show in the ShowPilot phone app is on [Settings › ShowPilot App](help:settings-showpilot-app).
 
 ## Admin app
 

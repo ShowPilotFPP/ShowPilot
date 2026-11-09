@@ -51,25 +51,7 @@ The same coordinates are used by the audio distance gate on [Settings › Audio]
 
 ## Show in the ShowPilot app
 
-Turn on **List my show in the ShowPilot app** and your show appears in the ShowPilot phone app for people within about a mile of it. That distance is the same for every show and isn't a setting: the app is for people at your show or driving past, not for browsing shows across town. They can open your viewer page from it and, if phone audio is on, listen in the app. It's off until you turn it on.
-
-It needs two things, and the section tells you if either is missing:
-
-- the show location above (**Show latitude** and **Show longitude**), and
-- a **Public base URL** that starts with `https://` in [Settings › Audio](help:settings-audio). Phones on cellular reach your show through it, so a home network address won't work.
-
-| Setting | What it does |
-|---|---|
-| **Name in the app** | The name people see. Leave it empty to use your show name. |
-| **Town** | Shown under the name, so people know roughly where you are. |
-| **Round my location to about a mile** | On by default. The app's list and your viewer page get a spot rounded to about a mile, never your exact one. |
-| **Let the app give exact directions** | Off by default. Puts your exact spot on your show's info page so the app can offer turn-by-turn directions. Anyone can read that page. |
-
-ShowPilot checks in with the app's directory once a minute while your show is listed, sending what **What gets sent** shows: the name, town, your public address, the (rounded) location, whether the show is playing and the current song. Your show shows as live while a song is playing. Press **Check in now** to see the result straight away.
-
-Turning listing off removes your show from the app. If the directory can't be reached, ShowPilot keeps trying every minute until it's gone.
-
-> **Tip:** With rounding on and the audio distance gate on, the phone audio player checks with your server about every 30 seconds instead of comparing positions on the phone, because the page no longer carries your exact location.
+Listing your show in the ShowPilot phone app is on its own page now: [Settings › ShowPilot App](help:settings-showpilot-app). It uses the show location above. Saving a show address on that page also sets this location.
 
 ## Location code
 

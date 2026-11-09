@@ -7,13 +7,15 @@
 //
 //   POST /api/shows/checkin   from a listed show, about once a minute
 //   POST /api/shows/remove    from a show whose owner turned listing off
-//   GET  /api/shows/nearby?lat=&lng=&radius_mi=   from the phone app
+//   GET  /api/shows/nearby?lat=&lng=&radius_mi=   from the phone app ("here now")
+//   GET  /api/shows/directory?lat=&lng=&radius_mi= from the phone app's
+//        Directory of Shows (map + list, the user picks the distance)
 //
-// What a listed show publishes: name, town, public URL, location (rounded
-// to ~1 mile unless the owner chose otherwise — the rounding happens on
-// the show, so the exact spot never reaches us), whether it's rounded, and
-// live / phone-audio / now-playing. We keep a hash of the install ID, not
-// the ID itself.
+// What a listed show publishes: name, town, optional address, public URL,
+// location (rounded to ~1 mile unless the owner entered an address — the
+// rounding happens on the show, so the exact spot never reaches us), whether
+// it's rounded, and live / phone-audio / now-playing. We keep a hash of the
+// install ID, not the ID itself.
 //
 // Listing distance (master.17): the same for every show and not a setting.
 // A phone sees a show within LISTING_RADIUS_MI of it; for a rounded
@@ -48,6 +50,10 @@ const MIN_CHECKIN_GAP_S = 20;
 const REVERIFY_S = 24 * 3600;
 const REVERIFY_GRACE_S = 48 * 3600;    // keep a verified show listed through short outages
 const MAX_RESULTS = 50;
+// Directory of Shows: the user picks the distance in the app.
+const DIRECTORY_DEFAULT_MI = 25;
+const DIRECTORY_MAX_MI = 100;
+const DIRECTORY_MAX_RESULTS = 200;
 const MAX_VERIFY_AT_ONCE = 5;
 const LISTING_RADIUS_MI = 1;
 // The show rounds to the centre of a 0.015 degree grid cell (~1.04 mi
@@ -156,14 +162,16 @@ function createDirectory(db) {
   // master.17: whether the published location is rounded (older rows: assume yes).
   const cols = db.prepare('PRAGMA table_info(shows)').all().map(c => c.name);
   if (!cols.includes('fuzzed')) db.exec('ALTER TABLE shows ADD COLUMN fuzzed INTEGER NOT NULL DEFAULT 1');
+  // Optional show address (shown in the app with a Navigate button).
+  if (!cols.includes('address')) db.exec('ALTER TABLE shows ADD COLUMN address TEXT');
 
   const getRow = db.prepare('SELECT * FROM shows WHERE id_hash = ?');
   const upsert = db.prepare(`
-    INSERT INTO shows (id_hash, public_id, product, version, name, town, viewer_url, api_base_url, lat, lng, radius_mi,
+    INSERT INTO shows (id_hash, public_id, product, version, name, town, address, viewer_url, api_base_url, lat, lng, radius_mi,
                        fuzzed, live, has_audio, now_playing, verified_base, verified_at, first_seen, last_seen)
-    VALUES (@id_hash, @public_id, @product, @version, @name, @town, @viewer_url, @api_base_url, @lat, @lng, @radius_mi,
+    VALUES (@id_hash, @public_id, @product, @version, @name, @town, @address, @viewer_url, @api_base_url, @lat, @lng, @radius_mi,
             @fuzzed, @live, @has_audio, @now_playing, @verified_base, @verified_at, @now, @now)
-    ON CONFLICT(id_hash) DO UPDATE SET product=@product, version=@version, name=@name, town=@town, viewer_url=@viewer_url,
+    ON CONFLICT(id_hash) DO UPDATE SET product=@product, version=@version, name=@name, town=@town, address=@address, viewer_url=@viewer_url,
       api_base_url=@api_base_url, lat=@lat, lng=@lng, radius_mi=@radius_mi, fuzzed=@fuzzed, live=@live, has_audio=@has_audio,
       now_playing=@now_playing, verified_base=@verified_base, verified_at=@verified_at, last_seen=@now`);
   const del = db.prepare('DELETE FROM shows WHERE id_hash = ?');
@@ -188,11 +196,20 @@ function createDirectory(db) {
     }
     const name = text(b.name, 60);
     if (!name) return res.status(400).json({ error: 'name is required' });
+    const town = text(b.town, 60) || null;
+    const address = text(b.address, 160) || null;
+    const rLat = Math.round(lat * 1e5) / 1e5, rLng = Math.round(lng * 1e5) / 1e5;
+    const fuzzed = b.fuzzed === false ? 0 : 1;   // older installs don't say: assume rounded (the default)
 
     const h = idHash(id);
     const now = Math.floor(Date.now() / 1000);
     const prev = getRow.get(h);
-    if (prev && now - prev.last_seen < MIN_CHECKIN_GAP_S) return res.status(429).json({ error: 'checking in too often' });
+    // The rate limit is for the heartbeat. A check-in that changes what's
+    // listed (the owner just edited a detail) goes through at once.
+    const changed = !prev || prev.name !== name || (prev.town || null) !== town || (prev.address || null) !== address
+      || prev.lat !== rLat || prev.lng !== rLng || prev.fuzzed !== fuzzed || prev.viewer_url !== viewer.href
+      || prev.has_audio !== (b.hasAudio === true ? 1 : 0);
+    if (prev && !changed && now - prev.last_seen < MIN_CHECKIN_GAP_S) return res.status(429).json({ error: 'checking in too often' });
     if (busy.has(h)) return res.status(429).json({ error: 'check-in already in progress' });
 
     const apiBase = (api.origin + api.pathname).replace(/\/+$/, '');
@@ -224,10 +241,10 @@ function createDirectory(db) {
     upsert.run({
       id_hash: h, public_id: pid, product: b.product,
       version: VERSION_RE.test(String(b.version || '')) ? String(b.version) : null,
-      name, town: text(b.town, 60) || null,
+      name, town, address,
       viewer_url: viewer.href, api_base_url: apiBase,
-      lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, radius_mi: LISTING_RADIUS_MI,
-      fuzzed: b.fuzzed === false ? 0 : 1,   // older installs don't say: assume rounded (the default)
+      lat: rLat, lng: rLng, radius_mi: LISTING_RADIUS_MI,
+      fuzzed,
       live: live ? 1 : 0, has_audio: b.hasAudio === true ? 1 : 0,
       now_playing: live ? (text(b.nowPlaying, 120) || null) : null,
       verified_base: verifiedBase, verified_at: verifiedAt, now,
@@ -268,12 +285,48 @@ function createDirectory(db) {
       const live = r.live === 1 && now - r.last_seen <= LIVE_STALE_S;
       shows.push({
         id: r.public_id, name: r.name, viewerUrl: r.viewer_url, apiBaseUrl: r.api_base_url,
-        lat: r.lat, lng: r.lng, distanceMi: Math.round(d * 10) / 10, town: r.town || '',
+        lat: r.lat, lng: r.lng, distanceMi: Math.round(d * 10) / 10, town: r.town || '', address: r.address || '',
+        fuzzed: r.fuzzed !== 0,
         live, hasAudio: r.has_audio === 1, nowPlaying: live ? (r.now_playing || '') : '',
       });
     }
     shows.sort((a, b) => (b.live - a.live) || (a.distanceMi - b.distanceMi));
     res.json({ shows: shows.slice(0, MAX_RESULTS) });
+  });
+
+  // Directory of Shows: every listed show within the distance the user
+  // picked (1–100 miles; the app converts km). Nearest first. A show
+  // without an address has a rounded pin (fuzzed: true) and no address, so
+  // the app shows its area, not its spot, and no Navigate button.
+  router.get('/api/shows/directory', (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cache-Control', 'no-store');
+    const lat = Number(req.query.lat), lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return res.status(400).json({ error: 'lat and lng are required' });
+    }
+    let radius = Number(req.query.radius_mi);
+    if (!Number.isFinite(radius)) radius = DIRECTORY_DEFAULT_MI;
+    radius = Math.min(DIRECTORY_MAX_MI, Math.max(1, radius));
+    const now = Math.floor(Date.now() / 1000);
+    const dLat = radius / 69;
+    const dLng = radius / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.05));
+    const rows = db.prepare(`SELECT * FROM shows WHERE verified_at > 0 AND last_seen >= ?
+      AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?`).all(now - LIST_STALE_S, lat - dLat, lat + dLat, lng - dLng, lng + dLng);
+    const shows = [];
+    for (const r of rows) {
+      const d = distanceMiles(lat, lng, r.lat, r.lng);
+      if (d > radius) continue;
+      const live = r.live === 1 && now - r.last_seen <= LIVE_STALE_S;
+      shows.push({
+        id: r.public_id, name: r.name, viewerUrl: r.viewer_url, apiBaseUrl: r.api_base_url,
+        lat: r.lat, lng: r.lng, fuzzed: r.fuzzed !== 0, distanceMi: Math.round(d * 10) / 10,
+        town: r.town || '', address: r.address || '',
+        live, hasAudio: r.has_audio === 1, nowPlaying: live ? (r.now_playing || '') : '',
+      });
+    }
+    shows.sort((a, b) => a.distanceMi - b.distanceMi);
+    res.json({ radiusMi: radius, shows: shows.slice(0, DIRECTORY_MAX_RESULTS) });
   });
 
   function cleanup() {

@@ -294,3 +294,6 @@ body.ui-new.spn-drawer.spn-drawer-open .spn-rail:hover { box-shadow: 8px 0 32px 
    the rail is collapsed, a count pill next to the label when expanded. */
 .spn-item[data-unread] { position: relative; }
 .spn-item[data-unread]::after { content: attr(data-unread); position: absolute; top: 4px; left: 26px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-text, #fff); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; pointer-events: none; }
+
+/* "Coming soon" style tag on a sub-page label (data-tag on .sub-tab). */
+.spn-subitem .sp-soon-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 0.68em; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft, rgba(245, 158, 11, 0.18)); color: var(--accent-text, #f59e0b); vertical-align: 1px; }

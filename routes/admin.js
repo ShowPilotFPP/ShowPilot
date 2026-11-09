@@ -272,6 +272,14 @@ router.get('/app-listing', requireAdmin, (req, res) => {
   try { res.json(require('../lib/app-listing').status()); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
+// The "List my show" switch: saves it and waits for the directory, so the
+// page shows "Listed" or "Removed" at once.
+router.post('/app-listing/listed', requireAdmin, async (req, res) => {
+  const al = require('../lib/app-listing');
+  try { res.json(await al.setListed(!!(req.body && req.body.listed))); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Retry after a failed check-in (the page only offers it then).
 router.post('/app-listing/check-in', requireAdmin, async (req, res) => {
   const al = require('../lib/app-listing');
   try { await al.tick(); res.json(al.status()); }
@@ -325,10 +333,8 @@ router.put('/config', requireAdmin, (req, res) => {
     'location_code',
     // ShowPilot app listing (lib/app-listing.js)
     'app_listing_enabled',
-    'app_listing_name',
     'app_listing_town',
-    'app_listing_fuzz',
-    'app_listing_directions',
+    'app_listing_address',
     // Race mode (v0.33.155+)
     'race_duration_seconds',
     'race_end_on_sequence_end',

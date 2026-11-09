@@ -34,6 +34,7 @@
 //                     [--no-audioflinger]
 //                     [--mic]          (measure with the reference's microphone instead of asking)
 //                     [--socket <name>] (a specific browser debugging socket; found automatically otherwise)
+//                     [--url https://your-show/] (open the viewer page in Chrome on the phone first)
 // Needs Node 22+ (built-in WebSocket and fetch) and adb on the PATH.
 // ============================================================
 import { execFile } from 'node:child_process';
@@ -53,6 +54,10 @@ const REF_PORT = Number(opt('ref-port', 9223));
 const PHONE_PORT = Number(opt('phone-port', 9222));
 const SERIAL = opt('serial', null);
 const SOCKET = opt('socket', null);
+// --url https://your-show/ : open the viewer page (with ?debug=1) in Chrome
+// on the phone ourselves, so it can't end up in the wrong tab or app.
+let OPEN_URL = opt('url', null);
+if (OPEN_URL && !/[?&]debug=1/.test(OPEN_URL)) OPEN_URL += (OPEN_URL.includes('?') ? '&' : '?') + 'debug=1';
 const OUT = path.resolve('sync-rig-out');
 const USE_MIC = flag('mic');
 // Answers typed (or piped) one per line; queued so piped input works too.
@@ -239,6 +244,20 @@ async function round(n, phone, ref, uids, csv) {
     sockets = [...new Set((unix.match(/@[\w.:-]*devtools_remote[\w.:-]*/g) || []).map(x => x.slice(1)))];
   } catch (_) {}
   if (SOCKET) sockets = [SOCKET];
+  if (OPEN_URL) {
+    // Open the page in Chrome on the phone (a new tab), then use Chrome.
+    sockets = ['chrome_devtools_remote'];
+    try { await adb('forward', '--remove', `tcp:${PHONE_PORT}`); } catch (_) {}
+    await adb('forward', `tcp:${PHONE_PORT}`, 'localabstract:chrome_devtools_remote');
+    step(`opening ${OPEN_URL} in Chrome on the phone…`);
+    const r = await fetch(`http://127.0.0.1:${PHONE_PORT}/json/new?${encodeURI(OPEN_URL)}`, { method: 'PUT', signal: AbortSignal.timeout(10000) }).catch(e => ({ ok: false, statusText: e.message }));
+    if (!r.ok) {
+      // Older Chrome only accepts GET here.
+      const g = await fetch(`http://127.0.0.1:${PHONE_PORT}/json/new?${encodeURI(OPEN_URL)}`, { signal: AbortSignal.timeout(10000) }).catch(e => ({ ok: false, statusText: e.message }));
+      if (!g.ok) { console.error('Could not open a tab in Chrome on the phone (' + (g.statusText || r.statusText) + '). Open the page there yourself and run without --url.'); process.exit(1); }
+    }
+    await sleep(5000);
+  }
   if (!sockets.length) sockets = ['chrome_devtools_remote'];
   step(`browser debugging sockets on the phone: ${sockets.join(', ')}`);
   let phone = null; const seen = [];

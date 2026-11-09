@@ -5067,6 +5067,7 @@
     // build saw a 2000 ms+ reading). ?timing=reported forces the old way.
     const outDelaySamples = [];   // k values (seconds)
     let outDelayMs = null;        // current measured delay, for the overlay
+    let outDelayLoggedMs = null;  // last value written to the console
     let outTimingCtx = null;      // the context the samples belong to
     const outTimingForcedReported = new URLSearchParams(window.location.search).get('timing') === 'reported';
     function sampleOutputDelay() {
@@ -5085,6 +5086,14 @@
       if (outDelaySamples.length > 25) outDelaySamples.shift();
       const m = measuredOutputDelaySec();
       outDelayMs = m === null ? null : Math.round(m * 1000);
+      // Log real changes, so a jump in the speaker delay can be told apart
+      // from other causes when a correction fires.
+      if ((outDelayMs === null) !== (outDelayLoggedMs === null) ||
+          (outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) > 25)) {
+        console.log('[ShowPilot] speaker delay now', outDelayMs === null ? 'unknown (using reported)' : outDelayMs + ' ms',
+          '(was ' + (outDelayLoggedMs === null ? 'unknown' : outDelayLoggedMs + ' ms') + ')');
+        outDelayLoggedMs = outDelayMs;
+      }
     }
     // Faster while there are few readings (right after the context starts),
     // so the first song can already use them.
@@ -5957,9 +5966,17 @@
     let clockSockBound = null;
     const clockPending = new Map(); // t1 → { resolve, timer }
 
+    // Wall clock minus page clock at the last sample. If it has moved a lot
+    // since, the page clock paused (device asleep) and the old samples no
+    // longer describe it. Otherwise they're still good and are kept.
+    let clockGapRef = null;
+    function clockPagePaused() {
+      return clockGapRef !== null && Math.abs((Date.now() - spNow()) - clockGapRef) > 50;
+    }
     function clockAddSample(rtt, offset) {
       if (!(rtt >= 0) || rtt > 5000 || !Number.isFinite(offset)) return;
       const now = spNow();
+      clockGapRef = Date.now() - now;
       clockSamples.push({ rtt, offset, at: now });
       clockSamples = clockSamples.filter(s => now - s.at <= CLOCK_WINDOW_MS);
       if (clockSamples.length > 200) clockSamples.splice(0, clockSamples.length - 200);
@@ -5995,7 +6012,9 @@
       clockSockBound = audioSock;
       audioSock.on('timesync', onClockReply);
       // A new connection may take a different path: start over.
-      audioSock.on('connect', () => { clockSamples = []; lockClock(); });
+      // A reconnect doesn't change the clocks: keep the samples (quick ones
+      // still win) unless the page clock paused while disconnected.
+      audioSock.on('connect', () => { if (clockPagePaused()) clockSamples = []; lockClock(); });
     }
     function clockPing() {
       return new Promise((resolve) => {
@@ -6022,7 +6041,10 @@
     }
     function onClockWake() {
       if (document.hidden || !clockKeepTimer) return;
-      clockSamples = []; // the page clock may have paused while asleep
+      // Only start over if the page clock actually paused while asleep.
+      // Throwing away good samples left the estimate on the first few slow
+      // replies and made it wander 20-40 ms until the lock finished.
+      if (clockPagePaused()) clockSamples = [];
       lockClock();
     }
     function startClockMaintenance() {
@@ -7018,7 +7040,8 @@
               - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
               + loopLatencySec;
             console.log('[ShowPilot] crossfade correction: drift', correctionDriftMs + 'ms →',
-              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old)');
+              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old; speaker delay ' +
+              Math.round((loopLatencySec - listenerOffsetSec) * 1000) + 'ms ' + outputTimingSource() + ', clock ' + Math.round(clockOffset) + 'ms)');
             if (crossfadeTo(targetPos)) {
               smoothedDriftMs = 0;
               lastAppliedRate = 1.0;

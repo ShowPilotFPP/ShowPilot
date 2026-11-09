@@ -4848,6 +4848,56 @@
     let currentTrackMediaName = null; // raw FPP media filename for the current track
     const FPP_SAMPLE_WINDOW_MS = 5000;
 
+    // ---- Audio context setup (beta test) ----
+    // ?latency=playback | balanced | interactive asks the browser for that
+    // output setup instead of its default. Android Chrome's default
+    // low-latency output can come up with a different hidden delay each time
+    // the player opens; the larger-buffer 'playback' setup may be steadier.
+    // Test switch only; without it nothing changes.
+    function spNewAudioContext() {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      let hint = null;
+      try { hint = new URLSearchParams(window.location.search).get('latency'); } catch (_) {}
+      if (hint === 'playback' || hint === 'balanced' || hint === 'interactive') {
+        try { return new AC({ latencyHint: hint }); } catch (_) {}
+      }
+      return new AC();
+    }
+    // How far the audio clock jumps between readings (the size of the blocks
+    // the device renders in, which goes with its output buffer), plus the
+    // browser's own latency figures, logged once per start with ?debug=1.
+    // Watched over ~300 ms without blocking.
+    function logAudioSetup(label) {
+      if (!spVerbose || !audioCtx) return;
+      const ctx = audioCtx;
+      const steps = [];
+      let last = ctx.currentTime;
+      const t0 = performance.now();
+      const tick = () => {
+        if (ctx !== audioCtx) return;
+        const now = ctx.currentTime;
+        if (now !== last) { steps.push(now - last); last = now; }
+        if (performance.now() - t0 < 300) { setTimeout(tick, 1); return; }
+        steps.sort((a, b) => a - b);
+        let ts = null;
+        try { ts = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null; } catch (_) {}
+        let hint = null;
+        try { hint = new URLSearchParams(window.location.search).get('latency'); } catch (_) {}
+        vlog('audio setup', {
+          when: label,
+          blockMs: steps.length ? +(steps[steps.length >> 1] * 1000).toFixed(2) : null,
+          blockMaxMs: steps.length ? +(steps[steps.length - 1] * 1000).toFixed(2) : null,
+          baseLatencyMs: typeof ctx.baseLatency === 'number' ? +(ctx.baseLatency * 1000).toFixed(1) : null,
+          outputLatencyMs: typeof ctx.outputLatency === 'number' ? +(ctx.outputLatency * 1000).toFixed(1) : null,
+          measuredDelayMs: outDelayMs,
+          rawTsGapMs: ts && ts.contextTime > 0 ? +((ctx.currentTime - ts.contextTime) * 1000).toFixed(1) : null,
+          rawPerfAgeMs: ts && ts.performanceTime > 0 ? +(performance.now() - ts.performanceTime).toFixed(1) : null,
+          sampleRate: ctx.sampleRate, latencyHint: hint || 'default', state: ctx.state,
+        });
+      };
+      tick();
+    }
+
     // ---- Detailed log (cloud-link; ?debug=1 only) ----
     // One line per event, written as plain "name=value" text so a copied
     // console log keeps the numbers (objects paste as just "Object"). Normal
@@ -5337,7 +5387,7 @@
       // fired on first open. Use the pending slot instead.
       if (!audioCtx && !_pendingGestureAudioCtx) {
         try {
-          _pendingGestureAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          _pendingGestureAudioCtx = spNewAudioContext();
         } catch {}
       }
       if (_pendingGestureAudioCtx && _pendingGestureAudioCtx.state === 'suspended') {
@@ -5613,7 +5663,7 @@
           audioCtx = _pendingGestureAudioCtx;
           _pendingGestureAudioCtx = null;
         } else if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          audioCtx = spNewAudioContext();
         }
         gainNode = audioCtx.createGain();
         gainNode.gain.value = isMuted ? 0 : 1;
@@ -6538,6 +6588,7 @@
           clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
           sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
         });
+        logAudioSetup('start');
 
         if (playGeneration !== myGeneration) return;
 

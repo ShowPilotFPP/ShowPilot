@@ -5023,7 +5023,7 @@
           measuredDelayMs: outDelayMs,
           rawTsGapMs: ts && ts.contextTime > 0 ? +((ctx.currentTime - ts.contextTime) * 1000).toFixed(1) : null,
           rawPerfAgeMs: ts && ts.performanceTime > 0 ? +(performance.now() - ts.performanceTime).toFixed(1) : null,
-          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', state: ctx.state,
+          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', keepAlive: spFreshStreamOn(), state: ctx.state,
         });
       };
       tick();
@@ -5801,6 +5801,20 @@
         gainNode = audioCtx.createGain();
         gainNode.gain.value = isMuted ? 0 : 1;
         gainNode.connect(audioCtx.destination);
+        // Android Chrome stops the speaker stream after a few seconds of
+        // silence (the gap between songs) and restarts it when sound comes
+        // back. A restarted stream plays late by an amount Chrome doesn't
+        // report, and the switch makes the audio clock jump. A tiny constant
+        // level (-80 dBFS DC, which speakers can't reproduce) means the
+        // output is never silent, so the stream stays up all show.
+        if (spFreshStreamOn() && audioCtx.createConstantSource) {
+          try {
+            const keepAlive = audioCtx.createConstantSource();
+            keepAlive.offset.value = 0.0001;
+            keepAlive.connect(audioCtx.destination);
+            keepAlive.start();
+          } catch (_) {}
+        }
         // v0.33.203: log device-driven state changes (e.g. Android pausing
         // audio on a Bluetooth route/focus change) and try to recover.
         try {

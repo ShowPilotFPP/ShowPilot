@@ -2101,7 +2101,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.279-beta.8</span>
+        <span class="app-version">v0.33.279-beta.9</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -4119,6 +4119,7 @@
             <label for="cfg_app_listing_address">Show address <span class="muted" style="font-weight: normal;">(optional)</span></label>
             <div class="row" style="gap: 0.5rem; align-items: stretch;">
               <input type="text" id="cfg_app_listing_address" maxlength="160" placeholder="e.g. 1234 Main St, Oak Ridge" style="flex: 1; margin: 0;"
+                     onchange="saveAppAddress()"
                      onkeydown="if(event.key==='Enter'){event.preventDefault();saveAppAddress();}" />
               <button class="secondary" onclick="saveAppAddress()" style="white-space: nowrap;">Save address</button>
             </div>
@@ -7986,11 +7987,19 @@
         if (r.ok) renderAppListingStatus(r.data);
       } finally { if (btn) btn.disabled = false; }
     }
-    // Saving the address also sets the show location from it.
+    // Saving the address also sets the show location from it. Runs from the
+    // button, Enter, or leaving the field (like every other field here);
+    // the same address isn't saved twice in a row.
+    let _appAddrSaving = null;
     async function saveAppAddress() {
       const input = document.getElementById('cfg_app_listing_address');
       const st = document.getElementById('appAddressStatus');
       const addr = input.value.trim();
+      if (_appAddrSaving === addr) return;
+      _appAddrSaving = addr;
+      try { await saveAppAddressNow(input, st, addr); } finally { _appAddrSaving = null; }
+    }
+    async function saveAppAddressNow(input, st, addr) {
       const setSt = (t, color) => { st.textContent = t; st.style.color = color || 'var(--text-muted)'; };
       if (!addr) {
         await saveAppListing('app_listing_address', '');

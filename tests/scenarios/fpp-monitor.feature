@@ -70,3 +70,14 @@ Scenario: The FPP Monitor page and the Dashboard strip
   And the admin sees "Restart FPPD"
   When the admin opens the Dashboard page
   Then the admin sees "FPP Monitor"
+
+Scenario: FPP not sending MultiSync packets is flagged while phone audio is on
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  When the show player reports FPP idle, the CPU at 50°C, with MultiSync packets off
+  Then the FPP health is warn
+  And the FPP page shows "sending MultiSync packets, so phone audio syncs less precisely"
+  When the show player reports FPP idle, the CPU at 50°C, with MultiSync packets on
+  Then the FPP health is ok
+  When phone audio is turned off in Settings
+  And the show player reports FPP idle, the CPU at 50°C, with MultiSync packets off
+  Then the FPP health is ok

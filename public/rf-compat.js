@@ -4413,7 +4413,17 @@
     const prefetchRetryAt = new Map();    // stream URL → ms timestamp; backoff after a failed prefetch
     let currentStreamKey = null;  // stream URL of the song playing now
     let nextStreamKey = null;     // stream URL of the song the server says is next
-    let clockOffset = 0;          // serverNow - clientNow at last sync
+    let clockOffset = 0;          // serverNow - spNow() (see clock lock below)
+    // Clock used for everything timed against the show (cloud-link): the
+    // page's monotonic clock, not Date.now(). Date.now() follows the phone's
+    // wall clock, which the OS can step or slew at any moment (network time
+    // updates), and that moved every phone's idea of the show position by the
+    // same amount. Sub-millisecond and never jumps. The offset to the server
+    // is re-measured every second, so a monotonic clock that pauses during
+    // sleep is re-learned on wake (we re-lock on visibilitychange too).
+    const spNow = (typeof performance !== 'undefined' && performance.timeOrigin > 0 && typeof performance.now === 'function')
+      ? () => performance.timeOrigin + performance.now()
+      : () => Date.now();
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
     let audioSyncOffsetMs = 0;    // per-show offset to compensate for FPP audio output latency vs cache delivery speed. Server sends this; positive = audio plays LATER (compensates for too-early arrival)
@@ -4759,7 +4769,7 @@
           let ws;
           try { ws = new WebSocket(probeUrl); } catch (e) { probe.state = 'cannot connect: ' + e.message; return; }
           let pingTimer = null, pings = 0;
-          const ping = () => { if (ws.readyState === 1) { ws.send(JSON.stringify({ type: 'timeReq', t0: Date.now() })); pings++; } };
+          const ping = () => { if (ws.readyState === 1) { ws.send(JSON.stringify({ type: 'timeReq', t0: spNow() })); pings++; } };
           ws.onopen = () => {
             probe.state = 'connected to ' + probeUrl;
             ws.send(JSON.stringify({ type: 'probeHello' }));
@@ -4767,7 +4777,7 @@
             pingTimer = setInterval(() => ping(), 1000); // 1/s: plenty for a debug tool
           };
           ws.onmessage = (ev) => {
-            const t1 = Date.now();
+            const t1 = spNow();
             let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
             if (m.type === 'timeResp' && typeof m.t0 === 'number') {
               const rtt = t1 - m.t0;
@@ -4789,7 +4799,7 @@
         // Compare once a second.
         setInterval(() => {
           if (probe.offsetMs === null || !probe.pos || !probe.pos.playing) return;
-          const daemonNow = Date.now() + probe.offsetMs;
+          const daemonNow = spNow() + probe.offsetMs;
           const directPos = probe.pos.positionSec + (daemonNow - probe.pos.serverTimestamp) / 1000;
           if (daemonNow - probe.pos.serverTimestamp > 3000) return; // stale
           const est = estimateFppPosNow();
@@ -4822,7 +4832,7 @@
 
     function estimateFppPosNow() {
       if (!fppSamples.length) return null;
-      const serverNow = Date.now() + clockOffset;
+      const serverNow = spNow() + clockOffset;
       let best = -Infinity;
       let n = 0;
       let newestTs = 0;
@@ -4910,39 +4920,86 @@
       }
     }
 
-    // ---- Hidden output delay (v0.33.223-beta) ----
-    // Some browsers (notably Chrome on Android) report outputLatency as 0 and
-    // can quietly grow the output buffer mid-playback, so sound comes out later
-    // than the audio clock says. getOutputTimestamp() tells us which point on
-    // the audio clock is reaching the speaker right now; the distance to
-    // currentTime (both expressed "now") is the real output delay. Sampled
-    // 5x/s, median of the last 25. Shown in the debug overlay (outDelay:);
-    // with Settings → Debug → "Compensate hidden output delay"
-    // (boot.outputDelayComp) the measured delay is used whenever it's larger
-    // than the reported one (max 800 ms).
-    const outDelaySamples = [];
-    let outDelayMs = null;
-    const outDelayCompOn = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.outputDelayComp);
+    // ---- Output timing (cloud-link; was the opt-in "hidden output delay") ----
+    // When does a sample scheduled on the audio clock actually come out of
+    // the speaker? getOutputTimestamp() answers it directly: "audio-clock
+    // time contextTime is being heard at performance time performanceTime".
+    // We keep k = contextTime - performanceTime/1000 (the audio clock read
+    // against the page clock, at the speaker), median of recent readings.
+    // Then at any moment:
+    //   heard audio-clock time now = performance.now()/1000 + k
+    //   output delay now           = currentTime - that
+    // Reading currentTime at the moment of use cancels its block-sized steps
+    // (Android advances it 10-20 ms at a time), and the delay includes the
+    // buffering Chrome on Android doesn't report (outputLatency 0). This is
+    // what PulseMesh-style players use as their output latency.
+    // Guarded: readings must be consistent (spread <= 30 ms) and the delay
+    // 0-800 ms, else we fall back to the reported outputLatency (an older
+    // build saw a 2000 ms+ reading). ?timing=reported forces the old way.
+    const outDelaySamples = [];   // k values (seconds)
+    let outDelayMs = null;        // current measured delay, for the overlay
+    let outTimingCtx = null;      // the context the samples belong to
+    const outTimingForcedReported = new URLSearchParams(window.location.search).get('timing') === 'reported';
     function sampleOutputDelay() {
       if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.getOutputTimestamp !== 'function') return;
+      if (outTimingCtx !== audioCtx) { outDelaySamples.length = 0; outTimingCtx = audioCtx; }
+      // A new context's first readings drift by ~100 ms while its output
+      // warms up (seen in Chrome): skip its first 0.8 s.
+      if (audioCtx.currentTime < 0.8) return;
       let ts;
       try { ts = audioCtx.getOutputTimestamp(); } catch (_) { return; }
       if (!ts || !(ts.contextTime > 0) || !(ts.performanceTime > 0)) return;
-      const d = (audioCtx.currentTime - ts.contextTime) - (performance.now() - ts.performanceTime) / 1000;
-      if (!isFinite(d) || d < -0.05 || d > 1.5) return;
-      outDelaySamples.push(d);
+      const k = ts.contextTime - ts.performanceTime / 1000;
+      const d = audioCtx.currentTime - (performance.now() / 1000 + k);
+      if (!isFinite(d) || d < -0.01 || d > 1.0) return;
+      outDelaySamples.push(k);
       if (outDelaySamples.length > 25) outDelaySamples.shift();
-      const s = outDelaySamples.slice().sort((a, b) => a - b);
-      outDelayMs = Math.round(s[Math.floor(s.length / 2)] * 1000);
+      const m = measuredOutputDelaySec();
+      outDelayMs = m === null ? null : Math.round(m * 1000);
     }
-    setInterval(sampleOutputDelay, 200);
+    // Faster while there are few readings (right after the context starts),
+    // so the first song can already use them.
+    (function outTimingLoop() {
+      sampleOutputDelay();
+      setTimeout(outTimingLoop, outDelaySamples.length < 10 ? 50 : 200);
+    })();
+    function outTimingK() {
+      if (outTimingCtx !== audioCtx || outDelaySamples.length < 8) return null;
+      const s = outDelaySamples.slice().sort((a, b) => a - b);
+      const q1 = s[Math.floor(s.length * 0.25)], q3 = s[Math.floor(s.length * 0.75)];
+      if (q3 - q1 > 0.03) return null; // readings disagree: don't trust them
+      return s[Math.floor(s.length / 2)];
+    }
+    function measuredOutputDelaySec() {
+      if (!audioCtx) return null;
+      const k = outTimingK();
+      if (k === null) return null;
+      const d = audioCtx.currentTime - (performance.now() / 1000 + k);
+      return (d >= 0 && d <= 0.8) ? d : null;
+    }
+    function outputTimingSource() {
+      if (outTimingForcedReported) return 'reported (forced)';
+      return measuredOutputDelaySec() !== null ? 'measured' : 'reported';
+    }
+    // Before a song starts: wait (at most maxMs) until the clock is locked
+    // and the output readings have settled. Only the first start after the
+    // player opens ever waits; both are ready long before later songs.
+    async function waitForTimingReady(maxMs) {
+      const until = performance.now() + maxMs;
+      const outputReady = () => outTimingForcedReported || !audioCtx ||
+        typeof audioCtx.getOutputTimestamp !== 'function' || audioCtx.state !== 'running' || outTimingK() !== null;
+      const clockReady = () => clockLocked || !audioSock || !audioSock.connected;
+      while (!(outputReady() && clockReady()) && performance.now() < until) {
+        await new Promise(r => setTimeout(r, 25));
+      }
+    }
 
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
       let base = (l > 0 && l < 0.4) ? l : 0;
-      if (outDelayCompOn && outDelayMs !== null && outDelaySamples.length >= 10) {
-        const measured = Math.min(0.8, Math.max(0, outDelayMs / 1000));
-        if (measured > base) base = measured;
+      if (!outTimingForcedReported) {
+        const m = measuredOutputDelaySec();
+        if (m !== null) base = m;
       }
       // + the listener's own timing offset (v0.33.213+), which covers the
       // Bluetooth / car delay the browser can't see.
@@ -5005,8 +5062,9 @@
       if (targetPos < 0 || targetPos >= currentBuffer.duration - 0.1) return false;
       const FADE = 0.08;
       const now = audioCtx.currentTime;
-      const t0 = now + 0.01;            // lead so the whole fade is scheduled ahead
-      const startPos = targetPos + 0.01;
+      const LEAD = 0.04;                // lead so the whole fade is scheduled ahead (cloud-link: was 10 ms, too short for 20-40 ms render blocks)
+      const t0 = now + LEAD;
+      const startPos = targetPos + LEAD;
       const { up, down } = equalPowerCurves();
       const oldNode = currentSource;
       const oldGain = currentSourceGain;
@@ -5039,7 +5097,7 @@
       setTimeout(() => {
         try { oldNode.stop(); oldNode.disconnect(); } catch (_) {}
         try { oldGain.disconnect(); } catch (_) {}
-      }, (0.01 + FADE) * 1000 + 50);
+      }, (LEAD + FADE) * 1000 + 50);
 
       trackScheduledAtAudioCtx = t0;
       trackScheduledAtPositionSec = startPos;
@@ -5343,12 +5401,11 @@
 
             // Re-sync clock via Socket.io now that connection is established.
             // Socket.io ping bypasses Cloudflare HTTP overhead for much better accuracy.
-            syncClockBurst(5).then(() => {
-              console.log('[ShowPilot] Socket.io timesync complete, clockOffset:', Math.round(clockOffset), 'ms');
-            });
-
-            // Re-sync every 30s continuously
-            setInterval(() => syncClockBurst(3), 30000);
+            // Clock lock + one ping a second while the player is open
+            // (cloud-link; replaces a 5-ping burst and a 3-ping burst every
+            // 30 s, which also piled up a new timer every time the player
+            // was reopened).
+            startClockMaintenance();
 
             // Persistent fppSyncPoint handler — resolves pending syncPoint
             // promises from handleTrackChange. Keyed by filename so concurrent
@@ -5581,6 +5638,7 @@
     function teardown() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
+      stopClockMaintenance();
       if (locationVerifyTimer) { clearInterval(locationVerifyTimer); locationVerifyTimer = null; }
       // Release the GPS subscription so the device can put the GPS chip
       // back to sleep. clearWatch is a no-op for null IDs but the guard
@@ -5632,129 +5690,135 @@
       currentTrackMediaName = null;
     }
 
-    // ---- NTP-style clock sync (burst pings) ----
-    //
-    // Establishes accurate clock offset between this client and the server.
-    // Without accurate sync, two phones aligning to "FPP position + elapsed
-    // since update" will drift apart because each computes elapsed using
-    // its own (skewed) Date.now(). The single-sample offset embedded in
-    // now-playing-audio polls has 50-200ms of jitter from network variance;
-    // burst sync improves this to ~10-20ms by:
-    //   1. Firing N parallel pings to /api/time
-    //   2. Recording (t_send_local, t_recv_local, t_server) for each
-    //   3. Computing offset = t_server + rtt/2 - t_recv_local
-    //   4. Discarding outlier RTTs (sort by rtt, keep best half)
-    //   5. Averaging the offsets from the kept samples
-    //
-    // The "discard outliers" step is key — a single bad ping (network
-    // hiccup, GC pause, etc.) would skew an unfiltered average by tens
-    // of ms. PulseMesh's implementation does similar burst+filter logic
-    // on a dedicated WebSocket; we use HTTP since we're not building a
-    // separate connection just for this.
-    let lastClockSyncAt = 0;
-    let bestRttEverMs = Infinity; // best RTT seen across all bursts — guards against high-jitter overwrites
+    // ---- Clock lock (cloud-link, modelled on PulseMesh's time sync) ----
+    // Offset between this page's clock (spNow) and the server's clock, which
+    // FPP positions are stamped in. Each sample: t1 sent, server stamps
+    // t2/t3, t4 received; offset = ((t2-t1)+(t3-t4))/2, error <= rtt/2 and
+    // usually far less on the quickest round trips.
+    //  - LOCK: 25 pings spaced 30 ms apart (~0.8 s) when the player connects,
+    //    reconnects or the page wakes. Spaced, not all at once: pings fired
+    //    together queue behind each other and all see the same moment of the
+    //    network, so the "best" of them is no better than the rest.
+    //  - KEEP: then one ping per second, forever.
+    //  - ESTIMATE: from the last 60 s of samples, the quickest 20% (at least
+    //    5) by round trip; their median offset. A slow or lopsided round trip
+    //    never wins, so a busy moment on the connection can't move the clock.
+    // Replaces bursts of 3-5 simultaneous pings every 30 s on Date.now().
+    const CLOCK_LOCK_PINGS = 25;
+    const CLOCK_LOCK_SPACING_MS = 30;
+    const CLOCK_KEEP_EVERY_MS = 1000;
+    const CLOCK_WINDOW_MS = 60000;
+    let clockSamples = [];          // { rtt, offset, at } — at = spNow()
+    let clockBestRttMs = null;      // round trip of the best sample in use
+    let clockSampleCount = 0;       // samples used for the current estimate
+    let lastClockSyncAt = 0;        // spNow() of the last estimate (0 = none yet)
+    let clockLocked = false;
+    let clockKeepTimer = null;
+    let clockLockRun = 0;
+    let clockSockBound = null;
+    const clockPending = new Map(); // t1 → { resolve, timer }
 
-    // Steady clock: one burst can come out tens of ms off on a busy or uneven
-    // connection (more delay one way than the other). Taking it as-is moved
-    // this device's idea of the show position by the same amount, and since
-    // drift is measured with the same clock the player then believed it was
-    // in sync while it wasn't. So the offset is the MEDIAN of the last few
-    // bursts: a lone odd measurement can't move it; a real change (the
-    // majority agreeing) still does. The first two bursts apply directly.
-    const clockHistory = [];
-    function applyClockMeasurement(v) {
-      if (!Number.isFinite(v)) return;
-      clockHistory.push(v);
-      if (clockHistory.length > 5) clockHistory.shift();
-      if (clockHistory.length < 3) { clockOffset = v; return; }
-      const sorted = clockHistory.slice().sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      clockOffset = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    function clockAddSample(rtt, offset) {
+      if (!(rtt >= 0) || rtt > 5000 || !Number.isFinite(offset)) return;
+      const now = spNow();
+      clockSamples.push({ rtt, offset, at: now });
+      clockSamples = clockSamples.filter(s => now - s.at <= CLOCK_WINDOW_MS);
+      if (clockSamples.length > 200) clockSamples.splice(0, clockSamples.length - 200);
+      clockEstimate();
     }
+    function clockEstimate() {
+      if (!clockSamples.length) return;
+      const byRtt = clockSamples.slice().sort((a, b) => a.rtt - b.rtt);
+      const keep = byRtt.slice(0, Math.max(Math.min(5, byRtt.length), Math.ceil(byRtt.length * 0.2)));
+      const offs = keep.map(s => s.offset).sort((a, b) => a - b);
+      const mid = Math.floor(offs.length / 2);
+      const est = offs.length % 2 ? offs[mid] : (offs[mid - 1] + offs[mid]) / 2;
+      const prev = clockOffset;
+      clockOffset = est;
+      clockBestRttMs = byRtt[0].rtt;
+      clockSampleCount = keep.length;
+      lastClockSyncAt = spNow();
+      if (clockLocked && Math.abs(est - prev) > 5) {
+        console.log('[ShowPilot] clock moved', Math.round(est - prev), 'ms → offset', Math.round(est), 'ms (best rtt', Math.round(clockBestRttMs), 'ms)');
+      }
+    }
+    function onClockReply(msg) {
+      if (!msg || msg.t1 == null) return;
+      const p = clockPending.get(String(msg.t1));
+      if (!p) return;
+      clockPending.delete(String(msg.t1));
+      clearTimeout(p.timer);
+      const t4 = spNow();
+      p.resolve({ rtt: t4 - msg.t1, offset: ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2 });
+    }
+    function bindClockSocket() {
+      if (!audioSock || clockSockBound === audioSock) return;
+      clockSockBound = audioSock;
+      audioSock.on('timesync', onClockReply);
+      // A new connection may take a different path: start over.
+      audioSock.on('connect', () => { clockSamples = []; lockClock(); });
+    }
+    function clockPing() {
+      return new Promise((resolve) => {
+        if (!audioSock || !audioSock.connected) return resolve(null);
+        const t1 = spNow();
+        const timer = setTimeout(() => { clockPending.delete(String(t1)); resolve(null); }, 2000);
+        clockPending.set(String(t1), { resolve, timer });
+        try { audioSock.emit('timesync', { t1 }); } catch (_) { clearTimeout(timer); clockPending.delete(String(t1)); resolve(null); }
+      }).then((s) => { if (s) clockAddSample(s.rtt, s.offset); return s; });
+    }
+    async function lockClock() {
+      const run = ++clockLockRun;
+      clockLocked = false;
+      for (let i = 0; i < CLOCK_LOCK_PINGS; i++) {
+        if (run !== clockLockRun) return;
+        clockPing();
+        await new Promise(r => setTimeout(r, CLOCK_LOCK_SPACING_MS));
+      }
+      await new Promise(r => setTimeout(r, 400)); // let the last replies land
+      if (run !== clockLockRun) return;
+      clockLocked = true;
+      console.log('[ShowPilot] clock locked: offset', Math.round(clockOffset), 'ms, best rtt',
+        clockBestRttMs === null ? 'n/a' : Math.round(clockBestRttMs) + ' ms', '(' + clockSampleCount + ' of ' + clockSamples.length + ' samples)');
+    }
+    function onClockWake() {
+      if (document.hidden || !clockKeepTimer) return;
+      clockSamples = []; // the page clock may have paused while asleep
+      lockClock();
+    }
+    function startClockMaintenance() {
+      bindClockSocket();
+      if (clockKeepTimer) return;
+      lockClock();
+      clockKeepTimer = setInterval(() => { if (clockLocked) clockPing(); }, CLOCK_KEEP_EVERY_MS);
+      document.addEventListener('visibilitychange', onClockWake);
+      window.addEventListener('online', onClockWake);
+    }
+    function stopClockMaintenance() {
+      if (clockKeepTimer) { clearInterval(clockKeepTimer); clockKeepTimer = null; }
+      clockLockRun++;
+      document.removeEventListener('visibilitychange', onClockWake);
+      window.removeEventListener('online', onClockWake);
+    }
+
+    // Kept for callers: before the socket is up (cold start) this measures
+    // over HTTP into the same sample pool; once the socket is up it locks.
+    // HTTP samples have long round trips and drop out of the estimate as
+    // soon as quicker socket samples arrive.
     async function syncClockBurst(burstSize = 5) {
-      // Use Socket.io timesync for accurate clock offset measurement.
-      // Socket.io bypasses Cloudflare HTTP overhead giving 5-20ms accuracy
-      // vs 50-200ms for HTTP. We fire parallel queries and take the best.
       if (audioSock && audioSock.connected) {
-        return new Promise((resolve) => {
-          const samples = [];
-          let pending = burstSize;
-
-          const handler = (msg) => {
-            const t4 = Date.now();
-            const rtt = t4 - msg.t1;
-            const offset = ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2;
-            samples.push({ rtt, offset });
-            pending--;
-            if (pending === 0) {
-              audioSock.off('timesync', handler);
-              // Pick lowest-RTT sample — most accurate
-              samples.sort((a, b) => a.rtt - b.rtt);
-              const bestRtt = samples[0].rtt;
-              const best = samples.slice(0, Math.ceil(samples.length / 2));
-              const offsets = best.map(s => s.offset).sort((a, b) => a - b);
-              const mid = Math.floor(offsets.length / 2);
-              const newOffset = offsets.length % 2 === 1
-                ? offsets[mid]
-                : (offsets[mid - 1] + offsets[mid]) / 2;
-
-              // Only update clockOffset if this burst's RTT is within 3x of
-              // the best RTT we've ever seen. High-jitter bursts (e.g. 200ms RTT
-              // when we've previously seen 5ms) produce inaccurate offsets and
-              // cause the drift display to jump, triggering spurious crossfades.
-              if (bestRtt < bestRttEverMs) bestRttEverMs = bestRtt;
-              if (bestRtt <= bestRttEverMs * 3) {
-                applyClockMeasurement(newOffset);
-                lastClockSyncAt = Date.now();
-              }
-              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (measured ' + Math.round(newOffset) + ' ms, best RTT:', bestRtt, 'ms' + (bestRtt > bestRttEverMs * 3 ? ' — REJECTED high jitter' : '') + ')');
-              resolve();
-            }
-          };
-          audioSock.on('timesync', handler);
-
-          // Fire all queries in parallel
-          for (let i = 0; i < burstSize; i++) {
-            audioSock.emit('timesync', { t1: Date.now() });
-          }
-
-          // Fallback timeout
-          setTimeout(() => {
-            audioSock.off('timesync', handler);
-            resolve();
-          }, 3000);
-        });
+        bindClockSocket();
+        return lockClock();
       }
-
-      // Fallback: HTTP-based sync when Socket.io not ready yet
-      const samples = [];
-      const promises = [];
       for (let i = 0; i < burstSize; i++) {
-        promises.push((async () => {
-          const t0 = Date.now();
-          try {
-            const r = await fetch('/api/time', { credentials: 'include', cache: 'no-store' });
-            const t1 = Date.now();
-            const data = await r.json();
-            if (typeof data.t === 'number') {
-              const rtt = t1 - t0;
-              const oneWay = rtt / 2;
-              const offset = data.t + oneWay - t1;
-              samples.push({ rtt, offset });
-            }
-          } catch (e) {}
-        })());
+        const t0 = spNow();
+        try {
+          const r = await fetch('/api/time', { credentials: 'include', cache: 'no-store' });
+          const t1 = spNow(); // headers in, before parsing
+          const data = await r.json();
+          if (typeof data.t === 'number') clockAddSample(t1 - t0, data.t + (t1 - t0) / 2 - t1);
+        } catch (e) {}
       }
-      await Promise.all(promises);
-      if (samples.length === 0) return;
-      samples.sort((a, b) => a.rtt - b.rtt);
-      const keep = samples.length >= 4 ? samples.slice(0, Math.ceil(samples.length / 2)) : samples;
-      const offsets = keep.map(s => s.offset).sort((a, b) => a - b);
-      const mid = Math.floor(offsets.length / 2);
-      applyClockMeasurement(offsets.length % 2 === 1
-        ? offsets[mid]
-        : (offsets[mid - 1] + offsets[mid]) / 2);
-      lastClockSyncAt = Date.now();
     }
 
     async function syncOnce() {
@@ -5774,11 +5838,11 @@
         // polling resumes naturally on the next interval.
         if (_gateLatchedBlocked !== null) return;
 
-        const reqStart = Date.now();
+        const reqStart = spNow();
         const r = await fetch('/api/now-playing-audio' + locationQuery(), { credentials: 'include' });
         if (!r.ok) return;
         const data = await r.json();
-        const reqEnd = Date.now();
+        const reqEnd = spNow();
 
         // Listener limit reached (hosted shows): stop, say so, and keep
         // polling — every poll asks again, so audio starts by itself as soon
@@ -5962,7 +6026,7 @@
       }
       currentMediaName = data.sequenceName;
       currentTrackMediaName = data.mediaName || null;
-      trackStartedAtMs = data.trackStartedAtMs || (Date.now() + clockOffset - (data.elapsedSec * 1000));
+      trackStartedAtMs = data.trackStartedAtMs || (spNow() + clockOffset - (data.elapsedSec * 1000));
       trackDuration = data.durationSec || 0;
       if (typeof data.audioSyncOffsetMs === 'number') audioSyncOffsetMs = data.audioSyncOffsetMs;
       livePosition = (data.livePosition && data.livePosition.sequence === data.sequenceName)
@@ -6104,8 +6168,14 @@
           }
         }
 
+        // cloud-link: first start after opening the player waits for the
+        // clock lock and settled output readings (max 1.5 s, PulseMesh does
+        // the same); later songs find both ready and don't wait.
+        await waitForTimingReady(1500);
+        if (playGeneration !== myGeneration || myTrackToken !== trackChangeToken) return;
+
         const outputLatencySec = getOutputLatencySec();
-        const serverNow = Date.now() + clockOffset;
+        const serverNow = spNow() + clockOffset;
 
         // ---- Fast-start: play immediately from current position ----
         let fastStartPos;
@@ -6131,8 +6201,12 @@
         // this sample is actually HEARD (lead + output latency ahead). Older
         // versions delayed the start by the output latency instead of
         // advancing the position, landing 50ms + 2x latency behind.
-        const fastStartCtxTime = audioCtx.currentTime + 0.05;
-        fastStartPos += 0.05 + outputLatencySec;
+        // cloud-link: 120 ms lead (was 50). A start time the audio thread has
+        // already passed starts late by however much, and nothing measures
+        // that afterwards; phones with 20-40 ms render blocks could miss 50.
+        const FAST_START_LEAD = 0.12;
+        const fastStartCtxTime = audioCtx.currentTime + FAST_START_LEAD;
+        fastStartPos += FAST_START_LEAD + outputLatencySec;
         // A negative listener offset ("music is early") can push this below
         // the start of the song at song start; clamp (v0.33.213+).
         if (fastStartPos < 0) fastStartPos = 0;
@@ -6153,7 +6227,14 @@
         const srcNode = audioCtx.createBufferSource();
         srcNode.buffer = audioBuffer;
         const srcGain = audioCtx.createGain();
-        srcGain.gain.value = 1;
+        // cloud-link: fade in over 60 ms from the scheduled start (equal
+        // power), so a start mid-song never clicks.
+        try {
+          srcGain.gain.setValueAtTime(0, audioCtx.currentTime);
+          srcGain.gain.setValueCurveAtTime(equalPowerCurves().up, fastStartCtxTime, 0.06);
+        } catch (_) {
+          srcGain.gain.value = 1;
+        }
         srcNode.connect(srcGain);
         srcGain.connect(gainNode);
         srcNode.start(fastStartCtxTime, fastStartPos);
@@ -6189,6 +6270,18 @@
 
           if (playGeneration !== generationAtSchedule) return;
 
+          // cloud-link: startup grace. A listener joining mid-song already
+          // has a sync point, so this check can run before the source has
+          // even started (it's scheduled FAST_START_LEAD ahead), when the
+          // player's position still reads the start position — a false
+          // "ahead by the lead" that could trigger a needless crossfade.
+          // Wait until it has been playing for 100 ms.
+          if (audioCtx) {
+            const graceMs = (trackScheduledAtAudioCtx + 0.1 - audioCtx.currentTime) * 1000;
+            if (graceMs > 0) await new Promise(r => setTimeout(r, Math.min(graceMs, 1000)));
+            if (playGeneration !== generationAtSchedule) return;
+          }
+
           if (!snapAnchor) {
             snapPendingUntilMs = 0;
             console.log('[ShowPilot] snap: no syncPoint within 8s, skipping');
@@ -6196,7 +6289,7 @@
           }
 
           // Compute position from syncPoint
-          const snapServerNow = Date.now() + clockOffset;
+          const snapServerNow = spNow() + clockOffset;
           const ageMs = Math.max(0, snapServerNow - snapAnchor.serverTimestamp);
           // v0.33.202: best estimate of FPP's position now = the most advanced
           // of this syncPoint and recent position readings (see
@@ -6240,7 +6333,7 @@
           if (!followFppStatus || followFppStatus.positionSec <= 0) return;
 
           const followClientTs = followFppStatus.serverTimestamp - clockOffset;
-          const followAge = Math.min(Math.max(Date.now() - followClientTs, 0), 2000);
+          const followAge = Math.min(Math.max(spNow() - followClientTs, 0), 2000);
           const followEst = estimateFppPosNow();
           const followFppPos = followEst
             ? followEst.pos
@@ -6379,12 +6472,12 @@
         // producing exactly the constant phone-to-phone offset we're
         // trying to eliminate. clockOffset is computed by burst NTP-lite
         // on connect; adding it shifts client time onto server time.
-        const serverNow = Date.now() + clockOffset;
+        const serverNow = spNow() + clockOffset;
         const elapsedSinceUpdate = (serverNow - livePosition.updatedAt) / 1000;
         return livePosition.position + elapsedSinceUpdate - offsetSec;
       }
       // Fallback: extrapolate from track-start anchor
-      const serverNow = Date.now() + clockOffset;
+      const serverNow = spNow() + clockOffset;
       return (serverNow - trackStartedAtMs) / 1000 - offsetSec;
     }
 
@@ -6552,8 +6645,8 @@
         // Elapsed since then: Date.now() - clientEquivalent
         // Cap at 2s — don't extrapolate beyond that on very stale readings.
         const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
-        const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
-        const fppStatusAgeMs = Math.max(0, Date.now() - clientTimeOfUpdate); // uncapped, for freshness checks
+        const msSinceFppUpdate = Math.min(Math.max(spNow() - clientTimeOfUpdate, 0), 2000);
+        const fppStatusAgeMs = Math.max(0, spNow() - clientTimeOfUpdate); // uncapped, for freshness checks
         const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000) - (deviceOffset / 1000);
 
         // ---- Drift measurement ----
@@ -6634,7 +6727,7 @@
         }
 
         if (debugEl) {
-          const propagationMs = Math.round(Date.now() - clientTimeOfUpdate);
+          const propagationMs = Math.round(spNow() - clientTimeOfUpdate);
           debugEl.textContent = [
             `drift:       ${driftMs >= 0 ? '+' : ''}${driftMs}ms`,
             `engine:      ${htmlAudio._isWebAudio ? 'WebAudio' : 'HTML5'}`,
@@ -6642,13 +6735,13 @@
             `audioPos:    ${htmlAudio.currentTime.toFixed(3)}s`,
             `staleness:   ${msSinceFppUpdate}ms`,
             `propagation: ${propagationMs}ms`,
-            `clockOffset: ${Math.round(clockOffset)}ms`,
+            `clockOffset: ${Math.round(clockOffset)}ms (rtt ${clockBestRttMs === null ? 'n/a' : Math.round(clockBestRttMs) + 'ms'}, ${clockSampleCount}/${clockSamples.length}${clockLocked ? '' : ', locking'})`,
             `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
             `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
-            `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured${outDelayCompOn ? ' (compensating)' : ''}`,
+            `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured, using ${outputTimingSource()} (${Math.round(getOutputLatencySec() * 1000 - listenerOffsetSec * 1000)}ms)`,
             `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
             ...probeLines(),
           ].join('\n');
@@ -6664,7 +6757,7 @@
                 body: JSON.stringify({
                   device: syncReportDevice, drift: driftMs, fppPos: +fppPositionNow.toFixed(3),
                   audioPos: +htmlAudio.currentTime.toFixed(3), stale: msSinceFppUpdate, propagation: propagationMs,
-                  clock: Math.round(clockOffset), outDelay: outDelayMs, speed: +((currentRate - 1) * 100).toFixed(2),
+                  clock: Math.round(clockOffset), rtt: clockBestRttMs === null ? null : Math.round(clockBestRttMs), timing: outputTimingSource(), outDelay: outDelayMs, speed: +((currentRate - 1) * 100).toFixed(2),
                   track: currentSequence || '',
                 }),
               }).catch(() => {});

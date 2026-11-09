@@ -3496,6 +3496,11 @@
         --of-glow: rgba(168,85,247,0.5);
       }
 
+      /* v0.33.278-master.19: keep the song text readable when snow, leaves or
+         confetti drift behind it on a themed bar. */
+      #of-listen-panel[class*="of-theme-"] .of-listen-text {
+        text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45);
+      }
       /* Player button polish — hover feedback that works regardless of theme */
       #of-listen-panel button {
         outline: none;
@@ -5384,8 +5389,12 @@
       coverEl.addEventListener('click', openAppPlayer);
       if (textCol) { textCol.style.cursor = 'pointer'; textCol.addEventListener('click', openAppPlayer); }
       window.addEventListener('showpilot-app:status', (e) => appRender(e.detail));
-      if (spApp.status) appRender(spApp.status);
-      appSend({ type: 'ready', bridge: 1 });
+      // After the rest of this player code has run: rendering uses state
+      // (decorations, padding) declared further down.
+      setTimeout(() => {
+        if (spApp.status) appRender(spApp.status);
+        appSend({ type: 'ready', bridge: 1 });
+      }, 0);
     }
 
     function setMode(mode) {
@@ -5393,7 +5402,7 @@
       // Sticky panel takes ~75px height — push body content up so sticky doesn't
       // cover footer content the user scrolls to. Restored when panel closes/minimizes.
       // v0.33.215: the optional two-row phone player is taller.
-      document.body.style.paddingBottom = (mode === 'open') ? (isTallPlayer() ? '150px' : '88px') : '';
+      document.body.style.paddingBottom = (mode === 'open') ? playerBodyPad() : '';
       if (mode === 'closed') {
         panel.style.display = 'none';
         panel.style.transform = 'translateY(100%)';
@@ -7011,6 +7020,18 @@
     }
 
     // ---- Player decoration ----
+    // How far (px) a theme's decoration hangs down into the player bar from
+    // its top edge. Measured from each theme's CSS below (bulb/lantern/picado
+    // top + height). Not listed = drawn above the bar or falling through it.
+    const DECO_TOP_CLEARANCE = {
+      'christmas': 36, 'christmas-live': 36,
+      'dayofthedead': 30, 'lunarnewyear': 33, 'mardigras': 26,
+    };
+    let currentDecoClearance = 0;
+    // Room the page keeps free at the bottom while the player is open.
+    function playerBodyPad() {
+      return ((isTallPlayer() ? 150 : 88) + currentDecoClearance) + 'px';
+    }
     let currentDecoration = null;
     let currentDecorationAnimated = null;
     let currentCustomColor = null;
@@ -7204,7 +7225,17 @@
       decoLayer.innerHTML = renderDecoration(theme, animate);
       liveDecoUpdate(theme, animate);
       // Reset panel padding-top in case previous decoration needed extra room
-      panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
+      // v0.33.278-master.19: themes whose border hangs down INTO the bar
+      // (bulbs, papel picado, lanterns, beads) push the player content below
+      // it, so the song title isn't drawn on top of the decoration. !important
+      // so it also beats the two-row layout's padding. Themes drawn above the
+      // bar or falling through it keep the usual padding.
+      const clearPx = DECO_TOP_CLEARANCE[theme] || 0;
+      currentDecoClearance = clearPx;
+      panel.style.removeProperty('padding-top');
+      if (clearPx) panel.style.setProperty('padding-top', (clearPx + 8) + 'px', 'important');
+      else panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
+      if (panelMode === 'open') document.body.style.paddingBottom = playerBodyPad();
 
       // ---- Toast/banner theme inheritance (v0.24.4+) ----
       // Make the winner toast match the player's color palette by mapping

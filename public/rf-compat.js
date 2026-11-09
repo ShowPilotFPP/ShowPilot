@@ -5336,6 +5336,9 @@
       return !!(window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function');
     }
     const spApp = isAppMode() ? window.ShowPilotApp : null;
+    // master.21: the app's music is audible (playing, not muted); gates the
+    // live decorations, which the app feeds with levels (see liveFrame).
+    let appLivePlaying = false;
     if (spApp) {
       let appStatus = null;
       let appTitle = null;
@@ -5344,6 +5347,7 @@
       const appRender = (st) => {
         if (!st || typeof st !== 'object') return;
         appStatus = st;
+        appLivePlaying = !!(st.active && st.playing && st.state === 'playing' && !st.muted);
         if (!st.active) {
           if (panelMode !== 'closed') setMode('closed');
           return;
@@ -5389,6 +5393,18 @@
       coverEl.addEventListener('click', openAppPlayer);
       if (textCol) { textCol.style.cursor = 'pointer'; textCol.addEventListener('click', openAppPlayer); }
       window.addEventListener('showpilot-app:status', (e) => appRender(e.detail));
+      // Live decorations: band levels of what the listener hears, each frame
+      // due d ms from now (the app has already allowed for output delay and
+      // the car's timing). Queued for liveFrame like analyser frames.
+      window.addEventListener('showpilot-app:levels', (e) => {
+        const frames = e.detail && e.detail.frames;
+        if (!liveOn || !appLivePlaying || !Array.isArray(frames)) return;
+        const now = performance.now();
+        for (const f of frames) {
+          if (f && Array.isArray(f.v) && f.v.length === liveEls.length) liveQueue.push([now + Math.max(0, +f.d || 0), f.v.map(Number)]);
+        }
+        if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);
+      });
       // After the rest of this player code has run: rendering uses state
       // (decorations, padding) declared further down.
       setTimeout(() => {
@@ -7064,6 +7080,11 @@
       liveMeans = liveEls.map(() => -1);
       liveQueue = []; liveBands = null;
       if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      // In the ShowPilot app (master.21), ask the app for the levels of
+      // these ranges; it plays the audio, so it has the analyser's job.
+      if (isAppMode()) {
+        try { window.ShowPilotApp.send({ type: 'live', ranges: (liveOn && liveEls.length) ? liveRangesHz(liveEls.length) : null }); } catch (_) {}
+      }
       if (liveOn && !liveRaf) liveRaf = requestAnimationFrame(liveFrame);
     }
     function liveEnsureAnalyser() {
@@ -7086,11 +7107,16 @@
         return [b0, Math.min(bins, Math.max(b0 + 1, Math.ceil((f1 / nyq) * bins)))];
       });
     }
-    function liveComputeBands(n) {
-      if (liveMode === 'party') return liveBins([[45, 180], [180, 2000], [4000, 11000]]);
+    // Frequency ranges (Hz) for the current live mode: one per bulb, or
+    // bass/mid/treble for the party mode.
+    function liveRangesHz(n) {
+      if (liveMode === 'party') return [[45, 180], [180, 2000], [4000, 11000]];
       const lo = 45, hi = 9000, ranges = [];
       for (let i = 0; i < n; i++) ranges.push([lo * Math.pow(hi / lo, i / n), lo * Math.pow(hi / lo, (i + 1) / n)]);
-      return liveBins(ranges);
+      return ranges;
+    }
+    function liveComputeBands(n) {
+      return liveBins(liveRangesHz(n));
     }
     // One-shot confetti burst for New Year's Live (removed when done).
     function liveConfettiBurst() {
@@ -7108,17 +7134,24 @@
       liveRaf = requestAnimationFrame(liveFrame);
       if (t - liveLastT < 30) return;
       liveLastT = t;
-      const playing = !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
-      if (!playing || !liveEls.length || !liveEnsureAnalyser()) {
+      // In the ShowPilot app the frames arrive from the app (already timed for
+      // when they're heard) instead of from an analyser.
+      const app = isAppMode();
+      const playing = app
+        ? (appLivePlaying && !isMuted && document.visibilityState === 'visible')
+        : !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
+      if (!playing || !liveEls.length || (!app && !liveEnsureAnalyser())) {
         if (decoLayer) decoLayer.classList.remove('ofd-live-on');
         liveQueue = [];
         return;
       }
-      if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
-      liveAnalyser.getByteFrequencyData(liveBuf);
-      const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
       const now = performance.now();
-      liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      if (!app) {
+        if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
+        liveAnalyser.getByteFrequencyData(liveBuf);
+        const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
+        liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      }
       let frame = null;
       while (liveQueue.length && liveQueue[0][0] <= now) frame = liveQueue.shift()[1];
       if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);

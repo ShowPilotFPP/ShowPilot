@@ -250,11 +250,13 @@ async function round(n, phone, ref, uids, csv) {
     try { await adb('forward', '--remove', `tcp:${PHONE_PORT}`); } catch (_) {}
     await adb('forward', `tcp:${PHONE_PORT}`, 'localabstract:chrome_devtools_remote');
     step(`opening ${OPEN_URL} in Chrome on the phone…`);
-    const r = await fetch(`http://127.0.0.1:${PHONE_PORT}/json/new?${encodeURI(OPEN_URL)}`, { method: 'PUT', signal: AbortSignal.timeout(10000) }).catch(e => ({ ok: false, statusText: e.message }));
-    if (!r.ok) {
-      // Older Chrome only accepts GET here.
-      const g = await fetch(`http://127.0.0.1:${PHONE_PORT}/json/new?${encodeURI(OPEN_URL)}`, { signal: AbortSignal.timeout(10000) }).catch(e => ({ ok: false, statusText: e.message }));
-      if (!g.ok) { console.error('Could not open a tab in Chrome on the phone (' + (g.statusText || r.statusText) + '). Open the page there yourself and run without --url.'); process.exit(1); }
+    // Ask Android to open the link in Chrome (like tapping a link in an app).
+    // Chrome's own "open a tab" debugging call is turned off on many phones.
+    try {
+      await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'${OPEN_URL}'`, 'com.android.chrome');
+    } catch (e) {
+      console.error('Could not open the page in Chrome on the phone (' + e.message + '). Open it there yourself and run without --url.');
+      process.exit(1);
     }
     await sleep(5000);
   }

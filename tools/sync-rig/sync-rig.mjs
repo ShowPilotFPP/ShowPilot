@@ -130,41 +130,41 @@ async function cdpConnect(port, label) {
 }
 
 // ---- Android audio: the output Chrome plays through ----
-function summarizeAudioFlinger(txt, chromeUids) {
-  // Output threads, each with its type, latency and buffer sizes, and
-  // whether a Chrome track is active on it. Formats differ by Android
-  // version, so this is best-effort; the raw dump is saved too.
+function chromeClient(txt) {
+  // AudioFlinger lists its clients as "pid uid name"; Chrome's audio runs
+  // in the browser process, and its tracks show as "pid/  uid".
+  const m = txt.match(/^\s*(\d+)\s+(\d+)\s+com\.android\.chrome\s*$/m);
+  return m ? { pid: m[1], uid: m[2] } : null;
+}
+
+function summarizeAudioFlinger(txt) {
+  // Output threads, each with its type and buffer sizes, and whether
+  // Chrome has a track on it right now (the thread's current track table,
+  // not its history log). Best-effort; the raw dump is saved too.
+  const who = chromeClient(txt);
   const blocks = txt.split(/\n(?=Output thread )/).filter(b => b.startsWith('Output thread'));
   const out = [];
   for (const b of blocks) {
     const head = b.split('\n')[0];
-    const type = (head.match(/type \d+ \(([A-Z_]+)\)/) || [])[1] || (head.match(/\(([A-Z_]+)\)/) || [])[1] || '?';
+    const type = (head.match(/type \d+ \(([A-Z_]+)\)/) || [])[1] || '?';
     const num = (re) => { const m = b.match(re); return m ? Number(m[1]) : null; };
-    const hasChrome = chromeUids.some(u => new RegExp(`\\b${u}\\b`).test(b));
+    const current = b.split(/\n\s*Local log:/)[0];
+    const chrome = !!who && new RegExp(`\\b${who.pid}/\\s*${who.uid}\\b`).test(current);
     out.push({
       type,
-      chrome: hasChrome,
-      latencyMs: num(/Latency:\s*(\d+(?:\.\d+)?)\s*ms/i) ?? num(/latency\s*(\d+)\s*ms/i),
+      name: (head.match(/name (\S+),/) || [])[1] || null,
+      chrome,
       halFrames: num(/HAL frame count:\s*(\d+)/i),
       normalFrames: num(/Normal frame count:\s*(\d+)/i),
       sampleRate: num(/Sample rate:\s*(\d+)/i),
-      fastTracks: num(/Fast tracks?:\s*(\d+)/i) ?? num(/Fast track availability:\s*(\d+)/i),
-      activeTracks: num(/(\d+)\s+Tracks? of which (\d+) are active/i),
+      flags: (b.match(/AudioStreamOut: \S+ flags \S+ \(([^)]*)\)/) || [])[1] || null,
     });
   }
   return out;
 }
 
-async function chromeUids() {
-  try {
-    const out = await adb('shell', 'dumpsys', 'package', 'com.android.chrome');
-    const m = out.match(/userId=(\d+)/);
-    return m ? [m[1]] : [];
-  } catch (_) { return []; }
-}
-
 // ---- One round ----
-async function round(n, phone, ref, uids, csv) {
+async function round(n, phone, ref, csv) {
   const t0 = Date.now();
   let started = true;
   if (MANUAL) {
@@ -192,8 +192,17 @@ async function round(n, phone, ref, uids, csv) {
   const diag = phone ? await phone.evaluate(`JSON.stringify(window.__spDiag || {})`).then(JSON.parse).catch(() => ({})) : {};
   let af = [], raw = '';
   if (!flag('no-audioflinger')) {
-    try { raw = await adb('shell', 'dumpsys', 'media.audio_flinger'); af = summarizeAudioFlinger(raw, uids); } catch (e) { raw = 'dumpsys failed: ' + e.message; }
+    try { raw = await adb('shell', 'dumpsys', 'media.audio_flinger'); af = summarizeAudioFlinger(raw); } catch (e) { raw = 'dumpsys failed: ' + e.message; }
     fs.writeFileSync(path.join(OUT, `round-${String(n).padStart(2, '0')}-audioflinger.txt`), raw);
+    // AAudio's own report: buffer size, capacity, xruns and frame counters
+    // of Chrome's fast stream. Taken twice, 1 s apart, so the counters
+    // show how far ahead Chrome is writing.
+    let aa = '';
+    for (const k of [1, 2]) {
+      try { aa += `===== take ${k} at ${new Date().toISOString()}\n` + await adb('shell', 'dumpsys', 'media.aaudio') + '\n'; } catch (e) { aa += `dumpsys media.aaudio failed: ${e.message}\n`; }
+      if (k === 1) await sleep(1000);
+    }
+    fs.writeFileSync(path.join(OUT, `round-${String(n).padStart(2, '0')}-aaudio.txt`), aa);
   }
   const measures = [];
   let ear = null;
@@ -222,8 +231,8 @@ async function round(n, phone, ref, uids, csv) {
     blockMs: setup.blockMs ?? null, blockMaxMs: setup.blockMaxMs ?? null,
     baseLatencyMs: setup.baseLatencyMs ?? null, outputLatencyMs: setup.outputLatencyMs ?? null,
     phoneDriftMs: drift.driftMs ?? null,
-    afType: chromeOut ? chromeOut.type : af.map(o => o.type).join('+'),
-    afLatencyMs: chromeOut ? chromeOut.latencyMs : null,
+    afType: chromeOut ? chromeOut.type : (af.length ? 'chrome-not-found' : null),
+    afName: chromeOut ? chromeOut.name : null,
     afHalFrames: chromeOut ? chromeOut.halFrames : null,
     refSpeakerDelayMs: measures.find(m => m && m.thisSpeakerDelayMs != null)?.thisSpeakerDelayMs ?? null,
     secs: Math.round((Date.now() - t0) / 1000),
@@ -291,14 +300,13 @@ async function round(n, phone, ref, uids, csv) {
   const ref = USE_MIC ? await cdpConnect(REF_PORT, 'reference') : null;
   if (phone) await phone.send('Page.enable');
   step('reading Chrome\'s app id on the phone…');
-  const uids = await chromeUids();
-  console.log(`phone page:     ${phone ? phone.url : '(manual)'}\nreference page: ${ref ? ref.url : '(by ear)'}\nChrome uid on phone: ${uids.join(',') || 'unknown'}\nwriting to ${OUT}\n`);
+  console.log(`phone page:     ${phone ? phone.url : '(manual)'}\nreference page: ${ref ? ref.url : '(by ear)'}\nwriting to ${OUT}\n`);
   const csv = path.join(OUT, 'rounds.csv');
   const cols = ['round', USE_MIC ? 'phoneBehindMs' : 'byEar', 'measures', 'phoneSpeakerDelayMs', 'blockMs', 'blockMaxMs', 'outputLatencyMs', 'afType', 'afLatencyMs', 'afHalFrames'];
   console.log(cols.join('\t'));
   for (let n = 1; n <= ROUNDS; n++) {
     try {
-      const r = await round(n, phone, ref, uids, csv);
+      const r = await round(n, phone, ref, csv);
       console.log(cols.map(c => r[c] ?? '-').join('\t'));
     } catch (e) {
       console.log(`${n}\tround failed: ${e.message}`);

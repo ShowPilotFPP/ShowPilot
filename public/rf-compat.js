@@ -5158,6 +5158,15 @@
     const RATE_GAIN = 0.1;           // speed offset per second of drift (50ms → 0.5%)
     const RATE_DEADBAND_MS = 8;      // closer than this: play at normal speed
     const JUMP_THRESHOLD_MS = 150;   // farther than this: crossfade jump instead
+    // Settle (cloud-link): in the checks right after a start, 30 ms or more
+    // is fixed with a quick crossfade at once instead of 15-20 s of
+    // speed nudging (an 84 ms start error at 0.5%). Needs at
+    // least two fresh readings so one odd reading can't trigger it. After
+    // the start checks, the normal rules apply again.
+    const SETTLE_THRESHOLD_MS = 30;
+    function startCheckThreshold(est) {
+      return (est && est.n >= 2 && est.newestAgeMs < 1500) ? SETTLE_THRESHOLD_MS : JUMP_THRESHOLD_MS;
+    }
 
     function renderedPosAt(ctxTime) {
       return trackScheduledAtPositionSec
@@ -6549,11 +6558,12 @@
           const currentPos = htmlAudio ? htmlAudio.currentTime : fastStartPos;
           const snapErrorMs = Math.round((snapPos - currentPos) * 1000);
 
-          if (Math.abs(snapErrorMs) < JUMP_THRESHOLD_MS) {
+          const snapLimit = startCheckThreshold(snapEst);
+          if (Math.abs(snapErrorMs) < snapLimit) {
             // v0.33.204: small error — no cut; the speed loop closes it.
             console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms — smoothing by speed');
           } else {
-            console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms → crossfade to', snapPos.toFixed(3) + 's');
+            console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms → ' + (snapLimit < JUMP_THRESHOLD_MS ? 'settle ' : '') + 'crossfade to', snapPos.toFixed(3) + 's');
             if (crossfadeTo(snapPos)) {
               trackScheduledOutputLatency = outputLatencySec;
               if (htmlAudio) htmlAudio._seekedTo = snapPos;
@@ -6587,13 +6597,14 @@
           if (followTarget < 0 || followTarget >= audioBuffer.duration - 0.1) return;
 
           const followError = Math.round((followTarget - htmlAudio.currentTime) * 1000);
-          if (Math.abs(followError) < JUMP_THRESHOLD_MS) {
+          const followLimit = startCheckThreshold(followEst);
+          if (Math.abs(followError) < followLimit) {
             // v0.33.204: small error — the speed loop closes it smoothly.
             console.log('[ShowPilot] follow-up: ' + followError + 'ms — smoothing by speed');
             return;
           }
 
-          console.log('[ShowPilot] follow-up: ' + followError + 'ms → crossfade to', followTarget.toFixed(3) + 's');
+          console.log('[ShowPilot] follow-up: ' + followError + 'ms → ' + (followLimit < JUMP_THRESHOLD_MS ? 'settle ' : '') + 'crossfade to', followTarget.toFixed(3) + 's');
           if (crossfadeTo(followTarget)) {
             audioStartedAtMs = Date.now();
             snapAnchorCtxTime = trackScheduledAtAudioCtx;

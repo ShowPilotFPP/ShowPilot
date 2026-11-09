@@ -327,7 +327,6 @@ router.put('/config', requireAdmin, (req, res) => {
     'app_listing_enabled',
     'app_listing_name',
     'app_listing_town',
-    'app_listing_radius_miles',
     'app_listing_fuzz',
     'app_listing_directions',
     // Race mode (v0.33.155+)

@@ -11,9 +11,15 @@
 //
 // What a listed show publishes: name, town, public URL, location (rounded
 // to ~1 mile unless the owner chose otherwise — the rounding happens on
-// the show, so the exact spot never reaches us), its listing radius, and
+// the show, so the exact spot never reaches us), whether it's rounded, and
 // live / phone-audio / now-playing. We keep a hash of the install ID, not
 // the ID itself.
+//
+// Listing distance (master.17): the same for every show and not a setting.
+// A phone sees a show within LISTING_RADIUS_MI of it; for a rounded
+// location we add FUZZ_SLACK_MI (the farthest the rounded point can be from
+// the real one), so a phone standing at the show always sees it. Check-ins
+// from older installs still send their own radiusMi; it's ignored.
 //
 // Phone location: /nearby uses lat/lng only to answer the request. It is
 // never stored or logged.
@@ -43,6 +49,11 @@ const REVERIFY_S = 24 * 3600;
 const REVERIFY_GRACE_S = 48 * 3600;    // keep a verified show listed through short outages
 const MAX_RESULTS = 50;
 const MAX_VERIFY_AT_ONCE = 5;
+const LISTING_RADIUS_MI = 1;
+// The show rounds to the centre of a 0.015 degree grid cell (~1.04 mi
+// north-south, similar east-west), so the published point is at most about
+// 0.73 mi from the real spot.
+const FUZZ_SLACK_MI = 0.75;
 
 // Testing only: send the ownership check to a local server instead of the
 // show's real address (e.g. VERIFY_REWRITE_TO=http://127.0.0.1:3100).
@@ -142,15 +153,18 @@ function createDirectory(db) {
   CREATE INDEX IF NOT EXISTS idx_shows_lat ON shows(lat);
   CREATE INDEX IF NOT EXISTS idx_shows_last_seen ON shows(last_seen);
   `);
+  // master.17: whether the published location is rounded (older rows: assume yes).
+  const cols = db.prepare('PRAGMA table_info(shows)').all().map(c => c.name);
+  if (!cols.includes('fuzzed')) db.exec('ALTER TABLE shows ADD COLUMN fuzzed INTEGER NOT NULL DEFAULT 1');
 
   const getRow = db.prepare('SELECT * FROM shows WHERE id_hash = ?');
   const upsert = db.prepare(`
     INSERT INTO shows (id_hash, public_id, product, version, name, town, viewer_url, api_base_url, lat, lng, radius_mi,
-                       live, has_audio, now_playing, verified_base, verified_at, first_seen, last_seen)
+                       fuzzed, live, has_audio, now_playing, verified_base, verified_at, first_seen, last_seen)
     VALUES (@id_hash, @public_id, @product, @version, @name, @town, @viewer_url, @api_base_url, @lat, @lng, @radius_mi,
-            @live, @has_audio, @now_playing, @verified_base, @verified_at, @now, @now)
+            @fuzzed, @live, @has_audio, @now_playing, @verified_base, @verified_at, @now, @now)
     ON CONFLICT(id_hash) DO UPDATE SET product=@product, version=@version, name=@name, town=@town, viewer_url=@viewer_url,
-      api_base_url=@api_base_url, lat=@lat, lng=@lng, radius_mi=@radius_mi, live=@live, has_audio=@has_audio,
+      api_base_url=@api_base_url, lat=@lat, lng=@lng, radius_mi=@radius_mi, fuzzed=@fuzzed, live=@live, has_audio=@has_audio,
       now_playing=@now_playing, verified_base=@verified_base, verified_at=@verified_at, last_seen=@now`);
   const del = db.prepare('DELETE FROM shows WHERE id_hash = ?');
 
@@ -168,11 +182,10 @@ function createDirectory(db) {
     const viewer = publicHttpsUrl(b.viewerUrl);
     if (!api) return res.status(400).json({ error: 'apiBaseUrl must be a public https:// address' });
     if (!viewer || viewer.hostname !== api.hostname) return res.status(400).json({ error: 'viewerUrl must be https:// on the same host as apiBaseUrl' });
-    const lat = Number(b.lat), lng = Number(b.lng), radius = Number(b.radiusMi);
+    const lat = Number(b.lat), lng = Number(b.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) {
       return res.status(400).json({ error: 'bad location' });
     }
-    if (!Number.isFinite(radius) || radius < 0.5 || radius > 100) return res.status(400).json({ error: 'radiusMi must be 0.5 to 100' });
     const name = text(b.name, 60);
     if (!name) return res.status(400).json({ error: 'name is required' });
 
@@ -213,7 +226,8 @@ function createDirectory(db) {
       version: VERSION_RE.test(String(b.version || '')) ? String(b.version) : null,
       name, town: text(b.town, 60) || null,
       viewer_url: viewer.href, api_base_url: apiBase,
-      lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, radius_mi: radius,
+      lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, radius_mi: LISTING_RADIUS_MI,
+      fuzzed: b.fuzzed === false ? 0 : 1,   // older installs don't say: assume rounded (the default)
       live: live ? 1 : 0, has_audio: b.hasAudio === true ? 1 : 0,
       now_playing: live ? (text(b.nowPlaying, 120) || null) : null,
       verified_base: verifiedBase, verified_at: verifiedAt, now,
@@ -235,9 +249,12 @@ function createDirectory(db) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       return res.status(400).json({ error: 'lat and lng are required' });
     }
+    // radius_mi from the app can only narrow the search; a show is never
+    // listed farther than its fixed listing distance.
+    const maxListing = LISTING_RADIUS_MI + FUZZ_SLACK_MI;
     let radius = Number(req.query.radius_mi);
-    if (!Number.isFinite(radius)) radius = 25;
-    radius = Math.min(100, Math.max(1, radius));
+    if (!Number.isFinite(radius)) radius = maxListing;
+    radius = Math.min(maxListing, Math.max(0.5, radius));
     const now = Math.floor(Date.now() / 1000);
     const dLat = radius / 69;
     const dLng = radius / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.05));
@@ -246,7 +263,8 @@ function createDirectory(db) {
     const shows = [];
     for (const r of rows) {
       const d = distanceMiles(lat, lng, r.lat, r.lng);
-      if (d > radius || d > r.radius_mi) continue;
+      const reach = LISTING_RADIUS_MI + (r.fuzzed === 0 ? 0 : FUZZ_SLACK_MI);
+      if (d > radius || d > reach) continue;
       const live = r.live === 1 && now - r.last_seen <= LIVE_STALE_S;
       shows.push({
         id: r.public_id, name: r.name, viewerUrl: r.viewer_url, apiBaseUrl: r.api_base_url,

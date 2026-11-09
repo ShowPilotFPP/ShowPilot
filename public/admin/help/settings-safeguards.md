@@ -51,7 +51,7 @@ The same coordinates are used by the audio distance gate on [Settings › Audio]
 
 ## Show in the ShowPilot app
 
-Turn on **List my show in the ShowPilot app** and your show appears in the ShowPilot phone app for people nearby. They can open your viewer page from it and, if phone audio is on, listen in the app. It's off until you turn it on.
+Turn on **List my show in the ShowPilot app** and your show appears in the ShowPilot phone app for people within about a mile of it. That distance is the same for every show and isn't a setting: the app is for people at your show or driving past, not for browsing shows across town. They can open your viewer page from it and, if phone audio is on, listen in the app. It's off until you turn it on.
 
 It needs two things, and the section tells you if either is missing:
 
@@ -62,7 +62,6 @@ It needs two things, and the section tells you if either is missing:
 |---|---|
 | **Name in the app** | The name people see. Leave it empty to use your show name. |
 | **Town** | Shown under the name, so people know roughly where you are. |
-| **Show to phones within (miles)** | Phones farther away than this don't see your show, even if the person asks for a bigger area. The default is **15**. |
 | **Round my location to about a mile** | On by default. The app's list and your viewer page get a spot rounded to about a mile, never your exact one. |
 | **Let the app give exact directions** | Off by default. Puts your exact spot on your show's info page so the app can offer turn-by-turn directions. Anyone can read that page. |
 

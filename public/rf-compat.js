@@ -2975,6 +2975,11 @@
   // periodic fallback) all want the sticky latch. Only the watcher's
   // direct out-of-range path passes 'proximity'.
   function applyAudioGateState(blocked, reason, category) {
+    // Inside the ShowPilot app (app bridge, master.17) the app checks the
+    // distance gate with the phone's location and shows the result in the
+    // player bar; this page's own polls carry no location, so they must not
+    // hide the bar or the Listen button there.
+    if (window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function') return;
     _audioGateBlocked = blocked;
     _audioGateReason = reason;
     if (blocked) {
@@ -5262,6 +5267,7 @@
       if (panelMode === 'open') return;
       if (btn.onclick) btn.onclick();
     });
+
     function syncInlineListen() {
       const off = !boot.audioEnabled || btn.classList.contains('of-audio-gate-pending');
       document.querySelectorAll('[data-showpilot-listen]').forEach(el => {
@@ -5307,6 +5313,76 @@
       muteBtn.style.color = isMuted ? '#ef4444' : 'rgba(255,255,255,0.75)';
       setMuteIcon(isMuted);
     };
+
+    // ---- ShowPilot app bridge (v0.33.278-master.17) ----
+    // Inside the ShowPilot phone app, the app defines window.ShowPilotApp
+    // before this page loads and plays the synced audio itself. The page
+    // keeps drawing its own player bar (decoration theme, custom color,
+    // animations, two-row layout, minimize pill), so it looks exactly as the
+    // show runner set it up, but nothing here makes sound: no AudioContext,
+    // no song downloads, no sync loop, no mic, no location prompt. The bar
+    // shows the app's status and its buttons send messages to the app.
+    // Contract: docs/APP-BRIDGE.md in the ShowPilot-Mobile-Apps repo.
+    function isAppMode() {
+      return !!(window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function');
+    }
+    const spApp = isAppMode() ? window.ShowPilotApp : null;
+    if (spApp) {
+      let appStatus = null;
+      let appTitle = null;
+      let appArtist = null;
+      const appSend = (msg) => { try { spApp.send(msg); } catch (_) {} };
+      const appRender = (st) => {
+        if (!st || typeof st !== 'object') return;
+        appStatus = st;
+        if (!st.active) {
+          if (panelMode !== 'closed') setMode('closed');
+          return;
+        }
+        if (panelMode === 'closed') setMode('open');
+        applyDecoration(st.playerDecoration, st.playerDecorationAnimated !== false, st.playerCustomColor || '');
+        const title = st.title || st.statusText || '';
+        if (title !== appTitle) {
+          appTitle = title;
+          titleEl.textContent = title;
+          setupMarquee(titleEl, titleWrap);
+        }
+        const artist = st.title ? (st.artist || '') : '';
+        if (artist !== appArtist) {
+          appArtist = artist;
+          artistEl.textContent = artist;
+          setupMarquee(artistEl, artistWrap);
+        }
+        setCover(st.imageUrl || '');
+        statusEl.textContent = st.title ? (st.statusText || '') : '';
+        if (driftEl) driftEl.textContent = st.driftText || '';
+        setPlayIcon(!!st.playing);
+        isMuted = !!st.muted;
+        setMuteIcon(isMuted);
+        muteBtn.style.color = isMuted ? '#ef4444' : 'rgba(255,255,255,0.75)';
+        minimizedPill.querySelector('#of-listen-pill-text').textContent = st.title || 'Playing';
+      };
+      // Corner button and {LISTEN_BUTTON}: ask the app to (re)start. The
+      // app runs the distance gate, so the button isn't held back waiting
+      // for this page's own location check.
+      btn.classList.remove('of-audio-gate-pending');
+      btn.onclick = () => appSend({ type: 'listen' });
+      playBtn.onclick = () => appSend({ type: (appStatus && appStatus.playing) ? 'pause' : 'resume' });
+      muteBtn.onclick = () => appSend({ type: 'mute', muted: !isMuted });
+      closeBtn.onclick = () => appSend({ type: 'stop' });
+      // The app's own full player has car timing and delay measuring.
+      const openAppPlayer = (e) => { if (e) e.stopPropagation(); appSend({ type: 'openPlayer' }); };
+      if (ltBtn) {
+        ltBtn.removeEventListener('click', ltOpen);
+        ltBtn.addEventListener('click', openAppPlayer);
+      }
+      coverEl.style.cursor = 'pointer';
+      coverEl.addEventListener('click', openAppPlayer);
+      if (textCol) { textCol.style.cursor = 'pointer'; textCol.addEventListener('click', openAppPlayer); }
+      window.addEventListener('showpilot-app:status', (e) => appRender(e.detail));
+      if (spApp.status) appRender(spApp.status);
+      appSend({ type: 'ready', bridge: 1 });
+    }
 
     function setMode(mode) {
       panelMode = mode;
@@ -5365,6 +5441,7 @@
     }
 
     async function startup() {
+      if (isAppMode()) return; // the ShowPilot app plays the audio (app bridge)
       try {
         // Consume the AudioContext created synchronously in btn.onclick's
         // user-gesture window (iOS requires this — see comment there).
@@ -5864,6 +5941,7 @@
     }
 
     async function syncOnce() {
+      if (isAppMode()) return; // the ShowPilot app plays the audio (app bridge)
       try {
         // Master audio kill-switch — admin disabled audio for this show.
         // No point polling /api/now-playing-audio: the server returns

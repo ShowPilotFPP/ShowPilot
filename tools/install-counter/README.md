@@ -76,8 +76,9 @@ my show in the ShowPilot app** check in here (once a minute). Code:
 `directory.js`.
 
 **What a listed show sends:** its install ID (we keep a hash), product,
-version, name, town, public `viewerUrl` / `apiBaseUrl`, location, listing
-radius, `live`, `hasAudio`, `nowPlaying`. The location is rounded to about a
+version, name, town, public `viewerUrl` / `apiBaseUrl`, location, whether
+it's rounded (`fuzzed`), `live`, `hasAudio`, `nowPlaying`. (Older installs
+also send a `radiusMi`; it's ignored.) The location is rounded to about a
 mile **on the show** unless its owner turned rounding off, so the exact spot
 never reaches the directory.
 
@@ -96,8 +97,11 @@ addresses are refused after DNS lookup).
   "live": true, "hasAudio": true, "nowPlaying": "…" } ] }
 ```
 
-- `radius_mi` defaults to 25 (1 to 100). A show is returned only when the
-  phone is inside both that radius and the show's own listing radius.
+- **Listing distance is fixed, the same for every show** (not a setting):
+  a phone sees a show within 1 mile of it (`LISTING_RADIUS_MI`). For a
+  rounded location the directory adds 0.75 mile (`FUZZ_SLACK_MI`, the
+  farthest the rounded point can be from the real spot), so a phone at the
+  show always sees it. `radius_mi` from the app can only narrow that.
 - Live shows first, then nearest. At most 50.
 - `live` is false once a show hasn't checked in for 2.5 minutes; a show that
   hasn't checked in for a day drops out; after 30 days it is deleted.

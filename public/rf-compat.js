@@ -4968,7 +4968,31 @@
       if (hint === 'playback' || hint === 'balanced' || hint === 'interactive') {
         try { return new AC({ latencyHint: hint }); } catch (_) {}
       }
+      // Android Chrome keeps the last page's audio stream open for a few
+      // seconds and hands it to the next page that asks for the same buffer
+      // size. A reused stream often plays late by an amount Chrome doesn't
+      // report, while a newly opened one lands in sync. So each new start
+      // alternates between two buffer sizes: Chrome can't reuse the previous
+      // stream and has to open a new one. The extra few ms on the larger size
+      // are measured by the output timing like any other speaker delay.
+      // ?fresh=0 turns this off (for comparing).
+      if (spFreshStreamOn()) {
+        let last = null;
+        try { last = localStorage.getItem('sp-audio-alt'); } catch (_) {}
+        const next = last === 'a' ? 'b' : 'a';
+        try { localStorage.setItem('sp-audio-alt', next); } catch (_) {}
+        spAudioAlt = next;
+        try { return new AC({ latencyHint: next === 'a' ? 'interactive' : 0.012 }); } catch (_) {}
+      }
       return new AC();
+    }
+    let spAudioAlt = null;
+    function spFreshStreamOn() {
+      let q = null;
+      try { q = new URLSearchParams(window.location.search).get('fresh'); } catch (_) {}
+      if (q === '0') return false;
+      if (q === '1') return true;
+      return /Android/i.test(navigator.userAgent || '');
     }
     // How far the audio clock jumps between readings (the size of the blocks
     // the device renders in, which goes with its output buffer), plus the
@@ -4999,7 +5023,7 @@
           measuredDelayMs: outDelayMs,
           rawTsGapMs: ts && ts.contextTime > 0 ? +((ctx.currentTime - ts.contextTime) * 1000).toFixed(1) : null,
           rawPerfAgeMs: ts && ts.performanceTime > 0 ? +(performance.now() - ts.performanceTime).toFixed(1) : null,
-          sampleRate: ctx.sampleRate, latencyHint: hint || 'default', state: ctx.state,
+          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', state: ctx.state,
         });
       };
       tick();

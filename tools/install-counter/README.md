@@ -103,11 +103,12 @@ addresses are refused after DNS lookup).
   hasn't checked in for a day drops out; after 30 days it is deleted.
 - The phone's `lat`/`lng` are used to answer the request and never stored.
 
-**Routing:** the app calls `https://<site domain>/api/shows/nearby` and
-shows check in to `https://<site domain>/api/shows/…` (see `DEFAULT_URL` in
-`lib/app-listing.js`). In the Cloudflare Tunnel, add a public hostname for
-the site domain with path `^/api/shows/` → `http://localhost:3040`, placed
-**above** the site's own rule so it wins.
+**Routing:** nothing extra. The directory is served on the counter's own
+public hostname (the one in `DEFAULT_URL` of `lib/install-count.js`), so the
+app calls `https://<counter host>/api/shows/nearby` and listed shows check in
+to `https://<counter host>/api/shows/…` (`DEFAULT_URL` in
+`lib/app-listing.js`; override with `appDirectoryUrl` in config.js or
+`SHOWPILOT_APP_DIRECTORY_URL`).
 
 Testing only: `VERIFY_REWRITE_TO=http://127.0.0.1:3100` sends the ownership
 check to a local server instead of the show's real address.

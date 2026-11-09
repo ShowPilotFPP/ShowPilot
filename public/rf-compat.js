@@ -5196,6 +5196,18 @@
     // least two fresh readings so one odd reading can't trigger it. After
     // the start checks, the normal rules apply again.
     const SETTLE_THRESHOLD_MS = 30;
+    // Late settle (beta): for the first 10 s after a start, the running check
+    // also fixes >= 30 ms at once (crossfade). A player that just opened has a
+    // fresh audio output whose delay reading keeps settling for a few
+    // seconds after the start; the start and the first checks use the early
+    // reading, so they report 0 ms while the listener hears an echo, and the
+    // speed nudge then needs ~20 s per 100 ms. Song changes on a long-running
+    // output didn't have this. Max 3 per start, 2 s apart, >= 3 readings.
+    const LATE_SETTLE_WINDOW_SEC = 10;
+    const LATE_SETTLE_GAP_MS = 2000;
+    const LATE_SETTLE_MAX = 3;
+    let lateSettleUntilCtx = 0;
+    let lateSettleCount = 0;
     function startCheckThreshold(est) {
       return (est && est.n >= 2 && est.newestAgeMs < 1500) ? SETTLE_THRESHOLD_MS : JUMP_THRESHOLD_MS;
     }
@@ -6531,6 +6543,8 @@
 
         // Schedule fast-start source
         trackScheduledAtAudioCtx = fastStartCtxTime;
+        lateSettleUntilCtx = fastStartCtxTime + LATE_SETTLE_WINDOW_SEC;
+        lateSettleCount = 0;
         trackScheduledAtPositionSec = fastStartPos;
         currentRate = 1.0;
         trackScheduledOutputLatency = outputLatencySec;
@@ -7119,6 +7133,20 @@
         if (!canCorrect) {
           // No trustworthy reference right now: don't keep nudging blindly.
           if (currentRate !== 1.0 && currentSource) setSourceRate(1.0);
+        } else if (audioCtx.currentTime < lateSettleUntilCtx && lateSettleCount < LATE_SETTLE_MAX &&
+                   Math.abs(correctionDriftMs) >= SETTLE_THRESHOLD_MS && Math.abs(correctionDriftMs) <= JUMP_THRESHOLD_MS &&
+                   msSinceLastCrossfade > LATE_SETTLE_GAP_MS) {
+          const targetPos = loopEst.pos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+            + loopLatencySec;
+          console.log('[ShowPilot] late settle: drift', correctionDriftMs + 'ms → crossfade to', targetPos.toFixed(3) + 's (' +
+            Math.round(audioCtx.currentTime - (lateSettleUntilCtx - LATE_SETTLE_WINDOW_SEC)) + 's after start; speaker delay ' +
+            Math.round((loopLatencySec - listenerOffsetSec) * 1000) + 'ms ' + outputTimingSource() + ')');
+          if (crossfadeTo(targetPos)) {
+            lateSettleCount++;
+            smoothedDriftMs = 0;
+            lastAppliedRate = 1.0;
+          }
         } else if (Math.abs(correctionDriftMs) > JUMP_THRESHOLD_MS) {
           if (msSinceLastCrossfade > CROSSFADE_COOLDOWN_MS) {
             const targetPos = loopEst.pos

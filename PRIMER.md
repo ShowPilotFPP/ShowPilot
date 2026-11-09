@@ -472,6 +472,8 @@ Issue #38 (@cathelest). Visitors send a short message to the show owner from the
 
 ## FPP Monitor (main v0.33.278-master.13+ / Lite v0.5.125+, plugin 0.14.26+)
 
+**Main only from master.22:** ShowPilot-Lite removed its FPP Monitor in Lite 0.5.131 (Lite runs on the FPP box itself; its heartbeat answers `fppMonitor: false`). Don't mirror FPP Monitor changes to Lite.
+
 An FPPmon-style page for the show's **main** FPP (not every controller): state, playlist/sequence/time left, scheduler's next playlist, health (CPU temperature and other FPP sensors, CPU/memory/disk, uptime), system info, the MultiSync systems FPP sees, and controls. The show player can be FPP or any show player that speaks FPP's status API; the page never names one.
 
 - **ShowPilot never connects to FPP.** That only works on the same network and never from a hosted server. The show player pushes a snapshot instead: heartbeat answer `fppMonitor: true` → `POST /api/plugin/fpp-status` `{ status: <FPP /api/system/status>, multisync: <FPP /api/fppd/multiSyncSystems>, disk: {freeBytes, totalBytes}, now: <FPP epoch s>, playlists?, presets?, results?, source? }`. Answer `{ ok, commands: [{id, action, name?}], nextInSec }`: 5 normally, 1 while the FPP page has polled in the last 15 s or a control is waiting.

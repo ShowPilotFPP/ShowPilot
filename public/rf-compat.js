@@ -3848,6 +3848,113 @@
       document.body.appendChild(mb);
     }
 
+    // ---- Compare devices (beta, ?debug=1) ----
+    // Is this device in sync with another one playing the same show nearby?
+    // Same method as Measure sync: listen 4 s with this device playing (the
+    // mic hears it and the other device), then 4 s with it muted (only the
+    // other device), and find each copy against the decoded song. Result:
+    // how far the OTHER device is behind (+) or ahead (-) of this one.
+    // Needs mic permission and the https page. Repeat mode measures every
+    // 20 s so a phone can be refreshed and checked again and again.
+    // window.__spCompare = { run(), results } is for the sync-rig script.
+    const spCompareOn = (() => {
+      try { return new URLSearchParams(window.location.search).get('debug') === '1'; } catch (_) { return false; }
+    })();
+    const compareResults = [];
+    let compareRepeatTimer = null;
+    function comparePanel(latest) {
+      const ok = compareResults.filter(r => r.ok);
+      const avg = ok.length ? Math.round(ok.reduce((a, r) => a + r.otherBehindMs, 0) / ok.length) : null;
+      const say = (r) => !r.ok ? 'no result (' + r.reason + ')'
+        : r.otherBehindMs === 0 ? 'in sync'
+        : r.otherBehindMs > 0 ? '<b>' + r.otherBehindMs + ' ms behind</b>' : '<b>' + (-r.otherBehindMs) + ' ms ahead</b>';
+      const hist = compareResults.slice(-8).reverse().map(r =>
+        '<div>' + r.at.slice(11, 19) + ' · ' + say(r) + '</div>').join('');
+      micPanel('<div>Other device: ' + say(latest) + '</div>' +
+        '<div style="margin-top:6px;color:#aab0c0;font-size:13px">' + hist +
+        (avg !== null ? '<div style="margin-top:4px">Average of ' + ok.length + ': ' + (avg >= 0 ? '+' : '') + avg + ' ms (+ = other device behind)</div>' : '') +
+        '</div>' +
+        '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button" data-sp-cmp="again" style="padding:6px 10px;border-radius:8px">Measure again</button>' +
+        '<button type="button" data-sp-cmp="repeat" style="padding:6px 10px;border-radius:8px">' + (compareRepeatTimer ? 'Stop repeating' : 'Repeat every 20 s') + '</button>' +
+        '<button type="button" data-sp-cmp="close" style="padding:6px 10px;border-radius:8px">Close</button></div>', true);
+      const p = document.getElementById('sp-mic-panel');
+      if (p) p.querySelectorAll('[data-sp-cmp]').forEach(b => b.addEventListener('click', () => {
+        const a = b.getAttribute('data-sp-cmp');
+        if (a === 'again') compareRun();
+        else if (a === 'repeat') {
+          if (compareRepeatTimer) { clearInterval(compareRepeatTimer); compareRepeatTimer = null; comparePanel(latest); }
+          else { compareRepeatTimer = setInterval(() => { if (!micBusy) compareRun(); }, 20000); comparePanel(latest); }
+        } else { if (compareRepeatTimer) { clearInterval(compareRepeatTimer); compareRepeatTimer = null; } p.remove(); }
+      }));
+    }
+    async function compareRun() {
+      const fail = (reason) => {
+        const res = { ok: false, at: new Date().toISOString(), otherBehindMs: null, reason };
+        compareResults.push(res);
+        console.log('[ShowPilot] compare failed reason=' + JSON.stringify(reason));
+        comparePanel(res);
+        return res;
+      };
+      if (micBusy) return { ok: false, reason: 'a measurement is already running' };
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return fail('the microphone needs the https:// page');
+      try { await ltLoadMicCore(); } catch (e) { return fail(e.message || 'measurement code missing'); }
+      if (!audioCtx || !currentBuffer || !currentSource || !htmlAudio) return fail('start listening first, then compare while a song plays');
+      micBusy = true;
+      const buf = currentBuffer;
+      const wasMuted = isMuted;
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+        if (gainNode) gainNode.gain.value = 1;
+        micPanel('Comparing — step 1 of 2: listening with this device playing (4 s)…');
+        const a = await micCapture(stream, 4);
+        if (gainNode) gainNode.gain.value = 0;
+        micPanel('Comparing — step 2 of 2: this device muted, listening to the other device (4 s)…');
+        const b = await micCapture(stream, 4);
+        if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
+        stream.getTracks().forEach(tr => tr.stop()); stream = null;
+        if (currentBuffer !== buf) { micBusy = false; return fail('the song changed during the measurement'); }
+        const A = micRef(a), B = micRef(b);
+        if (!A || !B) { micBusy = false; return fail('could not read the player position'); }
+        micPanel('Comparing — analyzing…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.analyze(A, B, buf.sampleRate);
+        const reason = r.ok ? null : String(r.reason || 'no clear result').replace('the show speakers', 'the other device');
+        const res = {
+          ok: !!r.ok, at: new Date().toISOString(),
+          otherBehindMs: r.ok ? (r.merged ? 0 : r.deltaMs) : null, merged: !!r.merged, reason,
+          thisSpeakerDelayMs: Math.round((getOutputLatencySec() - (listenerOffsetSec || 0)) * 1000),
+          track: currentTrackMediaName, posSec: +htmlAudio.currentTime.toFixed(2),
+          otherStrength: r.ok && r.speakerStrength ? Math.round(r.speakerStrength) : null,
+        };
+        compareResults.push(res);
+        if (compareResults.length > 200) compareResults.shift();
+        console.log('[ShowPilot] compare ' + (res.ok ? 'otherBehindMs=' + res.otherBehindMs : 'failed reason=' + JSON.stringify(res.reason)) +
+          ' thisSpeakerDelayMs=' + res.thisSpeakerDelayMs + ' pos=' + res.posSec + ' track=' + JSON.stringify(res.track || ''));
+        comparePanel(res);
+        return res;
+      } catch (e) {
+        if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
+        micBusy = false;
+        return fail(e && e.name === 'NotAllowedError' ? 'microphone permission was denied' : (e && e.message ? e.message : String(e)));
+      } finally {
+        if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micBusy = false;
+      }
+    }
+    if (spCompareOn) {
+      window.__spCompare = { run: compareRun, results: compareResults };
+      const cb = document.createElement('button');
+      cb.type = 'button';
+      cb.id = 'sp-compare-btn';
+      cb.textContent = '🎤 Compare devices';
+      cb.style.cssText = 'position:fixed;left:12px;bottom:' + (micEnabled ? 220 : 170) + 'px;z-index:10001;padding:10px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.25);' +
+        'background:rgba(10,12,20,.9);color:#fff;font:600 14px system-ui,-apple-system,sans-serif;cursor:pointer';
+      cb.addEventListener('click', () => compareRun());
+      document.body.appendChild(cb);
+    }
+
     // ---- Larger two-row player on phones (v0.33.215+) ----
     // Admin setting player_tall_layout (boot.playerTallLayout), off by default.
     // On screens <= 600px wide the player becomes two rows: cover + full-width
@@ -4609,6 +4716,37 @@
       }
     }
 
+    // v0.33.279: joining mid-song, fetch only the rest of the song: the
+    // server cuts the MP3 on a frame boundary just before `fromSec` and says
+    // exactly where the slice starts (X-Audio-Start-Sec; 0 = whole file, as
+    // for other formats or older servers). Resolves to { buf, startSec }.
+    async function fetchAudioTail(url, fromSec, ms) {
+      const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), ms) : null;
+      try {
+        const u = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'from=' + fromSec.toFixed(3);
+        const resp = await fetch(u, ctl ? { signal: ctl.signal } : undefined);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const startSec = parseFloat(resp.headers.get('X-Audio-Start-Sec') || '0') || 0;
+        return { buf: await resp.arrayBuffer(), startSec: startSec > 0 ? startSec : 0 };
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw new Error('audio download timed out');
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    // A decoded slice that starts at song time `startSec`, placed in a
+    // buffer of the whole song's length (silence before it), so everything
+    // else keeps using song time as the buffer position.
+    function placeAtSongTime(ctx, slice, startSec) {
+      const off = Math.round(startSec * slice.sampleRate);
+      const out = ctx.createBuffer(slice.numberOfChannels, off + slice.length, slice.sampleRate);
+      for (let ch = 0; ch < slice.numberOfChannels; ch++) out.getChannelData(ch).set(slice.getChannelData(ch), off);
+      return out;
+    }
+
     // Drop decoded songs that are neither playing nor next.
     function pruneBufferCache() {
       for (const key of decodedBufferCache.keys()) {
@@ -4848,9 +4986,115 @@
     let currentTrackMediaName = null; // raw FPP media filename for the current track
     const FPP_SAMPLE_WINDOW_MS = 5000;
 
-    function recordFppSample(msg) {
+    // ---- Audio context setup (beta test) ----
+    // ?latency=playback | balanced | interactive asks the browser for that
+    // output setup instead of its default. Android Chrome's default
+    // low-latency output can come up with a different hidden delay each time
+    // the player opens; the larger-buffer 'playback' setup may be steadier.
+    // Test switch only; without it nothing changes.
+    function spNewAudioContext() {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      let hint = null;
+      try { hint = new URLSearchParams(window.location.search).get('latency'); } catch (_) {}
+      if (hint === 'playback' || hint === 'balanced' || hint === 'interactive') {
+        try { return new AC({ latencyHint: hint }); } catch (_) {}
+      }
+      // Android Chrome keeps the last page's audio stream open for a few
+      // seconds and hands it to the next page that asks for the same buffer
+      // size. A reused stream often plays late by an amount Chrome doesn't
+      // report, while a newly opened one lands in sync. So each new start
+      // alternates between two buffer sizes: Chrome can't reuse the previous
+      // stream and has to open a new one. The extra few ms on the larger size
+      // are measured by the output timing like any other speaker delay.
+      // ?fresh=0 turns this off (for comparing).
+      if (spFreshStreamOn()) {
+        let last = null;
+        try { last = localStorage.getItem('sp-audio-alt'); } catch (_) {}
+        const next = last === 'a' ? 'b' : 'a';
+        try { localStorage.setItem('sp-audio-alt', next); } catch (_) {}
+        spAudioAlt = next;
+        try { return new AC({ latencyHint: next === 'a' ? 'interactive' : 0.012 }); } catch (_) {}
+      }
+      return new AC();
+    }
+    let spAudioAlt = null;
+    function spFreshStreamOn() {
+      let q = null;
+      try { q = new URLSearchParams(window.location.search).get('fresh'); } catch (_) {}
+      if (q === '0') return false;
+      if (q === '1') return true;
+      return /Android/i.test(navigator.userAgent || '');
+    }
+    // How far the audio clock jumps between readings (the size of the blocks
+    // the device renders in, which goes with its output buffer), plus the
+    // browser's own latency figures, logged once per start with ?debug=1.
+    // Watched over ~300 ms without blocking.
+    function logAudioSetup(label) {
+      if (!spVerbose || !audioCtx) return;
+      const ctx = audioCtx;
+      const steps = [];
+      let last = ctx.currentTime;
+      const t0 = performance.now();
+      const tick = () => {
+        if (ctx !== audioCtx) return;
+        const now = ctx.currentTime;
+        if (now !== last) { steps.push(now - last); last = now; }
+        if (performance.now() - t0 < 300) { setTimeout(tick, 1); return; }
+        steps.sort((a, b) => a - b);
+        let ts = null;
+        try { ts = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null; } catch (_) {}
+        let hint = null;
+        try { hint = new URLSearchParams(window.location.search).get('latency'); } catch (_) {}
+        vlog('audio setup', {
+          when: label,
+          blockMs: steps.length ? +(steps[steps.length >> 1] * 1000).toFixed(2) : null,
+          blockMaxMs: steps.length ? +(steps[steps.length - 1] * 1000).toFixed(2) : null,
+          baseLatencyMs: typeof ctx.baseLatency === 'number' ? +(ctx.baseLatency * 1000).toFixed(1) : null,
+          outputLatencyMs: typeof ctx.outputLatency === 'number' ? +(ctx.outputLatency * 1000).toFixed(1) : null,
+          measuredDelayMs: outDelayMs,
+          rawTsGapMs: ts && ts.contextTime > 0 ? +((ctx.currentTime - ts.contextTime) * 1000).toFixed(1) : null,
+          rawPerfAgeMs: ts && ts.performanceTime > 0 ? +(performance.now() - ts.performanceTime).toFixed(1) : null,
+          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', keepAlive: spFreshStreamOn(), state: ctx.state,
+        });
+      };
+      tick();
+    }
+
+    // ---- Detailed log (cloud-link; ?debug=1 only) ----
+    // One line per event, written as plain "name=value" text so a copied
+    // console log keeps the numbers (objects paste as just "Object"). Normal
+    // listeners never get any of it.
+    const spVerbose = (() => {
+      try {
+        return new URLSearchParams(window.location.search).get('debug') === '1'
+          || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.debugOverlayEnabled);
+      } catch (_) { return false; }
+    })();
+    function vfmt(v) {
+      if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(3);
+      if (v === null || v === undefined) return '-';
+      return JSON.stringify(String(v));
+    }
+    function vlog(label, fields) {
+      if (!spVerbose) return;
+      // Latest of each kind, for the sync-rig script (window.__spDiag).
+      try { (window.__spDiag = window.__spDiag || {})[label] = Object.assign({ at: Date.now() }, fields); } catch (_) {}
+      const parts = Object.entries(fields || {}).map(([k, v]) => k + '=' + vfmt(v));
+      console.log('[ShowPilot] ' + label + (parts.length ? ' ' + parts.join(' ') : ''));
+    }
+    // Song-change timeline: when FPP's change reached this phone.
+    let vChangeSeenAt = 0;
+    let vChangeFile = null;
+
+    function recordFppSample(msg, kind) {
       if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
       if (typeof msg.positionSec !== 'number' || msg.positionSec < 0) return;
+      if (spVerbose) {
+        vlog(kind === 'syncPoint' ? 'syncPoint' : 'pos', {
+          file: msg.filename, p: msg.positionSec, ts: msg.serverTimestamp,
+          ageMs: Math.round(spNow() + clockOffset - msg.serverTimestamp),
+        });
+      }
       // New song (or a different file than we hold): start fresh.
       if (fppSamples.length && fppSamples[fppSamples.length - 1].file !== msg.filename) {
         fppSamples = [];
@@ -5045,6 +5289,8 @@
       }
       if (changed && msg.filename && msg.filename !== currentTrackMediaName) {
         console.log('[ShowPilot] Show player switched to', msg.filename, '— syncing now');
+        vChangeSeenAt = performance.now(); vChangeFile = msg.filename;
+        vlog('song change seen', { file: msg.filename, p: msg.positionSec, ageMs: Math.round(spNow() + clockOffset - (msg.serverTimestamp || 0)) });
         startFastSync();
       }
     }
@@ -5067,6 +5313,7 @@
     // build saw a 2000 ms+ reading). ?timing=reported forces the old way.
     const outDelaySamples = [];   // k values (seconds)
     let outDelayMs = null;        // current measured delay, for the overlay
+    let outDelayLoggedMs = null;  // last value written to the console
     let outTimingCtx = null;      // the context the samples belong to
     const outTimingForcedReported = new URLSearchParams(window.location.search).get('timing') === 'reported';
     function sampleOutputDelay() {
@@ -5085,6 +5332,14 @@
       if (outDelaySamples.length > 25) outDelaySamples.shift();
       const m = measuredOutputDelaySec();
       outDelayMs = m === null ? null : Math.round(m * 1000);
+      // Log real changes, so a jump in the speaker delay can be told apart
+      // from other causes when a correction fires.
+      if ((outDelayMs === null) !== (outDelayLoggedMs === null) ||
+          (outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) > 25)) {
+        console.log('[ShowPilot] speaker delay now', outDelayMs === null ? 'unknown (using reported)' : outDelayMs + ' ms',
+          '(was ' + (outDelayLoggedMs === null ? 'unknown' : outDelayLoggedMs + ' ms') + ')');
+        outDelayLoggedMs = outDelayMs;
+      }
     }
     // Faster while there are few readings (right after the context starts),
     // so the first song can already use them.
@@ -5147,8 +5402,43 @@
     let currentRate = 1.0;
     const RATE_MAX_DEV = 0.005;      // max ±0.5% speed change
     const RATE_GAIN = 0.1;           // speed offset per second of drift (50ms → 0.5%)
-    const RATE_DEADBAND_MS = 8;      // closer than this: play at normal speed
+    const RATE_DEADBAND_MS = 2;      // closer than this: no proportional push (was 8)
+    // Rate trim (beta.7): FPP's clock and each device's audio clock run at
+    // slightly different speeds (measured ~0.017%), so with only a
+    // proportional push every device drifted to the edge of the deadband and
+    // sat there, and two devices could sit at opposite edges. The trim is a
+    // slow integral term that learns that speed difference and plays at it
+    // all the time, so the drift stays near 0. It's kept for the whole
+    // session (reset in teardown, not between songs), only learns from
+    // trustworthy readings under 40 ms, and is capped at ±0.1%.
+    const RATE_TRIM_GAIN = 0.001;    // trim change per second, per second of drift
+    const RATE_TRIM_MAX = 0.001;     // ±0.1%
+    const RATE_TRIM_LEARN_MS = 40;
+    const RATE_MIN_STEP = 0.00005;   // smallest speed change worth applying (0.005%)
+    let rateTrim = 0;
+    let rateTrimLastCtx = 0;
     const JUMP_THRESHOLD_MS = 150;   // farther than this: crossfade jump instead
+    // Settle (cloud-link): in the checks right after a start, 30 ms or more
+    // is fixed with a quick crossfade at once instead of 15-20 s of
+    // speed nudging (an 84 ms start error at 0.5%). Needs at
+    // least two fresh readings so one odd reading can't trigger it. After
+    // the start checks, the normal rules apply again.
+    const SETTLE_THRESHOLD_MS = 30;
+    // Late settle (beta): for the first 10 s after a start, the running check
+    // also fixes >= 30 ms at once (crossfade). A player that just opened has a
+    // fresh audio output whose delay reading keeps settling for a few
+    // seconds after the start; the start and the first checks use the early
+    // reading, so they report 0 ms while the listener hears an echo, and the
+    // speed nudge then needs ~20 s per 100 ms. Song changes on a long-running
+    // output didn't have this. Max 3 per start, 2 s apart, >= 3 readings.
+    const LATE_SETTLE_WINDOW_SEC = 10;
+    const LATE_SETTLE_GAP_MS = 2000;
+    const LATE_SETTLE_MAX = 3;
+    let lateSettleUntilCtx = 0;
+    let lateSettleCount = 0;
+    function startCheckThreshold(est) {
+      return (est && est.n >= 2 && est.newestAgeMs < 1500) ? SETTLE_THRESHOLD_MS : JUMP_THRESHOLD_MS;
+    }
 
     function renderedPosAt(ctxTime) {
       return trackScheduledAtPositionSec
@@ -5194,6 +5484,7 @@
       const LEAD = 0.04;                // lead so the whole fade is scheduled ahead (cloud-link: was 10 ms, too short for 20-40 ms render blocks)
       const t0 = now + LEAD;
       const startPos = targetPos + LEAD;
+      vlog('crossfade', { from: renderedPosAt(now), to: targetPos, jumpMs: Math.round((targetPos - renderedPosAt(now)) * 1000), leadMs: Math.round(LEAD * 1000) });
       const { up, down } = equalPowerCurves();
       const oldNode = currentSource;
       const oldGain = currentSourceGain;
@@ -5274,7 +5565,7 @@
       // fired on first open. Use the pending slot instead.
       if (!audioCtx && !_pendingGestureAudioCtx) {
         try {
-          _pendingGestureAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          _pendingGestureAudioCtx = spNewAudioContext();
         } catch {}
       }
       if (_pendingGestureAudioCtx && _pendingGestureAudioCtx.state === 'suspended') {
@@ -5550,11 +5841,25 @@
           audioCtx = _pendingGestureAudioCtx;
           _pendingGestureAudioCtx = null;
         } else if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          audioCtx = spNewAudioContext();
         }
         gainNode = audioCtx.createGain();
         gainNode.gain.value = isMuted ? 0 : 1;
         gainNode.connect(audioCtx.destination);
+        // Android Chrome stops the speaker stream after a few seconds of
+        // silence (the gap between songs) and restarts it when sound comes
+        // back. A restarted stream plays late by an amount Chrome doesn't
+        // report, and the switch makes the audio clock jump. A tiny constant
+        // level (-80 dBFS DC, which speakers can't reproduce) means the
+        // output is never silent, so the stream stays up all show.
+        if (spFreshStreamOn() && audioCtx.createConstantSource) {
+          try {
+            const keepAlive = audioCtx.createConstantSource();
+            keepAlive.offset.value = 0.0001;
+            keepAlive.connect(audioCtx.destination);
+            keepAlive.start();
+          } catch (_) {}
+        }
         // v0.33.203: log device-driven state changes (e.g. Android pausing
         // audio on a Bluetooth route/focus change) and try to recover.
         try {
@@ -5622,7 +5927,7 @@
             // clobber each other.
             audioSock.on('fppSyncPoint', (msg) => {
               if (!msg || !msg.playing) return;
-              recordFppSample(msg);
+              recordFppSample(msg, 'syncPoint');
               // Do NOT update clockOffset here — msg.serverTimestamp is a one-way
               // timestamp with no RTT correction. Updating clockOffset from it
               // corrupts the accurate NTP burst estimate from syncClockBurst().
@@ -5917,6 +6222,7 @@
 
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
+      rateTrim = 0; rateTrimLastCtx = 0;
       currentBuffer = null;
       // Buffers were decoded for the context just closed; free the memory.
       decodedBufferCache.clear();
@@ -5957,9 +6263,17 @@
     let clockSockBound = null;
     const clockPending = new Map(); // t1 → { resolve, timer }
 
+    // Wall clock minus page clock at the last sample. If it has moved a lot
+    // since, the page clock paused (device asleep) and the old samples no
+    // longer describe it. Otherwise they're still good and are kept.
+    let clockGapRef = null;
+    function clockPagePaused() {
+      return clockGapRef !== null && Math.abs((Date.now() - spNow()) - clockGapRef) > 50;
+    }
     function clockAddSample(rtt, offset) {
       if (!(rtt >= 0) || rtt > 5000 || !Number.isFinite(offset)) return;
       const now = spNow();
+      clockGapRef = Date.now() - now;
       clockSamples.push({ rtt, offset, at: now });
       clockSamples = clockSamples.filter(s => now - s.at <= CLOCK_WINDOW_MS);
       if (clockSamples.length > 200) clockSamples.splice(0, clockSamples.length - 200);
@@ -5995,7 +6309,9 @@
       clockSockBound = audioSock;
       audioSock.on('timesync', onClockReply);
       // A new connection may take a different path: start over.
-      audioSock.on('connect', () => { clockSamples = []; lockClock(); });
+      // A reconnect doesn't change the clocks: keep the samples (quick ones
+      // still win) unless the page clock paused while disconnected.
+      audioSock.on('connect', () => { if (clockPagePaused()) clockSamples = []; lockClock(); });
     }
     function clockPing() {
       return new Promise((resolve) => {
@@ -6017,12 +6333,21 @@
       await new Promise(r => setTimeout(r, 400)); // let the last replies land
       if (run !== clockLockRun) return;
       clockLocked = true;
+      if (spVerbose && clockSamples.length) {
+        const r = clockSamples.map(x => x.rtt).sort((a, b) => a - b);
+        const o = clockSamples.map(x => x.offset).sort((a, b) => a - b);
+        vlog('clock samples', { n: r.length, rttMin: Math.round(r[0]), rttMedian: Math.round(r[r.length >> 1]), rttMax: Math.round(r[r.length - 1]),
+          offsetMin: Math.round(o[0]), offsetMax: Math.round(o[o.length - 1]) });
+      }
       console.log('[ShowPilot] clock locked: offset', Math.round(clockOffset), 'ms, best rtt',
         clockBestRttMs === null ? 'n/a' : Math.round(clockBestRttMs) + ' ms', '(' + clockSampleCount + ' of ' + clockSamples.length + ' samples)');
     }
     function onClockWake() {
       if (document.hidden || !clockKeepTimer) return;
-      clockSamples = []; // the page clock may have paused while asleep
+      // Only start over if the page clock actually paused while asleep.
+      // Throwing away good samples left the estimate on the first few slow
+      // replies and made it wander 20-40 ms until the lock finished.
+      if (clockPagePaused()) clockSamples = [];
       lockClock();
     }
     function startClockMaintenance() {
@@ -6318,7 +6643,11 @@
         if (streamKey === nextStreamKey) nextStreamKey = null; // the "next" song is now playing
         pruneBufferCache();
         let audioBuffer = streamKey ? (decodedBufferCache.get(streamKey) || null) : null;
+        const vLoadT0 = performance.now();
+        let vSource = audioBuffer ? 'predecoded' : 'download';
+        let vDownloadMs = null, vDecodeMs = null;
         if (!audioBuffer && streamKey && prefetchInFlight.has(streamKey)) {
+          vSource = 'prefetch-wait';
           console.info('[ShowPilot] waiting for in-progress prefetch of', currentSequence);
           audioBuffer = await prefetchInFlight.get(streamKey);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
@@ -6326,11 +6655,35 @@
         if (audioBuffer) {
           console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
-          const arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          // v0.33.279: joining a song already under way, download and decode
+          // only the rest of it (a couple of seconds before where it is now):
+          // sound starts in about half the time, much less late in a song.
+          const joinAt = (typeof data.elapsedSec === 'number' ? data.elapsedSec : 0)
+            - (audioSyncOffsetMs / 1000) - 2;
+          let sliceStart = 0;
+          let arrayBuf;
+          if (data.streamUrl && joinAt > 5) {
+            const r = await fetchAudioTail(chosenUrl, joinAt, 20000);
+            arrayBuf = r.buf;
+            sliceStart = r.startSec;
+          } else {
+            arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          }
+          vDownloadMs = Math.round(performance.now() - vLoadT0);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
+          // The player was closed while the song downloaded: stop quietly
+          // (its audio was torn down; decoding into it threw "null").
+          if (!audioCtx) return;
+          const vDecT0 = performance.now();
           audioBuffer = await new Promise((resolve, reject) => {
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
           });
+          vDecodeMs = Math.round(performance.now() - vDecT0);
+          if (sliceStart > 0) {
+            console.info('[ShowPilot] joined mid-song: loaded from ' + sliceStart.toFixed(2) + 's on');
+            audioBuffer = placeAtSongTime(audioCtx, audioBuffer, sliceStart);
+            vSource = 'download-rest';
+          }
           if (streamKey && streamKey === currentStreamKey) decodedBufferCache.set(streamKey, audioBuffer);
         }
         if (myTrackToken !== trackChangeToken) return; // a newer track change took over
@@ -6353,6 +6706,11 @@
 
         currentBuffer = audioBuffer;
         console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
+        vlog('audio ready', {
+          source: vSource, readyMs: Math.round(performance.now() - vLoadT0), downloadMs: vDownloadMs, decodeMs: vDecodeMs,
+          sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
+          ctxRate: audioCtx ? audioCtx.sampleRate : null,
+        });
 
         // ---- Coordinated play start (v0.33.129) ----
         // Fast-start immediately, one-time grid snap ~2s later to lock all phones
@@ -6434,11 +6792,24 @@
           return;
         }
         console.log('[ShowPilot] fast-start: pos', fastStartPos.toFixed(3) + 's');
+        vlog('start detail', {
+          ctxNow: audioCtx.currentTime, startAtCtx: fastStartCtxTime, leadMs: Math.round(FAST_START_LEAD * 1000),
+          fppPos: fastStartEst ? fastStartEst.pos : null, readings: fastStartEst ? fastStartEst.n : 0,
+          newestAgeMs: fastStartEst ? Math.round(fastStartEst.newestAgeMs) : null,
+          speakerDelayMs: Math.round((outputLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
+          reportedLatencyMs: audioCtx ? Math.round(((audioCtx.outputLatency || 0) || (audioCtx.baseLatency || 0)) * 1000) : null,
+          listenerOffsetMs: Math.round(listenerOffsetSec * 1000), showOffsetMs: audioSyncOffsetMs,
+          clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
+          sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
+        });
+        logAudioSetup('start');
 
         if (playGeneration !== myGeneration) return;
 
         // Schedule fast-start source
         trackScheduledAtAudioCtx = fastStartCtxTime;
+        lateSettleUntilCtx = fastStartCtxTime + LATE_SETTLE_WINDOW_SEC;
+        lateSettleCount = 0;
         trackScheduledAtPositionSec = fastStartPos;
         currentRate = 1.0;
         trackScheduledOutputLatency = outputLatencySec;
@@ -6527,11 +6898,12 @@
           const currentPos = htmlAudio ? htmlAudio.currentTime : fastStartPos;
           const snapErrorMs = Math.round((snapPos - currentPos) * 1000);
 
-          if (Math.abs(snapErrorMs) < JUMP_THRESHOLD_MS) {
+          const snapLimit = startCheckThreshold(snapEst);
+          if (Math.abs(snapErrorMs) < snapLimit) {
             // v0.33.204: small error — no cut; the speed loop closes it.
             console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms — smoothing by speed');
           } else {
-            console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms → crossfade to', snapPos.toFixed(3) + 's');
+            console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms → ' + (snapLimit < JUMP_THRESHOLD_MS ? 'settle ' : '') + 'crossfade to', snapPos.toFixed(3) + 's');
             if (crossfadeTo(snapPos)) {
               trackScheduledOutputLatency = outputLatencySec;
               if (htmlAudio) htmlAudio._seekedTo = snapPos;
@@ -6565,13 +6937,14 @@
           if (followTarget < 0 || followTarget >= audioBuffer.duration - 0.1) return;
 
           const followError = Math.round((followTarget - htmlAudio.currentTime) * 1000);
-          if (Math.abs(followError) < JUMP_THRESHOLD_MS) {
+          const followLimit = startCheckThreshold(followEst);
+          if (Math.abs(followError) < followLimit) {
             // v0.33.204: small error — the speed loop closes it smoothly.
             console.log('[ShowPilot] follow-up: ' + followError + 'ms — smoothing by speed');
             return;
           }
 
-          console.log('[ShowPilot] follow-up: ' + followError + 'ms → crossfade to', followTarget.toFixed(3) + 's');
+          console.log('[ShowPilot] follow-up: ' + followError + 'ms → ' + (followLimit < JUMP_THRESHOLD_MS ? 'settle ' : '') + 'crossfade to', followTarget.toFixed(3) + 's');
           if (crossfadeTo(followTarget)) {
             audioStartedAtMs = Date.now();
             snapAnchorCtxTime = trackScheduledAtAudioCtx;
@@ -6612,6 +6985,8 @@
           'ctx sec, position', fastStartPos.toFixed(3) + 's');
 
       } catch (err) {
+        // Player closed mid-load: nothing to report.
+        if (!audioCtx || !pollTimer) return;
         const suspended = !!(err && err.spSuspended);
         statusEl.textContent = suspended
           ? _pt('Tap to resume audio')
@@ -6845,6 +7220,7 @@
     //   - Speaker physical placement delay (sound takes ~3ms per meter
     //     to travel — usually negligible, but two devices on opposite
     //     sides of a room can be 30-40ms apart just from physics)
+    let vLastDriftLogAt = 0;
     function updateDriftDisplay() {
       // HTML5 audio path: compare element's currentTime to expected.
       if (!htmlAudio || htmlAudio.paused || !currentSequence) {
@@ -6935,6 +7311,18 @@
         // correction after estimates return.
         if (loopEst) smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
         const correctionDriftMs = Math.round(smoothedDriftMs);
+        if (spVerbose && performance.now() - vLastDriftLogAt >= 5000) {
+          vLastDriftLogAt = performance.now();
+          vlog('drift check', {
+            heard: htmlAudio.currentTime - loopLatencySec,
+            target: loopEst ? loopEst.pos - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000) : null,
+            driftMs, smoothedMs: correctionDriftMs, speedPct: +((currentRate - 1) * 100).toFixed(3), trimPct: +(rateTrim * 100).toFixed(4),
+            readings: loopEst ? loopEst.n : 0, newestAgeMs: loopEst ? Math.round(loopEst.newestAgeMs) : null,
+            speakerDelayMs: Math.round((loopLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
+            clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
+            track: currentTrackMediaName,
+          });
+        }
 
         if (driftEl) {
           const absMs = Math.abs(driftMs);
@@ -6961,7 +7349,7 @@
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
             `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured, using ${outputTimingSource()} (${Math.round(getOutputLatencySec() * 1000 - listenerOffsetSec * 1000)}ms)`,
-            `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
+            `speed:       ${((currentRate - 1) * 100).toFixed(3)}% (trim ${(rateTrim * 100).toFixed(4)}%)`,
             ...probeLines(),
           ].join('\n');
           // Debug sync report: every 3 s, send this readout to the show so
@@ -7010,31 +7398,56 @@
           currentBuffer && currentSource && currentSourceGain;
 
         if (!canCorrect) {
-          // No trustworthy reference right now: don't keep nudging blindly.
-          if (currentRate !== 1.0 && currentSource) setSourceRate(1.0);
+          // No trustworthy reference right now: don't keep nudging blindly,
+          // but keep playing at the learned clock-speed difference.
+          rateTrimLastCtx = 0;
+          const holdRate = 1.0 + rateTrim;
+          if (currentSource && Math.abs(currentRate - holdRate) >= RATE_MIN_STEP) setSourceRate(holdRate);
+        } else if (audioCtx.currentTime < lateSettleUntilCtx && lateSettleCount < LATE_SETTLE_MAX &&
+                   Math.abs(correctionDriftMs) >= SETTLE_THRESHOLD_MS && Math.abs(correctionDriftMs) <= JUMP_THRESHOLD_MS &&
+                   msSinceLastCrossfade > LATE_SETTLE_GAP_MS) {
+          const targetPos = loopEst.pos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+            + loopLatencySec;
+          console.log('[ShowPilot] late settle: drift', correctionDriftMs + 'ms → crossfade to', targetPos.toFixed(3) + 's (' +
+            Math.round(audioCtx.currentTime - (lateSettleUntilCtx - LATE_SETTLE_WINDOW_SEC)) + 's after start; speaker delay ' +
+            Math.round((loopLatencySec - listenerOffsetSec) * 1000) + 'ms ' + outputTimingSource() + ')');
+          if (crossfadeTo(targetPos)) {
+            lateSettleCount++;
+            smoothedDriftMs = 0;
+            lastAppliedRate = 1.0;
+          }
         } else if (Math.abs(correctionDriftMs) > JUMP_THRESHOLD_MS) {
           if (msSinceLastCrossfade > CROSSFADE_COOLDOWN_MS) {
             const targetPos = loopEst.pos
               - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
               + loopLatencySec;
             console.log('[ShowPilot] crossfade correction: drift', correctionDriftMs + 'ms →',
-              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old)');
+              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old; speaker delay ' +
+              Math.round((loopLatencySec - listenerOffsetSec) * 1000) + 'ms ' + outputTimingSource() + ', clock ' + Math.round(clockOffset) + 'ms)');
             if (crossfadeTo(targetPos)) {
               smoothedDriftMs = 0;
               lastAppliedRate = 1.0;
             }
           }
         } else {
-          let targetRate = 1.0;
-          if (Math.abs(correctionDriftMs) > RATE_DEADBAND_MS) {
-            // Ahead (positive drift) → slow down; behind → speed up.
-            const dev = Math.max(-RATE_MAX_DEV, Math.min(RATE_MAX_DEV,
-              -(correctionDriftMs / 1000) * RATE_GAIN));
-            targetRate = 1.0 + dev;
+          // Learn the clock-speed difference (integral term).
+          const nowCtx = audioCtx.currentTime;
+          if (rateTrimLastCtx > 0 && Math.abs(correctionDriftMs) < RATE_TRIM_LEARN_MS) {
+            const dt = Math.min(2, Math.max(0, nowCtx - rateTrimLastCtx));
+            rateTrim = Math.max(-RATE_TRIM_MAX, Math.min(RATE_TRIM_MAX,
+              rateTrim - (correctionDriftMs / 1000) * RATE_TRIM_GAIN * dt));
           }
+          rateTrimLastCtx = nowCtx;
+          // Proportional push on top. Ahead (positive drift) → slow down;
+          // behind → speed up.
+          let push = 0;
+          if (Math.abs(correctionDriftMs) > RATE_DEADBAND_MS) {
+            push = -(correctionDriftMs / 1000) * RATE_GAIN;
+          }
+          const targetRate = 1.0 + Math.max(-RATE_MAX_DEV, Math.min(RATE_MAX_DEV, push + rateTrim));
           // Only touch the AudioParam when the change is meaningful.
-          if (Math.abs(targetRate - currentRate) >= 0.0005 ||
-              (targetRate === 1.0 && currentRate !== 1.0)) {
+          if (Math.abs(targetRate - currentRate) >= RATE_MIN_STEP) {
             setSourceRate(targetRate);
             lastAppliedRate = targetRate;
           }

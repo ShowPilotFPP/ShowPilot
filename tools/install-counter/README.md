@@ -107,6 +107,19 @@ addresses are refused after DNS lookup).
   hasn't checked in for a day drops out; after 30 days it is deleted.
 - The phone's `lat`/`lng` are used to answer the request and never stored.
 
+`GET /api/shows/directory?lat=&lng=&radius_mi=` — the app's **Directory of
+Shows** (map + list). Every listed show within the distance the user picked:
+1–100 miles, default 25 (the app converts km). Nearest first, at most 200.
+Each show adds `address` (owner-entered, may be empty) and `fuzzed` (true =
+the pin is rounded to about a mile because there's no address). The app shows
+a Navigate button only when `address` is set. `/nearby` results carry
+`address` and `fuzzed` too.
+
+Check-ins: the 20-second rate limit only applies to the unchanged heartbeat;
+a check-in that changes a listed detail (name, town, address, location,
+address of the show, phone audio) goes through at once, so an owner's edit
+shows up straight away.
+
 **Routing:** nothing extra. The directory is served on the counter's own
 public hostname (the one in `DEFAULT_URL` of `lib/install-count.js`), so the
 app calls `https://<counter host>/api/shows/nearby` and listed shows check in

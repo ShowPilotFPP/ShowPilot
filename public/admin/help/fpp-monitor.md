@@ -13,7 +13,7 @@ While the page is open it updates about every second. When it's closed, your sho
 A colored dot and the state: **Playing**, **Idle**, **Paused**, **Stopping** or **Test mode**, with FPP's host name and when the last report arrived.
 
 - **Green** means everything looks fine.
-- **Amber** means something to keep an eye on: a warm CPU (70°C or more), a disk getting full (15% free or less), a MultiSync remote FPP hasn't seen for two minutes, a remote's CPU at 70°C or more, or a warning FPP itself shows.
+- **Amber** means something to keep an eye on: a warm CPU (70°C or more), a disk getting full (15% free or less), a MultiSync remote FPP hasn't seen for two minutes, a remote's CPU at 70°C or more, FPP not sending MultiSync packets while phone audio is on (turn on **Send MultiSync Packets** under Status/Control → MultiSync, then restart FPPD), or a warning FPP itself shows.
 - **Red** means act now: a hot CPU (80°C or more, on the main FPP or a remote), a disk almost full (5% free or less), or no report from your show player for over a minute (**Not checking in**).
 
 Each problem is listed under the state. **Open FPP** opens FPP's own pages in a new tab. It only works when your device is on the same network as FPP.

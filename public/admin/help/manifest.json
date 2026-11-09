@@ -5,7 +5,7 @@
     { "title": "Start here", "docs": ["getting-started", "how-it-works", "signing-in"] },
     { "title": "Show control", "docs": ["dashboard", "fpp-monitor", "sequences", "queue", "messages", "stats"] },
     { "title": "Viewer page", "docs": ["viewer-editor", "viewer-effects", "viewer-phone", "viewer-schedule", "viewer-globalcss", "viewer-translation"] },
-    { "title": "Settings", "docs": ["settings-general", "settings-jukebox", "settings-voting", "settings-race", "settings-show-buttons", "settings-audio", "settings-app", "settings-safeguards", "settings-public-access", "settings-backup", "settings-cockpit", "settings-updates", "settings-debug"] },
+    { "title": "Settings", "docs": ["settings-general", "settings-jukebox", "settings-voting", "settings-race", "settings-show-buttons", "settings-audio", "settings-app", "settings-showpilot-app", "settings-safeguards", "settings-public-access", "settings-backup", "settings-cockpit", "settings-updates", "settings-debug"] },
     { "title": "Player, tools & users", "docs": ["plugin", "tools-normalizer", "tools-announcer", "users"] },
     { "title": "Guides", "docs": ["phone-audio", "fpp-plugin", "templates", "cockpit", "troubleshooting"] }
   ],
@@ -34,7 +34,8 @@
     "settings-race":         { "title": "Race", "area": "Settings", "file": "settings-race.md", "context": ["settings/race"] },
     "settings-show-buttons": { "title": "Show Buttons", "area": "Settings", "file": "settings-show-buttons.md", "context": ["settings/show-buttons"] },
     "settings-audio":        { "title": "Audio", "area": "Settings", "file": "settings-audio.md", "context": ["settings/audio"] },
-    "settings-app":          { "title": "App", "area": "Settings", "file": "settings-app.md", "context": ["settings/app"] },
+    "settings-app":          { "title": "Install as App", "area": "Settings", "file": "settings-app.md", "context": ["settings/app"] },
+    "settings-showpilot-app": { "title": "ShowPilot App", "area": "Settings", "file": "settings-showpilot-app.md", "context": ["settings/showpilot-app"] },
     "settings-safeguards":   { "title": "Interaction Safeguards", "area": "Settings", "file": "settings-safeguards.md", "context": ["settings/safeguards"] },
     "settings-public-access":{ "title": "Public Access", "area": "Settings", "file": "settings-public-access.md", "context": ["settings/public-access"], "hideHosted": true },
     "settings-backup":       { "title": "Backup & Restore", "area": "Settings", "file": "settings-backup.md", "context": ["settings/backup"] },

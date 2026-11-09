@@ -54,6 +54,7 @@ Full steps: [Connecting your show player](help:fpp-plugin).
 
 - **Every phone is off by the same amount:** adjust **Audio sync offset** in [Settings › Audio](help:settings-audio#audio-sync-offset). Positive if phones are ahead of the lights, negative if behind. It applies from the next song.
 - **Only some listeners are off:** it's their Bluetooth, headphones or car stereo. Turn on **Let listeners adjust audio timing** so they can fix it on their own phone.
+- **FPP isn't sending MultiSync packets:** with FPP in Player mode, open **Status/Control → MultiSync** in FPP, turn on **Send MultiSync Packets**, then restart FPPD. FPP only hands the plugin the exact song position while that's on; without it, phones still play but follow a rougher position. The FPP Monitor and the Dashboard warn when it's off.
 - **Sync drifts or is loose for everyone:** check the plugin is online, and the **Daemon port** in Settings › Audio matches the plugin (8090 unless you changed it). ShowPilot must be able to reach your show player on your local network for the live position feed.
 
 Full guide: [Phone audio, start to finish](help:phone-audio).

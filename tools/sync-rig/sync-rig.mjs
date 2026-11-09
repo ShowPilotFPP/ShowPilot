@@ -163,6 +163,21 @@ function summarizeAudioFlinger(txt) {
   return out;
 }
 
+function summarizeAAudio(txt, uid) {
+  // Chrome's AAudio stream row: "... Capacity ... Write# Read# Avail XRuns".
+  // Avail is how much audio is queued ahead of the speaker, in frames.
+  const rows = [];
+  for (const line of txt.split('\n')) {
+    const f = line.trim().split(/\s+/);
+    if (/^0x[0-9a-f]+$/i.test(f[0]) && f[1] === String(uid) && f.length >= 17) {
+      rows.push({ capacity: +f[9], rate: +f[12], written: +f[14], read: +f[15], queued: +f[16], xruns: +f[17] });
+    }
+  }
+  if (!rows.length) return null;
+  const ms = r => Math.round(r.queued / (r.rate / 1000) * 10) / 10;
+  return { queuedMs: rows.map(ms).join('/'), capacityMs: Math.round(rows[0].capacity / (rows[0].rate / 1000)), xruns: rows[rows.length - 1].xruns };
+}
+
 // ---- One round ----
 async function round(n, phone, ref, csv) {
   const t0 = Date.now();
@@ -190,7 +205,7 @@ async function round(n, phone, ref, csv) {
   }
   if (!MANUAL) await sleep(SETTLE);
   const diag = phone ? await phone.evaluate(`JSON.stringify(window.__spDiag || {})`).then(JSON.parse).catch(() => ({})) : {};
-  let af = [], raw = '';
+  let af = [], raw = '', aaSum = null;
   if (!flag('no-audioflinger')) {
     try { raw = await adb('shell', 'dumpsys', 'media.audio_flinger'); af = summarizeAudioFlinger(raw); } catch (e) { raw = 'dumpsys failed: ' + e.message; }
     fs.writeFileSync(path.join(OUT, `round-${String(n).padStart(2, '0')}-audioflinger.txt`), raw);
@@ -203,6 +218,8 @@ async function round(n, phone, ref, csv) {
       if (k === 1) await sleep(1000);
     }
     fs.writeFileSync(path.join(OUT, `round-${String(n).padStart(2, '0')}-aaudio.txt`), aa);
+    const who = chromeClient(raw);
+    aaSum = who ? summarizeAAudio(aa, who.uid) : null;
   }
   const measures = [];
   let ear = null;
@@ -234,6 +251,9 @@ async function round(n, phone, ref, csv) {
     afType: chromeOut ? chromeOut.type : (af.length ? 'chrome-not-found' : null),
     afName: chromeOut ? chromeOut.name : null,
     afHalFrames: chromeOut ? chromeOut.halFrames : null,
+    aaQueuedMs: aaSum ? aaSum.queuedMs : null,
+    aaCapacityMs: aaSum ? aaSum.capacityMs : null,
+    aaXruns: aaSum ? aaSum.xruns : null,
     refSpeakerDelayMs: measures.find(m => m && m.thisSpeakerDelayMs != null)?.thisSpeakerDelayMs ?? null,
     secs: Math.round((Date.now() - t0) / 1000),
   };

@@ -4848,9 +4848,39 @@
     let currentTrackMediaName = null; // raw FPP media filename for the current track
     const FPP_SAMPLE_WINDOW_MS = 5000;
 
-    function recordFppSample(msg) {
+    // ---- Detailed log (cloud-link; ?debug=1 only) ----
+    // One line per event, written as plain "name=value" text so a copied
+    // console log keeps the numbers (objects paste as just "Object"). Normal
+    // listeners never get any of it.
+    const spVerbose = (() => {
+      try {
+        return new URLSearchParams(window.location.search).get('debug') === '1'
+          || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.debugOverlayEnabled);
+      } catch (_) { return false; }
+    })();
+    function vfmt(v) {
+      if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(3);
+      if (v === null || v === undefined) return '-';
+      return JSON.stringify(String(v));
+    }
+    function vlog(label, fields) {
+      if (!spVerbose) return;
+      const parts = Object.entries(fields || {}).map(([k, v]) => k + '=' + vfmt(v));
+      console.log('[ShowPilot] ' + label + (parts.length ? ' ' + parts.join(' ') : ''));
+    }
+    // Song-change timeline: when FPP's change reached this phone.
+    let vChangeSeenAt = 0;
+    let vChangeFile = null;
+
+    function recordFppSample(msg, kind) {
       if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
       if (typeof msg.positionSec !== 'number' || msg.positionSec < 0) return;
+      if (spVerbose) {
+        vlog(kind === 'syncPoint' ? 'syncPoint' : 'pos', {
+          file: msg.filename, p: msg.positionSec, ts: msg.serverTimestamp,
+          ageMs: Math.round(spNow() + clockOffset - msg.serverTimestamp),
+        });
+      }
       // New song (or a different file than we hold): start fresh.
       if (fppSamples.length && fppSamples[fppSamples.length - 1].file !== msg.filename) {
         fppSamples = [];
@@ -5045,6 +5075,8 @@
       }
       if (changed && msg.filename && msg.filename !== currentTrackMediaName) {
         console.log('[ShowPilot] Show player switched to', msg.filename, '— syncing now');
+        vChangeSeenAt = performance.now(); vChangeFile = msg.filename;
+        vlog('song change seen', { file: msg.filename, p: msg.positionSec, ageMs: Math.round(spNow() + clockOffset - (msg.serverTimestamp || 0)) });
         startFastSync();
       }
     }
@@ -5212,6 +5244,7 @@
       const LEAD = 0.04;                // lead so the whole fade is scheduled ahead (cloud-link: was 10 ms, too short for 20-40 ms render blocks)
       const t0 = now + LEAD;
       const startPos = targetPos + LEAD;
+      vlog('crossfade', { from: renderedPosAt(now), to: targetPos, jumpMs: Math.round((targetPos - renderedPosAt(now)) * 1000), leadMs: Math.round(LEAD * 1000) });
       const { up, down } = equalPowerCurves();
       const oldNode = currentSource;
       const oldGain = currentSourceGain;
@@ -5640,7 +5673,7 @@
             // clobber each other.
             audioSock.on('fppSyncPoint', (msg) => {
               if (!msg || !msg.playing) return;
-              recordFppSample(msg);
+              recordFppSample(msg, 'syncPoint');
               // Do NOT update clockOffset here — msg.serverTimestamp is a one-way
               // timestamp with no RTT correction. Updating clockOffset from it
               // corrupts the accurate NTP burst estimate from syncClockBurst().
@@ -6045,6 +6078,12 @@
       await new Promise(r => setTimeout(r, 400)); // let the last replies land
       if (run !== clockLockRun) return;
       clockLocked = true;
+      if (spVerbose && clockSamples.length) {
+        const r = clockSamples.map(x => x.rtt).sort((a, b) => a - b);
+        const o = clockSamples.map(x => x.offset).sort((a, b) => a - b);
+        vlog('clock samples', { n: r.length, rttMin: Math.round(r[0]), rttMedian: Math.round(r[r.length >> 1]), rttMax: Math.round(r[r.length - 1]),
+          offsetMin: Math.round(o[0]), offsetMax: Math.round(o[o.length - 1]) });
+      }
       console.log('[ShowPilot] clock locked: offset', Math.round(clockOffset), 'ms, best rtt',
         clockBestRttMs === null ? 'n/a' : Math.round(clockBestRttMs) + ' ms', '(' + clockSampleCount + ' of ' + clockSamples.length + ' samples)');
     }
@@ -6349,7 +6388,11 @@
         if (streamKey === nextStreamKey) nextStreamKey = null; // the "next" song is now playing
         pruneBufferCache();
         let audioBuffer = streamKey ? (decodedBufferCache.get(streamKey) || null) : null;
+        const vLoadT0 = performance.now();
+        let vSource = audioBuffer ? 'predecoded' : 'download';
+        let vDownloadMs = null, vDecodeMs = null;
         if (!audioBuffer && streamKey && prefetchInFlight.has(streamKey)) {
+          vSource = 'prefetch-wait';
           console.info('[ShowPilot] waiting for in-progress prefetch of', currentSequence);
           audioBuffer = await prefetchInFlight.get(streamKey);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
@@ -6358,10 +6401,13 @@
           console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
           const arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          vDownloadMs = Math.round(performance.now() - vLoadT0);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
+          const vDecT0 = performance.now();
           audioBuffer = await new Promise((resolve, reject) => {
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
           });
+          vDecodeMs = Math.round(performance.now() - vDecT0);
           if (streamKey && streamKey === currentStreamKey) decodedBufferCache.set(streamKey, audioBuffer);
         }
         if (myTrackToken !== trackChangeToken) return; // a newer track change took over
@@ -6384,6 +6430,11 @@
 
         currentBuffer = audioBuffer;
         console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
+        vlog('audio ready', {
+          source: vSource, readyMs: Math.round(performance.now() - vLoadT0), downloadMs: vDownloadMs, decodeMs: vDecodeMs,
+          sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
+          ctxRate: audioCtx ? audioCtx.sampleRate : null,
+        });
 
         // ---- Coordinated play start (v0.33.129) ----
         // Fast-start immediately, one-time grid snap ~2s later to lock all phones
@@ -6465,6 +6516,16 @@
           return;
         }
         console.log('[ShowPilot] fast-start: pos', fastStartPos.toFixed(3) + 's');
+        vlog('start detail', {
+          ctxNow: audioCtx.currentTime, startAtCtx: fastStartCtxTime, leadMs: Math.round(FAST_START_LEAD * 1000),
+          fppPos: fastStartEst ? fastStartEst.pos : null, readings: fastStartEst ? fastStartEst.n : 0,
+          newestAgeMs: fastStartEst ? Math.round(fastStartEst.newestAgeMs) : null,
+          speakerDelayMs: Math.round((outputLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
+          reportedLatencyMs: audioCtx ? Math.round(((audioCtx.outputLatency || 0) || (audioCtx.baseLatency || 0)) * 1000) : null,
+          listenerOffsetMs: Math.round(listenerOffsetSec * 1000), showOffsetMs: audioSyncOffsetMs,
+          clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
+          sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
+        });
 
         if (playGeneration !== myGeneration) return;
 
@@ -6878,6 +6939,7 @@
     //   - Speaker physical placement delay (sound takes ~3ms per meter
     //     to travel — usually negligible, but two devices on opposite
     //     sides of a room can be 30-40ms apart just from physics)
+    let vLastDriftLogAt = 0;
     function updateDriftDisplay() {
       // HTML5 audio path: compare element's currentTime to expected.
       if (!htmlAudio || htmlAudio.paused || !currentSequence) {
@@ -6968,6 +7030,18 @@
         // correction after estimates return.
         if (loopEst) smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
         const correctionDriftMs = Math.round(smoothedDriftMs);
+        if (spVerbose && performance.now() - vLastDriftLogAt >= 5000) {
+          vLastDriftLogAt = performance.now();
+          vlog('drift check', {
+            heard: htmlAudio.currentTime - loopLatencySec,
+            target: loopEst ? loopEst.pos - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000) : null,
+            driftMs, smoothedMs: correctionDriftMs, speedPct: +((currentRate - 1) * 100).toFixed(2),
+            readings: loopEst ? loopEst.n : 0, newestAgeMs: loopEst ? Math.round(loopEst.newestAgeMs) : null,
+            speakerDelayMs: Math.round((loopLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
+            clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
+            track: currentTrackMediaName,
+          });
+        }
 
         if (driftEl) {
           const absMs = Math.abs(driftMs);

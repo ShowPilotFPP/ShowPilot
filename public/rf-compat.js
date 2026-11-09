@@ -6465,6 +6465,9 @@
           const arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
           vDownloadMs = Math.round(performance.now() - vLoadT0);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
+          // The player was closed while the song downloaded: stop quietly
+          // (its audio was torn down; decoding into it threw "null").
+          if (!audioCtx) return;
           const vDecT0 = performance.now();
           audioBuffer = await new Promise((resolve, reject) => {
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
@@ -6771,6 +6774,8 @@
           'ctx sec, position', fastStartPos.toFixed(3) + 's');
 
       } catch (err) {
+        // Player closed mid-load: nothing to report.
+        if (!audioCtx || !pollTimer) return;
         const suspended = !!(err && err.spSuspended);
         statusEl.textContent = suspended
           ? _pt('Tap to resume audio')

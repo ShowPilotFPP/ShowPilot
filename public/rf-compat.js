@@ -4716,6 +4716,37 @@
       }
     }
 
+    // v0.33.279: joining mid-song, fetch only the rest of the song: the
+    // server cuts the MP3 on a frame boundary just before `fromSec` and says
+    // exactly where the slice starts (X-Audio-Start-Sec; 0 = whole file, as
+    // for other formats or older servers). Resolves to { buf, startSec }.
+    async function fetchAudioTail(url, fromSec, ms) {
+      const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), ms) : null;
+      try {
+        const u = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'from=' + fromSec.toFixed(3);
+        const resp = await fetch(u, ctl ? { signal: ctl.signal } : undefined);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const startSec = parseFloat(resp.headers.get('X-Audio-Start-Sec') || '0') || 0;
+        return { buf: await resp.arrayBuffer(), startSec: startSec > 0 ? startSec : 0 };
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw new Error('audio download timed out');
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    // A decoded slice that starts at song time `startSec`, placed in a
+    // buffer of the whole song's length (silence before it), so everything
+    // else keeps using song time as the buffer position.
+    function placeAtSongTime(ctx, slice, startSec) {
+      const off = Math.round(startSec * slice.sampleRate);
+      const out = ctx.createBuffer(slice.numberOfChannels, off + slice.length, slice.sampleRate);
+      for (let ch = 0; ch < slice.numberOfChannels; ch++) out.getChannelData(ch).set(slice.getChannelData(ch), off);
+      return out;
+    }
+
     // Drop decoded songs that are neither playing nor next.
     function pruneBufferCache() {
       for (const key of decodedBufferCache.keys()) {
@@ -6624,7 +6655,20 @@
         if (audioBuffer) {
           console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
-          const arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          // v0.33.279: joining a song already under way, download and decode
+          // only the rest of it (a couple of seconds before where it is now):
+          // sound starts in about half the time, much less late in a song.
+          const joinAt = (typeof data.elapsedSec === 'number' ? data.elapsedSec : 0)
+            - (audioSyncOffsetMs / 1000) - 2;
+          let sliceStart = 0;
+          let arrayBuf;
+          if (data.streamUrl && joinAt > 5) {
+            const r = await fetchAudioTail(chosenUrl, joinAt, 20000);
+            arrayBuf = r.buf;
+            sliceStart = r.startSec;
+          } else {
+            arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          }
           vDownloadMs = Math.round(performance.now() - vLoadT0);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
           // The player was closed while the song downloaded: stop quietly
@@ -6635,6 +6679,11 @@
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
           });
           vDecodeMs = Math.round(performance.now() - vDecT0);
+          if (sliceStart > 0) {
+            console.info('[ShowPilot] joined mid-song: loaded from ' + sliceStart.toFixed(2) + 's on');
+            audioBuffer = placeAtSongTime(audioCtx, audioBuffer, sliceStart);
+            vSource = 'download-rest';
+          }
           if (streamKey && streamKey === currentStreamKey) decodedBufferCache.set(streamKey, audioBuffer);
         }
         if (myTrackToken !== trackChangeToken) return; // a newer track change took over

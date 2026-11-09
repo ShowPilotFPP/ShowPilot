@@ -1349,6 +1349,37 @@ router.get('/audio-stream/:sequence', async (req, res) => {
       // Tell the viewer which language is actually being served — useful
       // when a fallback to 'default' occurred (requested lang wasn't found).
       res.setHeader('X-Audio-Language', cachedFile.language || 'default');
+      // v0.33.279: ?from=<sec> sends only the rest of the song from just
+      // before that point (MP3 only), so a phone joining mid-song doesn't
+      // download and decode the whole file first. X-Audio-Start-Sec says
+      // exactly where the slice starts; the player puts it there. See
+      // lib/mp3-tail.js. Anything else (other formats, from near 0) gets the
+      // whole file, with X-Audio-Start-Sec: 0 when `from` was asked.
+      if (req.query.from !== undefined) {
+        res.setHeader('Access-Control-Expose-Headers', 'X-Audio-Start-Sec');
+        const from = Number(req.query.from);
+        const plan = Number.isFinite(from) && /mpeg|mp3/i.test(String(cachedFile.mimeType || ''))
+          ? require('../lib/mp3-tail').planTail(cachedFile.path, from)
+          : null;
+        if (!plan) {
+          res.setHeader('X-Audio-Start-Sec', '0');
+        } else {
+          res.setHeader('X-Audio-Start-Sec', String(plan.startSec));
+          res.setHeader('Content-Length', String(plan.headerEnd + (plan.size - plan.sliceStart)));
+          const fsMod = require('fs');
+          const send = (start, end, next) => {
+            if (end !== undefined && end < start) return next();
+            const rs = fsMod.createReadStream(cachedFile.path, end === undefined ? { start } : { start, end });
+            rs.on('error', (err) => {
+              console.error('[audio-stream] tail read failed:', err.message);
+              res.destroy(err);
+            });
+            rs.on('end', next);
+            rs.pipe(res, { end: false });
+          };
+          return send(0, plan.headerEnd - 1, () => send(plan.sliceStart, undefined, () => res.end()));
+        }
+      }
       // sendFile handles Range/304/Accept-Ranges automatically. Browser
       // gets sample-precise seeking exactly as it would from FPP.
       return res.sendFile(cachedFile.path, (err) => {

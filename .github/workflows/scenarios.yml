@@ -2,9 +2,14 @@ name: Scenario tests
 
 # The plain-English scenarios in tests/scenarios (see tests/README.md), run
 # against a throwaway ShowPilot with a fake show player and headless phones.
+# Runs once per change (v0.33.274): on the pull request. Not again when the
+# branch is pushed (that's the same code as the PR) or when the release lands
+# on main (ShipPilot commits exactly what the PR tested). Beta pushes have no
+# pull request, so they still run here. Run it by hand from the Actions tab
+# any time.
 on:
   push:
-    branches: [main, beta, 'claude/**']
+    branches: [beta]
   pull_request:
   workflow_dispatch:
 
@@ -18,7 +23,7 @@ jobs:
     # showpilot). Repo variable SPP_RUNNER=github switches to GitHub-hosted
     # runners. Pull requests from forks always run on GitHub's runners: their
     # code never runs on the self-hosted machine.
-    runs-on: ${{ (vars.SPP_RUNNER == 'github' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-latest' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
+    runs-on: ${{ (vars.SPP_RUNNER == 'github' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","arm64","showpilot"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

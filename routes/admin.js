@@ -144,7 +144,35 @@ router.get('/me', requireAdmin, (req, res) => {
     layoutNoticeSeen: req.user.layout_notice_seen === 1,
     // Cockpit tile layout; null = use the built-in default.
     cockpitLayout: (() => { try { const l = JSON.parse(req.user.cockpit_layout || 'null'); return Array.isArray(l) ? l : null; } catch (_) { return null; } })(),
+    // View preferences that follow the user (v0.33.277).
+    uiPrefs: readUiPrefs(req.user),
   });
+});
+
+function readUiPrefs(user) {
+  try {
+    const p = JSON.parse(user.ui_prefs || '{}');
+    return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+  } catch (_) { return {}; }
+}
+
+// Save view preferences for the signed-in user (v0.33.277). Body:
+// { prefs: { key: string | null } } — null forgets a key. Keys are the
+// admin's own sp_… / sp-… names; values are short strings.
+router.put('/me/prefs', requireAdmin, (req, res) => {
+  const given = req.body && req.body.prefs;
+  if (!given || typeof given !== 'object' || Array.isArray(given)) return res.status(400).json({ error: 'prefs object required' });
+  const user = require('../lib/db').getUserById(req.user.id) || req.user;
+  const cur = readUiPrefs(user);
+  for (const [k, v] of Object.entries(given).slice(0, 50)) {
+    if (!/^sp[-_][a-z0-9_-]{1,60}$/i.test(k)) continue;
+    if (v == null) delete cur[k];
+    else if (typeof v === 'string' && v.length <= 4000) cur[k] = v;
+  }
+  const keys = Object.keys(cur);
+  if (keys.length > 100) for (const k of keys.slice(0, keys.length - 100)) delete cur[k];
+  require('../lib/db').setUserUiPrefs(req.user.id, JSON.stringify(cur));
+  res.json({ ok: true });
 });
 
 // Per-user theme preference. Stored on the user so the choice follows them
@@ -227,7 +255,32 @@ router.put('/me/theme', requireAdmin, (req, res) => {
 router.get('/config', requireAdmin, (req, res) => {
   const cfg = getConfig();
   delete cfg.admin_password_hash;
+  if (config.audioLocked) cfg.audio_locked = true;
   res.json(cfg);
+});
+
+// Anonymous install count status for Settings → General (v0.33.266+).
+// Miles or kilometres for this show (lib/units.js). ?refresh=1 looks up the
+// country first if the show's coordinates changed.
+router.get('/units', requireAdmin, async (req, res) => {
+  try { res.json(await require('../lib/units').status(req.query.refresh === '1')); }
+  catch (err) { res.json({ units: 'mi', country: '' }); }
+});
+
+// ShowPilot app listing (lib/app-listing.js): what's sent and the last result.
+router.get('/app-listing', requireAdmin, (req, res) => {
+  try { res.json(require('../lib/app-listing').status()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.post('/app-listing/check-in', requireAdmin, async (req, res) => {
+  const al = require('../lib/app-listing');
+  try { await al.tick(); res.json(al.status()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/install-count', requireAdmin, (req, res) => {
+  try { res.json(require('../lib/install-count').status()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/config', requireAdmin, (req, res) => {
@@ -270,6 +323,12 @@ router.put('/config', requireAdmin, (req, res) => {
     // Location code (v0.33.24+)
     'location_code_enabled',
     'location_code',
+    // ShowPilot app listing (lib/app-listing.js)
+    'app_listing_enabled',
+    'app_listing_name',
+    'app_listing_town',
+    'app_listing_fuzz',
+    'app_listing_directions',
     // Race mode (v0.33.155+)
     'race_duration_seconds',
     'race_end_on_sequence_end',
@@ -296,6 +355,9 @@ router.put('/config', requireAdmin, (req, res) => {
     // Misc
     'hide_sequence_after_played',
     'cooldown_suppress_fpp_playlist',
+    'cooldown_unit',
+    'cooldown_default',
+    'cooldown_show_cooled',
     'blocked_ips',
     // Viewer player decoration
     'player_decoration',
@@ -325,6 +387,9 @@ router.put('/config', requireAdmin, (req, res) => {
     'debug_sync_probe',
     'debug_mic_measure',
     'debug_output_delay_comp',
+    'install_count_enabled',
+    'install_count_location',
+    'install_count_notice_seen',
     'pwa_admin_enabled',
     'pwa_viewer_enabled',
     'pwa_viewer_name',
@@ -356,12 +421,23 @@ router.put('/config', requireAdmin, (req, res) => {
     'visitor_messages_wall_approve',
     'visitor_messages_wall_style',
     'visitor_messages_wall_count',
+    'show_buttons_enabled',
+    'show_buttons_when',
+    'show_buttons_viewer_gap_seconds',
+    'show_buttons_heading',
+    'show_buttons_layout',
   ];
   const updates = {};
   for (const k of allowed) {
     if (k in req.body) updates[k] = req.body[k];
   }
   require('../lib/visitor-messages').sanitizeSettings(updates);
+  require('../lib/show-buttons').sanitizeSettings(updates);
+  require('../lib/app-listing').sanitizeSettings(updates);
+  // Tiered cooldowns (v0.33.258, lib/cooldown.js)
+  if ('cooldown_unit' in updates) updates.cooldown_unit = updates.cooldown_unit === 'songs' ? 'songs' : 'minutes';
+  if ('cooldown_default' in updates) updates.cooldown_default = require('../lib/cooldown').toInt(updates.cooldown_default) || 0;
+  if ('cooldown_show_cooled' in updates) updates.cooldown_show_cooled = updates.cooldown_show_cooled ? 1 : 0;
 
   // Sanitize psa_trigger_mode (v0.30.0+) to one of two allowed values.
   // Anything else falls back to 'interactions' (the default + safe option).
@@ -379,6 +455,12 @@ router.put('/config', requireAdmin, (req, res) => {
       return res.status(400).json({ error: 'Badge colors must be like #dc2626' });
     }
   }
+  if ('install_count_location' in updates && !['off', 'country', 'region', 'city'].includes(updates.install_count_location)) {
+    return res.status(400).json({ error: 'Location must be off, country, region or city' });
+  }
+  for (const k of ['install_count_enabled', 'install_count_notice_seen']) {
+    if (k in updates) updates[k] = updates[k] ? 1 : 0;
+  }
   if ('viewer_control_mode' in updates && !['VOTING', 'JUKEBOX', 'RACE', 'LISTEN', 'OFF'].includes(updates.viewer_control_mode)) {
     return res.status(400).json({ error: 'Unknown viewer mode' });
   }
@@ -394,7 +476,12 @@ router.put('/config', requireAdmin, (req, res) => {
     if (RESTORABLE_MODES.includes(cfg.viewer_control_mode)) updates.last_active_mode = cfg.viewer_control_mode;
   }
 
+  const cfgBefore = getConfig();
   updateConfig(updates);
+  try { require('../lib/app-listing').onSettingsSaved(updates, cfgBefore); } catch { /* best effort */ }
+  if ('show_latitude' in updates || 'show_longitude' in updates) {
+    try { require('../lib/units').refreshSoon(); } catch { /* best effort */ }
+  }
 
   // If the admin actually changed viewer_control_mode (not just other
   // settings), emit the same event the plugin's mode-toggle endpoint
@@ -405,6 +492,12 @@ router.put('/config', requireAdmin, (req, res) => {
     require('./viewer').applyModeEffects(req.app.get('io'), updates.viewer_control_mode);
   }
   if ('show_timezone' in updates) require('../lib/template-schedule').recomputeAll();
+  if (Object.keys(updates).some(k => k.startsWith('show_buttons_'))) pushShowButtons(req);
+  // Install count (v0.33.267+): when the owner answers the notice or changes
+  // the setting, check in now so the stats page reflects it right away.
+  if ('install_count_enabled' in updates || 'install_count_location' in updates || 'install_count_notice_seen' in updates) {
+    try { require('../lib/install-count').sendSoon(); } catch { /* best effort */ }
+  }
 
   res.json({ ok: true });
 });
@@ -540,6 +633,19 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
 router.get('/sequences', requireAdmin, (req, res) => {
   const { bustSequenceCovers } = require('../lib/cover-art');
   const rows = db.prepare(`SELECT * FROM sequences ORDER BY display_order, display_name`).all();
+  // Tiered cooldowns (v0.33.258): the song's own value, what it ends up
+  // using and where that comes from, and whether it's cooling down now.
+  const cd = require('../lib/cooldown');
+  const cfg = getConfig();
+  const catMap = cd.categoryMap(cfg);
+  for (const r of rows) {
+    const eff = cd.resolve(r, cfg, catMap);
+    const st = cd.status(r, cfg, catMap);
+    r.cooldown_own = cd.ownCooldown(r);
+    r.cooldown_effective = eff.value;
+    r.cooldown_from = eff.from;
+    r.cooldown_now = st ? cd.describe(st) : null;
+  }
   res.json(bustSequenceCovers(rows));
 });
 
@@ -575,10 +681,21 @@ function updateSequence(req, res) {
   const id = Number(req.params.id);
   const fields = ['display_name', 'artist', 'category', 'image_url',
                   'duration_seconds', 'visible', 'votable', 'jukeboxable',
-                  'is_psa', 'display_order', 'cooldown_minutes', 'badge'];
+                  'is_psa', 'display_order', 'cooldown_minutes', 'cooldown', 'badge'];
   const updates = {};
   for (const k of fields) {
     if (k in req.body) updates[k] = req.body[k];
+  }
+  // Tiered cooldowns (v0.33.258): `cooldown` is the song's own value (null =
+  // use its category's / the show's). An old-style cooldown_minutes is moved
+  // into it, and the old column is cleared so it stops counting.
+  if ('cooldown_minutes' in updates) {
+    if (!('cooldown' in updates)) updates.cooldown = updates.cooldown_minutes;
+    delete updates.cooldown_minutes;
+  }
+  if ('cooldown' in updates) {
+    updates.cooldown = require('../lib/cooldown').toInt(updates.cooldown);
+    updates.cooldown_minutes = 0;
   }
   if (Object.keys(updates).length === 0) return res.json({ ok: true });
   if ('badge' in updates) updates.badge = cleanBadge(updates.badge);
@@ -622,6 +739,11 @@ router.post('/categories/enabled', requireAdmin, (req, res) => {
 router.post('/categories/schedule', requireAdmin, (req, res) => {
   const { name, schedule } = req.body || {};
   categoryResult(req, res, require('../lib/categories').setCategorySchedule(name, schedule || null));
+});
+// Category cooldown (v0.33.258): { name, cooldown: number | null (= use the show's) }
+router.post('/categories/cooldown', requireAdmin, (req, res) => {
+  const { name, cooldown } = req.body || {};
+  categoryResult(req, res, require('../lib/categories').setCategoryCooldown(name, cooldown));
 });
 router.post('/categories/rename', requireAdmin, (req, res) => {
   const { name, new_name } = req.body || {};
@@ -853,8 +975,66 @@ router.get('/stats', requireAdmin, (req, res) => {
     messagesEnabled: cfg.visitor_messages_enabled === 1,
     unreadMessages: require('../lib/visitor-messages').unreadCount(),
     pendingMessages: require('../lib/visitor-messages').pendingCount(), // waiting to go on the message wall
+    fpp: require('../lib/fpp-monitor').summary(), // v0.33.278-master.13: Dashboard FPP card
   });
 });
+
+// ---- FPP monitor (v0.33.278-master.13+, lib/fpp-monitor.js) ----
+// GET → everything the FPP page shows. Polling it also asks the show player
+// to report every second while the page is open.
+// ?watch=0 (the Cockpit's FPP tiles): read without counting as someone
+// watching, so the show player stays on its normal 5-second reports.
+router.get('/fpp', requireAdmin, (req, res) => {
+  res.json(require('../lib/fpp-monitor').adminState(getConfig(), { watch: req.query.watch !== '0' }));
+});
+// POST { action: startPlaylist|stopGracefully|stopNow|preset|restartFppd, name? }
+router.post('/fpp/command', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const r = require('../lib/fpp-monitor').command(String(b.action || ''), b.name, req.user && req.user.username);
+  if (r.error) return res.status(400).json(r);
+  console.log(`[fpp] ${req.user && req.user.username} asked the show player to ${b.action}${b.name ? ' "' + String(b.name).slice(0, 100) + '"' : ''}`);
+  res.json(r);
+});
+
+// ---- Show buttons (v0.33.278-master.12+, lib/show-buttons.js) ----
+// GET → { buttons, actions }  (actions: { effect: 'FPP effect (.eseq)', ... })
+router.get('/show-buttons', requireAdmin, (req, res) => {
+  const sb = require('../lib/show-buttons');
+  const actions = {};
+  for (const k of Object.keys(sb.ACTIONS)) actions[k] = sb.ACTIONS[k].label;
+  res.json({ buttons: sb.list(), actions });
+});
+// POST { id?, label, icon, color, action, target, cooldownSeconds, enabled } → create or update
+router.post('/show-buttons', requireAdmin, (req, res) => {
+  const sb = require('../lib/show-buttons');
+  const r = sb.save(req.body || {});
+  if (r.error) return res.status(400).json(r);
+  pushShowButtons(req);
+  res.json(r);
+});
+router.post('/show-buttons/delete', requireAdmin, (req, res) => {
+  const deleted = require('../lib/show-buttons').remove((req.body || {}).id);
+  pushShowButtons(req);
+  res.json({ ok: true, deleted });
+});
+// POST { ids: [..] } in the new order
+router.post('/show-buttons/order', requireAdmin, (req, res) => {
+  const changed = require('../lib/show-buttons').reorder((req.body || {}).ids);
+  pushShowButtons(req);
+  res.json({ ok: true, changed });
+});
+// POST { id } → runs it now (no cooldowns), for trying a prop out
+router.post('/show-buttons/test', requireAdmin, (req, res) => {
+  const r = require('../lib/show-buttons').test((req.body || {}).id, getConfig());
+  if (r.error) return res.status(404).json(r);
+  res.json(r);
+});
+// Open viewer pages pick up added/edited/removed buttons straight away.
+function pushShowButtons(req) {
+  const io = req.app.get('io');
+  if (!io) return;
+  try { io.emit('showButtonsUpdate', require('../lib/show-buttons').viewerState(getConfig(), require('../lib/db').getNowPlaying())); } catch { /* best effort */ }
+}
 
 // ---- Visitor messages (v0.33.250+, lib/visitor-messages.js) ----
 // GET ?filter=all|unread&limit=&offset= → { messages, total, unread }
@@ -1732,10 +1912,25 @@ router.post('/designer/render-block', requireAdmin, (req, res) => {
   const type = String((req.body && req.body.type) || '');
   const def = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, type) ? BLOCK_TYPES[type] : null;
   if (!def) return res.status(400).json({ error: 'Unknown block' });
+  // Settings for the block (v0.33.268+): only the block's own settings, as
+  // plain values or lists of plain values. They're kept on the wrapper so
+  // the Sections tab can show the block's settings again later.
+  const props = {};
+  const given = (req.body && typeof req.body.props === 'object' && req.body.props) || {};
+  const known = new Set([...Object.keys(def.defaultProps || {}), ...Object.keys(def.propTypes || {})]);
+  const plain = (v) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
+  for (const [k, v] of Object.entries(given)) {
+    if (!known.has(k)) continue;
+    if (plain(v)) props[k] = typeof v === 'string' ? v.slice(0, 5000) : v;
+    else if (Array.isArray(v) && v.length <= 100 && v.every(r => r && typeof r === 'object' && !Array.isArray(r) && Object.values(r).every(plain))) {
+      props[k] = v.map(r => Object.fromEntries(Object.entries(r).slice(0, 10).map(([a, b]) => [String(a).slice(0, 40), typeof b === 'string' ? b.slice(0, 2000) : b])));
+    }
+  }
   let inner;
-  try { inner = def.render({ ...def.defaultProps }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
+  try { inner = def.render({ ...def.defaultProps, ...props }); } catch (e) { return res.status(500).json({ error: 'Could not build that block' }); }
   const name = String(def.label || type).replace(/--+|[<>]/g, '');
-  res.json({ html: '<div class="sp-added-block"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  res.json({ html: '<div class="sp-added-block" data-sp-block="' + esc(type) + '" data-sp-props="' + esc(JSON.stringify(props)) + '"><!-- sp-added: ' + name + ' -->' + String(inner || '').trim() + '</div>' });
 });
 
 // PATCH a draft for the active template (or one specified by ?id=).
@@ -2015,10 +2210,11 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
       missingNames: missing.slice(0, 8).map((r) => r.name) });
   }
   const categories = require('../lib/categories');
-  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown_minutes', 'badge'];
+  const FIELDS = ['display_name', 'artist', 'image_url', 'category', 'visible', 'votable', 'jukeboxable', 'is_psa', 'cooldown', 'badge'];
   const pick = (r) => {
     const u = {};
     for (const k of FIELDS) if (k in r) u[k] = r[k];
+    if ('cooldown' in u) u.cooldown_minutes = 0; // the song's own cooldown now lives in `cooldown`
     if ('category' in u) u.category = categories.ensureCategory(u.category);
     if ('badge' in u) u.badge = cleanBadge(u.badge);
     return u;
@@ -2034,15 +2230,15 @@ router.post('/sequences/import', requireAdmin, (req, res) => {
     if (addMissing) {
       let order = (db.prepare(`SELECT MAX(display_order) AS m FROM sequences`).get().m || 0);
       const ins = db.prepare(`
-        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown_minutes, badge, active, sort_order, display_order)
-        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown_minutes, @badge, 0, 0, @display_order)`);
+        INSERT INTO sequences (name, display_name, artist, image_url, category, visible, votable, jukeboxable, is_psa, cooldown, badge, active, sort_order, display_order)
+        VALUES (@name, @display_name, @artist, @image_url, @category, @visible, @votable, @jukeboxable, @is_psa, @cooldown, @badge, 0, 0, @display_order)`);
       for (const r of missing) {
         const u = pick(r);
         added += ins.run({
           name: r.name, display_name: u.display_name || r.name, artist: u.artist || null,
           image_url: u.image_url || null, category: u.category || null,
           visible: u.visible ?? 1, votable: u.votable ?? 1, jukeboxable: u.jukeboxable ?? 1,
-          is_psa: u.is_psa ?? 0, cooldown_minutes: u.cooldown_minutes ?? 0, badge: u.badge || null, display_order: ++order,
+          is_psa: u.is_psa ?? 0, cooldown: u.cooldown ?? null, badge: u.badge || null, display_order: ++order,
         }).changes;
       }
     }

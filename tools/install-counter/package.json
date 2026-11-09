@@ -1,0 +1,14 @@
+{
+  "name": "showpilot-install-counter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Counts running ShowPilot / ShowPilot-Lite installs from their anonymous daily check-in.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.21.1"
+  }
+}

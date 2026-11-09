@@ -41,4 +41,4 @@ Scenario: A phone at the show can request, one far away can't
   Then phone 1 gets the message "Added to the queue"
   And the queue is "Alpha"
   When phone 2 requests "Bravo"
-  Then it is refused with "miles"
+  Then it is refused with "mile"

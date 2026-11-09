@@ -86,6 +86,26 @@ app.use((req, res, next) => {
 // the top is simpler than re-applying per-route.
 app.use(cookieParser());
 
+// Hosted mode (v0.33.278-master.6+). See lib/config-loader.js. These features
+// manage the machine, which the host owns, so they answer as if absent.
+if (config.hosted) {
+  const HOSTED_OFF = [
+    '/api/admin/updates',
+    '/api/admin/cloudflared',
+    '/api/setup/restore-from-backup',
+    '/api/admin/tools/announcer/kokoro/install',
+  ];
+  app.use((req, res, next) => {
+    const p = req.path.toLowerCase().replace(/\/{2,}/g, '/').replace(/\/$/, '');
+    if (p === '/api/admin/updates/notice') return res.json({ notice: null });
+    if (p === '/api/setup/first-boot-status') return res.json({ firstBoot: false });
+    if (HOSTED_OFF.some((b) => p === b || p.startsWith(b + '/'))) {
+      return res.status(404).json({ error: 'Not available on hosted ShowPilot.' });
+    }
+    next();
+  });
+}
+
 // Backup & restore API (v0.25.0+) — mounted BEFORE the global
 // express.json() parser below, because backup files (with cover art)
 // can run 5-50 MB and the default 1MB limit would reject them with an
@@ -134,6 +154,8 @@ app.use((req, res, next) => {
 // Public unauthenticated endpoints (v0.31.0+) — currently just demo-status.
 // Lives outside /api/plugin and /api/admin because it has neither bearer-token
 // nor cookie auth. Read-only by design.
+// GET /api/public/show-info for the ShowPilot app (lib/app-listing.js).
+app.use(require('./lib/app-listing').router());
 app.use('/api/public', require('./routes/public'));
 
 // FPP plugin endpoints — mounted at /api/plugin for the ShowPilot plugin
@@ -172,7 +194,7 @@ app.use('/api/admin/updates', adminRouter.requireAdmin, require('./routes/update
 // (Docker, demoMode) — we still want the UI to show "you're on
 // vX.Y.Z" but no need to hit GitHub from those deployments.
 const updater = require('./lib/updater');
-if (updater.isUpdaterAvailable()) {
+if (!config.hosted && updater.isUpdaterAvailable()) {
   updater.startBackgroundPolling();
 }
 
@@ -445,7 +467,7 @@ app.get('/', async (req, res) => {
     const sequences = db.prepare(`
       SELECT id, name, display_name, artist, category, image_url, badge,
              duration_seconds, votable, jukeboxable,
-             last_played_at, plays_since_hidden
+             last_played_at, plays_since_hidden, cooldown_minutes, cooldown
       FROM sequences
       WHERE visible = 1 AND active = 1 AND is_psa = 0
       ORDER BY display_order, display_name
@@ -453,7 +475,11 @@ app.get('/', async (req, res) => {
 
     const { bustSequenceCovers } = require('./lib/cover-art');
     // Category view: drop disabled categories, group into category order.
-    const sequencesBusted = bustSequenceCovers(require('./lib/categories').applyCategoryView(sequences, cfg));
+    // Cooldown (v0.33.258): cooling-down songs are left out, or kept and
+    // marked when the show keeps them on the page (same as /api/state).
+    const sequencesBusted = bustSequenceCovers(
+      require('./lib/cooldown').applyToList(require('./lib/categories').applyCategoryView(sequences, cfg), cfg)
+        .map(({ cooldown_minutes, cooldown, ...rest }) => (cooldown && typeof cooldown === 'object' ? { ...rest, cooldown } : rest)));
 
     const voteCounts = db.prepare(`
       SELECT sequence_name, COUNT(*) AS count FROM votes
@@ -801,10 +827,17 @@ server.listen(config.port, config.host, () => {
   }
 
   try {
-    require('./lib/cloudflared').autoStartIfConfigured();
+    if (!config.hosted) require('./lib/cloudflared').autoStartIfConfigured();
   } catch (err) {
     console.error('[cloudflared] auto-start failed:', err.message);
   }
+
+  // Anonymous daily install count (see lib/install-count.js for exactly what's sent).
+  try { require('./lib/install-count').start(); } catch (err) { /* never block startup */ }
+  // ShowPilot app listing heartbeat (only does anything when the owner turned it on).
+  try { require('./lib/app-listing').start(); } catch (err) { /* never block startup */ }
+  // Miles or kilometres: look up the show's country if it isn't known yet.
+  try { require('./lib/units').start(); } catch (err) { /* never block startup */ }
 });
 
 // Clean shutdown: tell the cloudflared supervisor to stop respawning

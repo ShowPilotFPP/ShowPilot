@@ -137,7 +137,7 @@ Scenario: The ShowPilot update banner opens the Updates page
   Given the show has songs "Alpha", "Bravo" and "Charlie"
   And ShowPilot "9.9.9" is out
   When the admin opens the Dashboard page
-  And the admin clicks "Open Updates"
+  And the admin clicks "What's new & update"
   Then the admin sees "Pull the latest release of ShowPilot from GitHub"
 
 Scenario: Logging out shows only the login page (new layout)

@@ -35,7 +35,7 @@
   // Setup choices live here so re-rendering (e.g. ticking a song) keeps them.
   const opts = { target: '-14', custom: '-14', peak: '-1.5', limiter: true, match: 'speakers' };
   const MATCH_KEY = 'sp_norm_match';
-  try { const m = localStorage.getItem(MATCH_KEY); if (m === 'lufs' || m === 'speakers') opts.match = m; } catch (_) {}
+  try { const m = (window.SPPrefs ? SPPrefs.get(MATCH_KEY) : localStorage.getItem(MATCH_KEY)); if (m === 'lufs' || m === 'speakers') opts.match = m; } catch (_) {}
 
   // Themed in-page dialogs from the admin page (showConfirm / showPrompt);
   // the browser's own pop-ups only if those are somehow missing.
@@ -313,7 +313,7 @@
     const choice = (value, title, desc) => h('label', { style: 'display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.35rem;font-weight:normal;cursor:pointer;' }, [
       h('input', { type: 'radio', name: 'spnMatch', value, checked: opts.match === value, disabled: value === 'speakers' && !speakersOk, style: 'margin-top:0.2rem;', onchange: () => {
         opts.match = value;
-        try { localStorage.setItem(MATCH_KEY, value); } catch (_) {}
+        try { (window.SPPrefs ? SPPrefs : localStorage)[window.SPPrefs ? 'set' : 'setItem'](MATCH_KEY, value); } catch (_) {}
         const n = root.querySelector('#spnSpeakerNote');
         if (n) n.style.display = value === 'speakers' ? '' : 'none';
       } }),

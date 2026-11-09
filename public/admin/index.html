@@ -9,11 +9,37 @@
        the classic layout. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
-  <link rel="stylesheet" href="/admin/ui-new.css?v=258">
-  <script src="/admin/ui-new.js"></script>
+  <link rel="stylesheet" href="/admin/ui-new.css?v=2583">
+  <link rel="stylesheet" href="/admin/help/help.css?v=1">
+  <script src="/admin/user-prefs.js?v=1"></script>
+  <script src="/admin/ui-new.js?v=263"></script>
   <script src="/admin/audio-normalizer.js?v=4"></script>
-  <script src="/admin/announcer.js?v=1"></script>
-  <script src="/admin/sections.js?v=2"></script>
+  <script src="/admin/announcer.js?v=2"></script>
+  <script src="/admin/fpp-monitor.js?v=3"></script>
+  <script src="/admin/sections.js?v=3"></script>
+  <script src="/admin/social-icons.js?v=2"></script>
+  <script src="/admin/block-editors.js?v=3"></script>
+  <script src="/admin/text-format-bar.js?v=2"></script>
+  <script src="/admin/help/help.js?v=1"></script>
+  <script>
+    // Help (v0.33.278-master.9+): F1 or the ? button opens help for the page
+    // you're on — the open tab and sub-tab, in either admin layout. Docs live
+    // in /admin/help/ (manifest.json + Markdown) and work offline.
+    document.addEventListener('DOMContentLoaded', function () {
+      SPHelp.init({
+        base: '/admin/help/',
+        context: function () {
+          var login = document.getElementById('loginView');
+          if (login && !login.classList.contains('hidden')) return 'login';
+          var pane = document.querySelector('.tab-pane.active');
+          if (!pane) return '';
+          var sub = pane.querySelector('.sub-tab.active');
+          return sub ? pane.dataset.pane + '/' + sub.dataset.subtab : pane.dataset.pane;
+        },
+        hidden: function (d) { return !!(d.hideHosted && document.documentElement.classList.contains('sp-hosted')); },
+      });
+    });
+  </script>
   <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
   <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
   <style>
@@ -545,6 +571,47 @@
       background: var(--accent);
       color: #fff;
     }
+    .tpl-ref-link { align-self: center; font-size: 0.85rem; color: var(--text-muted); text-decoration: none; padding: 0.3rem 0.5rem; white-space: nowrap; }
+    .tpl-ref-link:hover { color: var(--accent); }
+    /* Updates page: What's new (v0.33.259) */
+    .whats-new { margin-top: 0.9rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); max-height: 420px; overflow-y: auto; }
+    .whats-new-head { font-weight: 600; margin-bottom: 0.35rem; }
+    .whats-new-item { padding: 0.35rem 0; border-top: 1px solid var(--border); }
+    .whats-new-item:first-of-type { border-top: 0; }
+    .whats-new-sub { margin-top: 0.6rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+    .whats-new-item summary { cursor: pointer; font-size: 0.9rem; line-height: 1.4; }
+    .whats-new-item ul { margin: 0.4rem 0 0.2rem 1.1rem; padding: 0; font-size: 0.85rem; line-height: 1.45; }
+    .whats-new-item li { margin: 0.2rem 0; }
+    .whats-new-item code { font-size: 0.8rem; }
+    .wn-kind { display: inline-block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; padding: 0 0.4rem; border-radius: 4px; vertical-align: 1px; white-space: nowrap; }
+    .wn-bug-fix { background: rgba(239,68,68,0.15); color: #f87171; }
+    .wn-feature-update { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .wn-feature-request { background: rgba(34,197,94,0.15); color: #4ade80; }
+    /* Visible / Vote / Jukebox / PSA: switches (default) or, with "Icon
+       switches" ticked above the table, one compact group of icon toggles.
+       Still four columns, so the Columns menu hides each one on its own. */
+    #sequencesTable .seq-flag { transform: scale(0.7); }
+    #sequencesTable .seq-flag-ico, #sequencesTable th.col-flag .flag-svg { display: none; }
+    #sequencesTable.seq-flag-icons .seq-flag { transform: none; width: auto; height: auto; display: inline-flex; margin: 0; cursor: pointer; }
+    #sequencesTable.seq-flag-icons .seq-flag .slider { display: none; }
+    #sequencesTable.seq-flag-icons th.col-flag .flag-txt { display: none; }
+    #sequencesTable.seq-flag-icons th.col-flag .flag-svg { display: block; margin: 0 auto; }
+    #sequencesTable.seq-flag-icons th.col-flag, #sequencesTable.seq-flag-icons td.col-flag { padding-left: 2px; padding-right: 2px; text-align: center; }
+    #sequencesTable.seq-flag-icons th.col-flag { color: var(--text-muted); }
+    #sequencesTable.seq-flag-icons .seq-flag-ico { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-muted); opacity: 0.45; transition: background .12s, color .12s, opacity .12s, border-color .12s; }
+    #sequencesTable.seq-flag-icons .seq-flag:hover .seq-flag-ico { opacity: 0.8; }
+    #sequencesTable.seq-flag-icons .seq-flag input:checked ~ .seq-flag-ico { opacity: 1; color: var(--status-success, #22c55e); border-color: rgba(34,197,94,0.45); background: rgba(34,197,94,0.12); }
+    #sequencesTable.seq-flag-icons .seq-flag-psa input:checked ~ .seq-flag-ico { color: #f59e0b; border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.13); }
+    #sequencesTable.seq-flag-icons .seq-flag input:focus-visible ~ .seq-flag-ico { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* Song cooldown settings (v0.33.258) */
+    .cooldown-box { margin-top: 1rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); }
+    .cooldown-box code { font-size: 0.75rem; }
+    .cat-cooldown { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+    /* Cooldown numbers are 1–2 digits: narrow boxes, no spinner arrows. */
+    .cd-input, .cat-cooldown input, #cfg_cooldown_default { width: 3.2em !important; padding: 0.25rem 0.3rem !important; font-size: 0.9rem; text-align: center; -moz-appearance: textfield; appearance: textfield; }
+    .cd-input::-webkit-inner-spin-button, .cd-input::-webkit-outer-spin-button,
+    .cat-cooldown input::-webkit-inner-spin-button, .cat-cooldown input::-webkit-outer-spin-button,
+    #cfg_cooldown_default::-webkit-inner-spin-button, #cfg_cooldown_default::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     /* Sections editor (beta) */
     .sec-beta { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px; background: #7c3aed; color: #fff; vertical-align: middle; }
     .sec-intro { font-size: 0.85rem; color: var(--text-muted); background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; line-height: 1.45; }
@@ -654,6 +721,9 @@
       font-size: 0.75rem;
       color: var(--text-muted);
     }
+    /* v0.33.265: blocks already on the page */
+    .sp-used-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; vertical-align: 1px; background: rgba(34,197,94,0.16); color: #4ade80; }
+    .of-block-lib-item.sp-used-once, .sec-picker button.sp-used-once { opacity: 0.6; }
     /* Block on canvas */
     .of-block-card {
       background: var(--bg-elevated);
@@ -725,6 +795,35 @@
       width: 100%;
       font-size: 0.85rem;
     }
+    /* Formatting buttons above block text (v0.33.278-master.1+, public/admin/text-format-bar.js) */
+    .sp-fmt-bar { display: flex; gap: 3px; margin: 0.15rem 0 0.3rem; flex-wrap: wrap; }
+    .sp-fmt-bar .sp-fmt-btn { box-sizing: border-box; width: 30px; min-width: 0; height: 30px; min-height: 30px !important; padding: 0; font-size: 13px; line-height: 1; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin: 0; flex: 0 0 auto; }
+    .sp-fmt-bar .sp-fmt-color { font-weight: 700; color: #e53935; border: 1px solid var(--border, rgba(255,255,255,.18)); background: transparent; }
+    .sp-fmt-bar .sp-fmt-color:hover { background: rgba(255,255,255,.06); }
+    .sp-fmt-bar .sp-fmt-color input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; padding: 0; border: 0; }
+    /* List settings editor (v0.33.268+, public/admin/block-editors.js) */
+    .spbe { display: flex; flex-direction: column; gap: 0.5rem; }
+    .spbe-row { border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg-elevated, rgba(255,255,255,.03)); }
+    .spbe-row-head { display: flex; align-items: center; gap: 0.45rem; }
+    .spbe-row-head select { flex: 1; min-width: 0; width: auto; font-size: 0.85rem; }
+    .spbe-num { font-weight: 700; font-size: 0.8rem; color: var(--text-muted); flex: 1; }
+    .spbe-ctl { display: inline-flex; gap: 0.2rem; margin-left: auto; }
+    .spbe-ctl button { padding: 0.15rem 0.45rem; font-size: 0.8rem; line-height: 1.2; }
+    .spbe-del { color: #ef4444 !important; }
+    .spbe label.spbe-lbl, .spbe .spbe-lbl { font-size: 0.75rem; color: var(--text-muted); display: block; margin: 0.4rem 0 0.15rem; }
+    .spbe input[type="text"], .spbe textarea { width: 100%; font-size: 0.85rem; box-sizing: border-box; }
+    .spbe-add { align-self: flex-start; font-size: 0.85rem; }
+    .spbe-empty { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+    .spbe-ico, .spbe-noicon { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+    .spbe-noicon { border: 1px dashed var(--text-muted); color: var(--text-muted); font-size: 0.8rem; }
+    .spbe-iconbtn, .spbe-iconbtn:hover { background: transparent !important; }
+    .spbe-iconbtn { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 2px 4px; cursor: pointer; color: var(--text-muted); }
+    .spbe-iconbtn:hover { border-color: var(--border, rgba(255,255,255,.2)); }
+    .spbe-iconbtn small { font-size: 0.65rem; }
+    .spbe-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; margin-top: 0.5rem; padding: 0.4rem; border-radius: 8px; background: var(--bg, rgba(0,0,0,.2)); }
+    .spbe-picker button { background: transparent; border: 2px solid transparent; border-radius: 50%; padding: 2px; cursor: pointer; display: inline-flex; justify-content: center; }
+    .spbe-picker button:hover { border-color: var(--text-muted); }
+    .spbe-picker button.on { border-color: var(--accent, #dc2626); }
     #blocksCanvas:empty::before {
       content: 'Drag blocks from the library to start building. Or click + on a block.';
       display: block;
@@ -1418,11 +1517,24 @@
        dropdown was squeezed to two letters). Below the min-width the table
        scrolls sideways instead of crushing columns. */
     #sequencesTable { width: 100%; min-width: 1400px; }
-    #sequencesTable th.col-display, #sequencesTable td.col-display { width: 23%; max-width: 0; }
-    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: 19%; max-width: 0; }
-    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: 17%; max-width: 0; }
-    #sequencesTable th.col-category, #sequencesTable td.col-category { width: 19%; max-width: 0; }
-    #sequencesTable th.col-badge, #sequencesTable td.col-badge { width: 14%; max-width: 0; }
+    /* Text columns: resizable by dragging their header's right edge
+       (v0.33.258/259, see initSeqColResize); double-click the edge to reset.
+       Badge is narrower by default (labels are short). */
+    #sequencesTable { --w-display: 26%; --w-seqname: 19%; --w-artist: 17%; --w-category: 19%; --w-badge: 9%; }
+    #sequencesTable th.col-display, #sequencesTable td.col-display { width: var(--w-display); max-width: 0; }
+    #sequencesTable th.col-seqname, #sequencesTable td.col-seqname { width: var(--w-seqname); max-width: 0; }
+    #sequencesTable th.col-artist, #sequencesTable td.col-artist { width: var(--w-artist); max-width: 0; }
+    #sequencesTable th.col-category, #sequencesTable td.col-category { width: var(--w-category); max-width: 0; }
+    #sequencesTable th.col-badge, #sequencesTable td.col-badge { width: var(--w-badge); max-width: 0; }
+    #sequencesTable th[data-resize] { position: relative; }
+    /* After a column is resized: fixed layout with pixel widths per header. */
+    #sequencesTable.sp-fixed-cols { table-layout: fixed; }
+    #sequencesTable.sp-fixed-cols th, #sequencesTable.sp-fixed-cols td { max-width: none; overflow: hidden; }
+    #sequencesTable.sp-fixed-cols th { white-space: nowrap; text-overflow: ellipsis; }
+    #sequencesTable.sp-fixed-cols td.col-actions { overflow: visible; }
+    #sequencesTable .col-resize { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; touch-action: none; }
+    #sequencesTable .col-resize::after { content: ''; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 1px; background: var(--border); }
+    #sequencesTable th[data-resize]:hover .col-resize::after, #sequencesTable .col-resize.dragging::after { background: var(--accent, #dc2626); width: 2px; }
     #sequencesTable .seq-badge-select { width: 100%; min-width: 0; text-overflow: ellipsis; }
     #sequencesTable .col-seqname code { display: block; max-width: 100%; width: fit-content; overflow: hidden; text-overflow: ellipsis;
                                         white-space: nowrap; }
@@ -1433,12 +1545,19 @@
     /* Row buttons are right-aligned, and the header reserves room for the
        wider "■ 0:42" preview button, so playing a preview never moves the
        other buttons or columns. Each hidden button takes its share out. */
-    #sequencesTable { --w-prev: 4.9rem; --w-search: 2.3rem; --w-lang: 2.3rem; }
+    /* Room for the row buttons. Preview is a 2rem button, and widens to
+       "■ 0:42" only while a song previews (table class seq-previewing-any),
+       so the row doesn't keep that space empty the rest of the time. */
+    #sequencesTable { --w-prev: 2.3rem; --w-search: 2.3rem; --w-lang: 2.3rem; }
+    #sequencesTable.seq-previewing-any { --w-prev: 4.9rem; }
     #sequencesTable.hide-preview { --w-prev: 0rem; }
     #sequencesTable.hide-search { --w-search: 0rem; }
     #sequencesTable.hide-lang { --w-lang: 0rem; }
     #sequencesTable .seq-actions-reserve { width: calc(var(--w-prev) + var(--w-search) + var(--w-lang) + 2.3rem); height: 0; }
     #sequencesTable td.col-actions { text-align: right; }
+    /* Cooldown: only as wide as its heading, box centred. */
+    #sequencesTable th.col-cooldown, #sequencesTable td.col-cooldown { text-align: center; padding-left: 4px; padding-right: 4px; }
+    #sequencesTable th.col-cooldown { letter-spacing: 0.02em; }
     #sequencesTable td.col-index { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85rem; text-align: center; color: var(--text-muted); }
     /* Compact: one line per row, everything cut with … in its share. */
     table.seq-compact td { padding-top: 0.25rem; padding-bottom: 0.25rem; }
@@ -1769,6 +1888,13 @@
        returns demoMode:true. Sits at the very top of the page so it
        shows above both the login view and the main appView.
        ============================================================ */
+    /* Hosted mode (v0.33.278-master.6+): /api/public/demo-status reports
+       hosted:true and initDemoBanner() adds .sp-hosted to <html>. */
+    .sp-hosted [data-hosted-hide] { display: none !important; }
+    /* Audio locked off by the host: only the explanation shows in Settings → Audio. */
+    .sp-audio-locked .sub-tab-pane[data-subtab="audio"] > :not(#audioLockedNote) { display: none !important; }
+    .sp-audio-locked #audioLockedNote { display: block !important; }
+
     #demoBanner {
       display: none; /* JS unhides when demoMode is on */
       align-items: center;
@@ -1972,7 +2098,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.258-beta.4</span>
+        <span class="app-version">v0.33.279-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2030,6 +2156,7 @@
     <!-- Tab nav -->
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="dashboard" onclick="switchMainTab('dashboard')">Dashboard</button>
+      <button class="tab-btn" data-tab="fpp" onclick="switchMainTab('fpp')">FPP Monitor</button>
       <button class="tab-btn" data-tab="sequences" onclick="switchMainTab('sequences')">Sequences</button>
       <button class="tab-btn" data-tab="queue" onclick="switchMainTab('queue')">Queue</button>
       <button class="tab-btn" data-tab="messages" onclick="switchMainTab('messages')">Messages</button>
@@ -2050,8 +2177,9 @@
 
         <!-- Out-of-date show player (beta.18+): filled by renderShowPlayerUpdate() -->
         <!-- Newer ShowPilot available (beta.19+): filled by renderShowPilotUpdate() -->
-        <div id="showPilotUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-success); background: var(--status-success-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <div id="showPilotUpdateBanner" data-hosted-hide class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-success); background: var(--status-success-soft); font-size: 0.9rem; line-height: 1.45;"></div>
         <div id="showPlayerUpdateBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--status-warning); background: var(--status-warning-soft); font-size: 0.9rem; line-height: 1.45;"></div>
+        <div id="fppDashCard" class="dash-banner" role="status" onclick="switchMainTab('fpp')" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); font-size: 0.9rem; line-height: 1.45;"></div>
         <div id="messagesBanner" class="dash-banner" role="status" style="display:none; margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--accent-soft); font-size: 0.9rem; line-height: 1.45;"></div>
 
         <div class="now-playing-card" style="margin-bottom: 1.25rem;">
@@ -2201,6 +2329,9 @@
             <label style="display:flex; align-items:center; gap:0.35rem; margin:0; font-size:0.85rem; cursor:pointer;" title="One line per row: smaller art, names on a single line">
               <input type="checkbox" id="seqCompact" onchange="setSeqCompact(this.checked)" /> Compact rows
             </label>
+            <label style="display:flex; align-items:center; gap:0.35rem; margin:0; font-size:0.85rem; cursor:pointer;" title="Show Visible, Vote, Jukebox and PSA as small icons (lit = on) instead of switches, to save space">
+              <input type="checkbox" id="seqFlagIcons" onchange="setSeqFlagIcons(this.checked)" /> Icon switches
+            </label>
             <details class="sp-menu" id="seqColumnsMenu">
               <summary class="button secondary" style="display:inline-block; padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem;" title="Show or hide columns. Hidden columns keep their settings.">Columns ▾</summary>
               <div class="sp-menu-list" id="seqColumnsList"></div>
@@ -2218,6 +2349,7 @@
             <button class="secondary" onclick="bulkSetField('visible', 0)">Hide</button>
             <select id="seqBulkCategory" onchange="bulkSetCategory(this)" title="Set the category of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
             <select id="seqBulkBadge" onchange="bulkSetBadge(this)" title="Set or clear the badge of all selected sequences" style="width: auto; padding: 0.35rem 0.5rem;"></select>
+            <button class="secondary" onclick="bulkSetCooldown()" title="Set the cooldown of all selected sequences">⏳ Cooldown…</button>
             <button class="secondary" onclick="bulkScrapeSelected()">🪄 Re-scrape titles</button>
             <button class="danger" onclick="bulkDeleteSelected()">Delete selected</button>
             <button class="secondary" onclick="clearSeqSelection()">Clear</button>
@@ -2234,17 +2366,17 @@
                   <th class="col-tight"></th>
                   <th class="col-tight col-status" title="Green: in your show player's playlist. Red: inactive — no longer in the playlist; kept with all its details and hidden from viewers.">Status</th>
                   <th class="col-tight col-art">Art</th>
-                  <th class="col-display">Display Name</th>
-                  <th class="col-seqname">Sequence Name</th>
+                  <th data-resize="display" class="col-display">Display Name</th>
+                  <th data-resize="seqname" class="col-seqname">Sequence Name</th>
                   <th class="col-tight col-index" title="Position in your show player's playlist, from the last sync. If the wrong song plays, check this matches the playlist (and sync again).">Playlist #</th>
-                  <th class="col-artist">Artist</th>
-                  <th class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
-                  <th class="col-badge" title="A short label shown after the song's name on the viewer page, like New or Fan Favorite.">Badge</th>
-                  <th class="col-tight col-visible">Visible</th>
-                  <th class="col-tight col-vote">Vote</th>
-                  <th class="col-tight col-jukebox">Jukebox</th>
-                  <th class="col-tight col-psa">PSA</th>
-                  <th class="col-tight col-cooldown" title="After this sequence plays, hide it from request UI and purge other queued copies for this many minutes. 0 = no cooldown.">Cooldown<br><span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
+                  <th data-resize="artist" class="col-artist">Artist</th>
+                  <th data-resize="category" class="col-category" title="Group sequences on the viewer page. Manage categories in the Categories card below.">Category</th>
+                  <th data-resize="badge" class="col-badge" title="A short label shown after the song's name on the viewer page, like New or Fan Favorite.">Badge</th>
+                  <th class="col-tight col-visible col-flag" title="Visible: shown on the viewer page" aria-label="Visible"><span class="flag-txt">Visible</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flag-svg"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></th>
+                  <th class="col-tight col-vote col-flag" title="Vote: can be voted for (Voting mode)" aria-label="Vote"><span class="flag-txt">Vote</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flag-svg"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12.5l3 3 5-6"/></svg></th>
+                  <th class="col-tight col-jukebox col-flag" title="Jukebox: can be requested (Jukebox mode)" aria-label="Jukebox"><span class="flag-txt">Jukebox</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flag-svg"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></th>
+                  <th class="col-tight col-psa col-flag" title="PSA: played as an announcement between songs, never listed for viewers" aria-label="PSA"><span class="flag-txt">PSA</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flag-svg"><circle cx="8" cy="8" r="4"/><path d="M2 21a6 6 0 0 1 12 0"/><path d="M15 5.5l3-2M15.5 9h4.5M15 12.5l3 2"/></svg></th>
+                  <th class="col-tight col-cooldown" title="How long after this song plays before viewers can pick it again (and other queued copies are dropped). Empty = use its category's or the show's cooldown (Settings → Jukebox); 0 = never cools down.">Cooldown<br><span id="seqCooldownUnitHead" style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(min)</span></th>
                   <th class="col-tight col-actions"><div class="seq-actions-reserve"></div></th>
                 </tr>
               </thead>
@@ -2683,6 +2815,7 @@
           <p class="muted" style="margin-bottom: 0.75rem;">
             Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>. ShowPilot adds <code>{NOW_PLAYING_ARTIST}</code>, <code>{NOW_PLAYING_IMAGE}</code>, <code>{NEXT_PLAYLIST_ARTIST}</code> and <code>{NEXT_PLAYLIST_IMAGE}</code> (Up Next artist and cover), <code>{NOW_PLAYING_TIMER}</code> and <code>{NOW_PLAYING_PROGRESS}</code>.
             <a href="/" target="_blank" style="color: var(--accent);">Open viewer page →</a>
+            · <a href="/admin/template-reference.html" target="_blank" rel="noopener" style="color: var(--accent);" title="Every placeholder, class, pop-up message ID and CSS variable a template can use">📖 Template reference</a>
           </p>
 
           <div style="display: grid; grid-template-columns: 240px 1fr; gap: 1rem;">
@@ -2737,6 +2870,7 @@
                 <button class="secondary" onclick="document.getElementById('tplUploadFile').click()" id="tplUploadBtn" title="Replace this page's code with an .html file from your computer (you still Save Changes to make it live)">📄 Load from file…</button>
                 <input type="file" id="tplUploadFile" accept=".html,.htm,.txt,text/html,text/plain" style="display:none;" onchange="loadTemplateFromFile(this)" />
                 <span style="flex: 1;"></span>
+                <a class="of-tpl-bypass-lock tpl-ref-link" href="/admin/template-reference.html" target="_blank" rel="noopener" title="Every placeholder, class, pop-up message ID and CSS variable a template can use">📖 Template reference</a>
                 <button class="secondary" onclick="discardDraft()" id="tplDiscardBtn" style="display:none;">Discard Changes</button>
                 <button onclick="commitDraft()" id="tplCommitBtn" style="display:none;">Save Changes</button>
               </div>
@@ -3397,13 +3531,14 @@
             <div class="sub-tab" data-subtab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
             <div class="sub-tab" data-subtab="voting" onclick="switchTab('voting')">Voting</div>
             <div class="sub-tab" data-subtab="race" onclick="switchTab('race')">Race</div>
+            <div class="sub-tab" data-subtab="show-buttons" onclick="switchTab('show-buttons')">Show Buttons</div>
             <div class="sub-tab" data-subtab="audio" onclick="switchTab('audio')">Audio</div>
             <div class="sub-tab" data-subtab="app" onclick="switchTab('app')">App</div>
             <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
-            <div class="sub-tab" data-subtab="public-access" onclick="switchTab('public-access')">Public Access</div>
+            <div class="sub-tab" data-hosted-hide data-subtab="public-access" onclick="switchTab('public-access')">Public Access</div>
             <div class="sub-tab" data-subtab="backup" onclick="switchTab('backup')">Backup &amp; Restore</div>
             <div class="sub-tab" data-subtab="cockpit" onclick="switchTab('cockpit')">Cockpit</div>
-            <div class="sub-tab" data-subtab="updates" onclick="switchTab('updates')">Updates</div>
+            <div class="sub-tab" data-hosted-hide data-subtab="updates" onclick="switchTab('updates')">Updates</div>
             <div class="sub-tab" data-subtab="debug" onclick="switchTab('debug')">Debug</div>
           </div>
 
@@ -3435,6 +3570,32 @@
               <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
                 Used as the browser tab title on the viewer page (unless your template defines its own &lt;title&gt; tag) and as a friendly name in a few other places.
               </p>
+            </div>
+
+            <div id="installCountSection" style="margin-top: 1.5rem;">
+              <h3>Install count</h3>
+              <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+                Once a day ShowPilot tells us "one more install is running" so we know how many shows use it and which versions they run.
+                It's anonymous: a random ID made on this install, the product name and the version. No show name, URL, IP address or settings are sent, and nothing is sent back.
+              </p>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="cfg_install_count_enabled" onchange="saveInstallCount('install_count_enabled', this.checked ? 1 : 0)" />
+                <label for="cfg_install_count_enabled" style="margin: 0;">Count this install</label>
+              </div>
+              <div style="margin-top: 0.75rem;">
+                <label for="cfg_install_count_location">Put my show on the map <span class="muted" style="font-weight: normal;">(optional)</span></label>
+                <select id="cfg_install_count_location" onchange="saveInstallCount('install_count_location', this.value)" style="width: auto;">
+                  <option value="off">Off</option>
+                  <option value="country">Country only</option>
+                  <option value="region">State / region</option>
+                  <option value="city">Town</option>
+                </select>
+                <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
+                  Adds you to the public map of where ShowPilot shows are. ShowPilot still sends no location; the counter uses an approximate lookup of the connection and keeps only the level you pick. Town is rounded to about 10&nbsp;km and is often the nearest big town.
+                </p>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin-top: 0.5rem;">Exactly what's sent: <code id="installCountSample">…</code></p>
+              <p class="muted" id="installCountLocked" style="font-size: 0.8rem; margin-top: 0.25rem; display: none;"></p>
             </div>
           </div>
 
@@ -3476,16 +3637,38 @@
               <input type="checkbox" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', this.checked ? 1 : 0)" />
               <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide song from the request list after it plays</label>
             </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Song disappears from the viewer's request grid after playing and stays hidden for the cooldown period set on each sequence.</p>
-            <div class="row" style="margin-top: 0.75rem;">
-              <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
-              <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in the show player's normal playlist rotation</label>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">The song that's playing drops off the viewer's request list until the next song starts. For a longer wait, use the song cooldown below.</p>
+
+            <!-- Song cooldown (v0.33.258, tiered: show-wide → category → song; GitHub issue #41) -->
+            <div class="cooldown-box">
+              <div style="font-weight: 600;">Song cooldown</div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0.6rem;">After a song plays, viewers can't request it or vote for it again until its cooldown is over. Works in Jukebox and Voting.</p>
+              <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <label for="cfg_cooldown_default" style="margin: 0;">Wait</label>
+                <input type="number" id="cfg_cooldown_default" min="0" max="1440" step="1" onchange="saveCooldownDefault(this)" />
+                <select id="cfg_cooldown_unit" onchange="saveCooldownUnit(this)" style="width: auto; padding: 0.35rem 0.5rem;" aria-label="Count the cooldown in">
+                  <option value="songs">more songs</option>
+                  <option value="minutes">minutes</option>
+                </select>
+                <span>before a song can be picked again <span class="muted">(0 = no cooldown)</span></span>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;"><strong>More songs</strong> counts every song that starts after it, whatever its length. Categories and single songs can have their own cooldown on the <em>Sequences</em> page; leave theirs empty to use this one. Switching between songs and minutes doesn't convert numbers already set there.</p>
+              <div class="row" style="margin-top: 0.75rem;">
+                <input type="checkbox" id="cfg_cooldown_show_cooled" onchange="saveSetting('cooldown_show_cooled', this.checked ? 1 : 0)" />
+                <label for="cfg_cooldown_show_cooled" style="margin: 0;">Keep cooling-down songs on the page, greyed out, instead of hiding them</label>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">They show "Available again after 3 more songs", and tapping one says when it can be picked. To style them yourself, the song has the class <code>showpilot-cooldown</code>, <code>data-cooldown</code> (e.g. "after 3 more songs"), <code>data-cooldown-left</code> and a <code>.sequence-cooldown</code> note; a <code>&lt;div id="songCooldown"&gt;</code> on your page is used for the tap message.</p>
+              <div class="row" style="margin-top: 0.75rem;">
+                <input type="checkbox" id="cfg_cooldown_suppress_fpp_playlist" onchange="saveSetting('cooldown_suppress_fpp_playlist', this.checked ? 1 : 0)" />
+                <label for="cfg_cooldown_suppress_fpp_playlist" style="margin: 0;">Also skip cooled-down songs in the show player's normal playlist rotation</label>
+              </div>
+              <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, your show player skips the song in your playlist during its cooldown and brings it back when the cooldown ends. On FPP this needs plugin v0.13.40+.</p>
             </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">When enabled, your show player skips the song in your playlist during the cooldown window and brings it back when the cooldown ends. On FPP this needs plugin v0.13.40+.</p>
           </div>
 
           <!-- VOTING SETTINGS -->
           <div class="sub-tab-pane" data-subtab="voting">
+            <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.75rem;">Song cooldowns (how long before a song can be voted for again) are set under <em>Jukebox</em> and apply to voting too.</p>
             <div class="row">
               <input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0); updateAllowVoteChangeVisibility();" />
               <label for="cfg_prevent_multiple_votes" style="margin: 0;">Limit each viewer to one vote per round</label>
@@ -3612,6 +3795,88 @@
             </p>
           </div>
 
+          <!-- SHOW BUTTONS (v0.33.278-master.12+, lib/show-buttons.js) -->
+          <div class="sub-tab-pane" data-subtab="show-buttons">
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 1rem;">
+              Buttons on your viewer page that visitors press to run something on your show while it plays: an FPP effect (<code>.eseq</code>) on top of the running sequence, an FPP command preset (anything FPP can do, like turning on a flood light or a fog machine) or an FPP script.
+              Put <code>{SHOW_BUTTONS}</code> in your template where the buttons should go, or add the <strong>Show Buttons</strong> block in the Visual Designer.
+            </p>
+
+            <div class="row">
+              <input type="checkbox" id="cfg_show_buttons_enabled" onchange="saveSetting('show_buttons_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_show_buttons_enabled" style="margin: 0;">Show the buttons on the viewer page</label>
+            </div>
+
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.75rem;">
+              <label for="cfg_show_buttons_when" style="margin: 0;">Buttons work:</label>
+              <select id="cfg_show_buttons_when" onchange="saveSetting('show_buttons_when', this.value)" style="width: auto;">
+                <option value="show">Only while a song is playing</option>
+                <option value="always">Any time (also between shows)</option>
+              </select>
+            </div>
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
+              <label for="cfg_show_buttons_viewer_gap_seconds" style="margin: 0;">Each visitor waits between presses (seconds):</label>
+              <input type="number" id="cfg_show_buttons_viewer_gap_seconds" min="0" max="600" step="1"
+                     onchange="saveSetting('show_buttons_viewer_gap_seconds', parseInt(this.value, 10) || 0)" style="max-width: 100px;" />
+            </div>
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
+              <label for="cfg_show_buttons_heading" style="margin: 0;">Heading above the buttons:</label>
+              <input type="text" id="cfg_show_buttons_heading" maxlength="80" placeholder="(none)"
+                     onchange="saveSetting('show_buttons_heading', this.value)" style="max-width: 280px;" />
+            </div>
+            <div class="row" style="align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
+              <label for="cfg_show_buttons_layout" style="margin: 0;">Layout:</label>
+              <select id="cfg_show_buttons_layout" onchange="saveSetting('show_buttons_layout', this.value)" style="width: auto;">
+                <option value="row">A row that wraps</option>
+                <option value="grid">Two columns</option>
+              </select>
+            </div>
+
+            <h3 style="margin-top: 1.25rem;">Buttons</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+              After someone presses a button, it's greyed out for everyone until its wait is over, so the crowd can't keep the prop running nonstop.
+              Use <strong>Test</strong> to try a button on the show right now.
+            </p>
+            <div id="sbList" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+            <p class="muted" id="sbEmpty" style="font-size: 0.85rem; display: none;">No buttons yet.</p>
+            <div style="margin-top: 0.75rem;"><button type="button" class="secondary" onclick="sbEdit(null)">+ Add a button</button></div>
+
+            <div id="sbEditor" class="card" style="display: none; margin-top: 1rem;">
+              <h3 id="sbEditorTitle" style="margin-top: 0;">Add a button</h3>
+              <input type="hidden" id="sb_id" />
+              <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                <div><label for="sb_label">Label</label><input type="text" id="sb_label" maxlength="40" placeholder="Fog!" style="max-width: 220px;" /></div>
+                <div><label for="sb_icon">Emoji (optional)</label><input type="text" id="sb_icon" maxlength="8" placeholder="💨" style="max-width: 90px;" /></div>
+                <div>
+                  <label for="sb_color">Color</label>
+                  <div class="row" style="gap: 6px; align-items: center; margin: 0;">
+                    <input type="color" id="sb_color" value="#dc2626" style="width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: 4px;" />
+                    <label style="margin: 0; font-size: 0.85rem;"><input type="checkbox" id="sb_color_default" /> Page default</label>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 0.5rem;">
+                <div>
+                  <label for="sb_action">What it does</label>
+                  <select id="sb_action" onchange="sbActionHint()" style="width: auto;"></select>
+                </div>
+                <div style="flex: 1; min-width: 220px;"><label for="sb_target" id="sb_target_label">Effect name in FPP</label><input type="text" id="sb_target" maxlength="200" /></div>
+                <div><label for="sb_cooldown">Wait after a press (seconds)</label><input type="number" id="sb_cooldown" min="0" max="3600" step="1" value="30" style="max-width: 110px;" /></div>
+              </div>
+              <p class="muted" id="sb_hint" style="font-size: 0.8rem; margin: 0.4rem 0 0;"></p>
+              <div class="row" style="margin-top: 0.5rem;">
+                <input type="checkbox" id="sb_enabled" checked />
+                <label for="sb_enabled" style="margin: 0;">On (shown on the page)</label>
+              </div>
+              <div class="row" style="gap: 8px; margin-top: 0.75rem;">
+                <button type="button" onclick="sbSave()">Save button</button>
+                <button type="button" class="secondary" onclick="sbCloseEditor()">Cancel</button>
+                <span id="sbEditorMsg" style="font-size: 0.85rem;"></span>
+              </div>
+            </div>
+            <p id="sbMsg" style="font-size: 0.85rem; margin-top: 0.5rem;"></p>
+          </div>
+
           <!-- AUDIO -->
           <!-- All audio-related settings live here. Previously these were
                scattered: distance gate + sync offset were in safeguards
@@ -3619,6 +3884,12 @@
                their own top-level cards below the Settings card. Grouping
                them in one sub-tab makes audio tuning a single place to go. -->
           <div class="sub-tab-pane" data-subtab="audio">
+            <!-- Shown instead of the audio settings when the host has locked
+                 audio off (v0.33.278-master.7+; /api/admin/config audio_locked). -->
+            <div id="audioLockedNote" class="card" style="display: none;">
+              <h3 style="margin-top: 0;">Phone audio is off for this show</h3>
+              <p class="muted" style="margin: 0;">Your host has turned off ShowPilot's built-in phone audio for this show, so viewers won't see a Listen button. Everything else works as usual.</p>
+            </div>
             <h3>Audio enabled</h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
               Master switch for ShowPilot's built-in audio. Turn off if you
@@ -3687,9 +3958,9 @@
               <label for="cfg_audio_gate_enabled" style="margin: 0;">Restrict audio playback to listeners within radius</label>
             </div>
             <div class="row" id="cfg_audio_gate_radius_row" style="margin-top: 0.5rem; gap: 0.5rem; align-items: center;">
-              <label for="cfg_audio_gate_radius_miles" style="margin: 0;">Audio radius (miles):</label>
+              <label for="cfg_audio_gate_radius_miles" style="margin: 0;">Audio radius (<span class="sp-unit">miles</span>):</label>
               <input type="number" id="cfg_audio_gate_radius_miles" step="0.1" min="0.05" max="50"
-                     onchange="saveSetting('audio_gate_radius_miles', this.value)"
+                     onchange="saveSetting('audio_gate_radius_miles', spFromUnits(this.value))"
                      style="max-width: 120px;" />
               <span class="muted" style="font-size: 0.8rem;">— typically smaller than the interaction radius</span>
             </div>
@@ -3867,8 +4138,8 @@
                 <input type="text" id="cfg_show_longitude" onchange="saveSetting('show_longitude', this.value); updateLocationMap();" />
               </div>
               <div>
-                <label for="cfg_check_radius_miles">Radius (miles)</label>
-                <input type="number" id="cfg_check_radius_miles" step="0.1" min="0.1" max="50" onchange="saveSetting('check_radius_miles', this.value); updateLocationMap();" />
+                <label for="cfg_check_radius_miles">Radius (<span class="sp-unit">miles</span>)</label>
+                <input type="number" id="cfg_check_radius_miles" step="0.1" min="0.1" max="50" onchange="saveSetting('check_radius_miles', spFromUnits(this.value)); updateLocationMap();" />
               </div>
             </div>
 
@@ -3897,6 +4168,48 @@
                 Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color: var(--text-muted);">OpenStreetMap</a>.
               </div>
             </div>
+
+            <h3 id="appListingHeading">Show in the ShowPilot app</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Lists your show in the ShowPilot phone app, so people driving nearby can find it, open your viewer page and listen.
+              Uses the show location above and your Public base URL (Settings &rarr; Audio &rarr; External audio access). Off until you turn it on.
+              Phones see your show when they're within about a mile of it; that distance is the same for every show.
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_app_listing_enabled" onchange="saveAppListing('app_listing_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_app_listing_enabled" style="margin: 0;">List my show in the ShowPilot app</label>
+            </div>
+            <div class="grid-2" style="margin-top: 0.5rem;">
+              <div>
+                <label for="cfg_app_listing_name">Name in the app</label>
+                <input type="text" id="cfg_app_listing_name" maxlength="60" placeholder="Your show name" onchange="saveAppListing('app_listing_name', this.value)" />
+              </div>
+              <div>
+                <label for="cfg_app_listing_town">Town</label>
+                <input type="text" id="cfg_app_listing_town" maxlength="60" placeholder="e.g. Oak Ridge" onchange="saveAppListing('app_listing_town', this.value)" />
+              </div>
+            </div>
+            <div class="row" style="margin-top: 0.5rem;">
+              <input type="checkbox" id="cfg_app_listing_fuzz" onchange="saveAppListing('app_listing_fuzz', this.checked ? 1 : 0)" />
+              <label for="cfg_app_listing_fuzz" style="margin: 0;">Round my location to about a mile (recommended)</label>
+            </div>
+            <div class="row">
+              <input type="checkbox" id="cfg_app_listing_directions" onchange="saveAppListing('app_listing_directions', this.checked ? 1 : 0)" />
+              <label for="cfg_app_listing_directions" style="margin: 0;">Let the app give exact directions to my show</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.5rem;">
+              With rounding on, your exact spot isn't published anywhere: not in the app's list, not on your viewer page.
+              Exact directions puts the exact pin on your show's own info page, which anyone can read.
+            </p>
+            <div id="appListingProblems" class="muted" style="display: none; font-size: 0.85rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; margin-bottom: 0.5rem;"></div>
+            <div class="row" style="gap: 0.5rem; align-items: center;">
+              <button class="secondary" onclick="appListingCheckInNow(this)">Check in now</button>
+              <span id="appListingStatus" class="muted" style="font-size: 0.85rem;"></span>
+            </div>
+            <details style="margin: 0.5rem 0 1rem;">
+              <summary class="muted" style="font-size: 0.8rem; cursor: pointer;">What gets sent</summary>
+              <pre id="appListingSample" style="font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; margin-top: 0.4rem;"></pre>
+            </details>
 
             <h3>Location code</h3>
             <div class="row">
@@ -3950,7 +4263,7 @@
                also runs in Docker where systemd isn't available. The lifecycle
                is tied to ShowPilot's process — when ShowPilot stops, the
                tunnel stops too. -->
-          <div class="sub-tab-pane" data-subtab="public-access">
+          <div class="sub-tab-pane" data-hosted-hide data-subtab="public-access">
             <div class="card card-accent-purple">
               <div class="row" style="justify-content: space-between; align-items: center; margin: 0 0 0.5rem;">
                 <h2 style="margin: 0;">Public Access (Cloudflare Tunnel)</h2>
@@ -4098,13 +4411,16 @@
           </div>
 
           <!-- UPDATES — in-app update from GitHub releases (v0.33.0+) -->
-          <div class="sub-tab-pane" data-subtab="updates">
+          <div class="sub-tab-pane" data-hosted-hide data-subtab="updates">
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
               Pull the latest release of ShowPilot from GitHub and apply it
               automatically. Your data and config are preserved. A snapshot
               of <code>data/</code> is taken before each update so you can
               roll back if needed.
             </p>
+
+            <!-- Update channel (v0.33.276+). Rendered by renderUpdateChannel(). -->
+            <div id="updateChannelBox" style="display: none; padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.75rem;"></div>
 
             <div id="updateStatusBox" style="padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.75rem;">
               <div class="muted" style="font-size: 0.8rem;">Loading update status…</div>
@@ -4120,6 +4436,24 @@
 
             <!-- Beta channel (v0.33.219+): debugging/testing builds only. Rendered by renderBetaChannel(). -->
             <div id="betaChannelBox" style="display: none; margin-top: 1.75rem;"></div>
+
+            <!-- Update source (v0.33.277). Rendered by renderUpdateSource(). -->
+            <details id="updateSourceBox" style="display: none; margin-top: 1.75rem;">
+              <summary style="cursor: pointer; font-weight: 600;">Update source <span id="updateSourceNow" class="muted" style="font-weight: normal; font-size: 0.85rem;"></span></summary>
+              <div style="padding: 0.75rem 0 0;">
+                <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+                  Updates come from ShowPilot's own GitHub repo. If you keep your own copy (a fork), you can update from it instead:
+                  this server then follows that repo's main branch (no Stable/Master choice). Only use a repo you trust: an update runs its code on this server.
+                </p>
+                <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                  <input type="text" id="updateRepoInput" placeholder="ShowPilotFPP/ShowPilot" style="max-width: 320px;" />
+                  <button type="button" class="secondary" onclick="saveUpdateRepo()">Use this repo</button>
+                  <button type="button" class="secondary" id="updateRepoResetBtn" onclick="saveUpdateRepo('')">Back to ShowPilot</button>
+                </div>
+                <div class="muted" style="font-size: 0.8rem; margin-top: 0.3rem;">Type <code>owner/repo</code> or paste its github.com address. It must be a public GitHub repo.</div>
+                <div id="updateRepoStatus" class="muted" style="font-size: 0.85rem; margin-top: 0.4rem;"></div>
+              </div>
+            </details>
           </div>
 
           <!-- DEBUG — diagnostics toggles for audio sync troubleshooting (v0.33.194+) -->
@@ -4203,6 +4537,14 @@
       <!-- ============================================================
            TAB: PLUGIN
            ============================================================ -->
+      <!-- ============================================================
+           TAB: FPP MONITOR (v0.33.278-master.13+, public/admin/fpp-monitor.js)
+           Filled by SPFpp from GET /api/admin/fpp while the tab is open.
+           ============================================================ -->
+      <div class="tab-pane" data-pane="fpp">
+        <div id="fppMonRoot"></div>
+      </div>
+
       <div class="tab-pane" data-pane="plugin">
         <div class="card card-accent-blue">
           <h2>Plugin Status</h2>
@@ -4562,6 +4904,8 @@
     // MAIN TAB SWITCHER
     // ============================================================
     function switchMainTab(name) {
+      // FPP Monitor polls only while it's showing (v0.33.278-master.13).
+      if (window.SPFpp) { if (name === 'fpp') window.SPFpp.open(); else window.SPFpp.close(); }
       // Leaving Sequences stops an audio preview (v0.33.248-beta.3).
       if (name !== 'sequences' && typeof closeSeqPreview === 'function') closeSeqPreview();
       document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -5464,23 +5808,46 @@
 
         // Build the status header.
         let statusHtml = '';
+        // GitHub's hourly limit for this network used up (v0.33.277-master.2).
+        const limitMsg = data.githubLimitedUntil
+          ? 'GitHub only answers 60 update checks an hour from one network without signing in, and this network has used them up. It resets at '
+            + new Date(data.githubLimitedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            + '; ShowPilot checks again by itself after that.'
+          : '';
+        const checkErr = (e) => (e && limitMsg && /hourly limit|HTTP 403/.test(e)) ? limitMsg : e;
         statusHtml += `<div><strong>Current version:</strong> v${escapeHtml(data.currentVersion)}</div>`;
-        if (data.latestVersion) {
+        if (data.onMaster) {
+          // Master channel (v0.33.276+): compare with the tip of main.
+          const m = data.master;
+          if (m) {
+            statusHtml += `<div><strong>Latest on ${data.updateRepoIsDefault ? 'Master' : escapeHtml(data.updateRepo)}:</strong> ${m.version ? 'v' + escapeHtml(m.version) : ''} <span class="muted">(${escapeHtml(m.shortSha)})</span>`
+              + (m.url ? ` &middot; <a href="${escapeAttr(m.url)}" target="_blank" rel="noopener" style="color: var(--accent);">on GitHub</a>` : '') + `</div>`;
+            if (data.masterAvailable) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-warning">${m.behindBy > 0 ? m.behindBy + ' new update' + (m.behindBy === 1 ? '' : 's') : 'New update'} on Master</span></div>`
+              + (m.behindBy > 0 || !limitMsg ? '' : `<div class="muted" style="font-size: 0.85rem; margin-top: 0.35rem;">The list of what changed will show after GitHub's limit resets; you can install now.</div>`);
+            else if (m.behindBy === 0) statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-success">Up to date with Master</span></div>`;
+            else statusHtml += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.5rem;">Can't tell how far behind this install is (its version isn't on GitHub). Installing the latest Master update fixes that.</div>`;
+          } else {
+            statusHtml += `<div class="muted" style="font-size: 0.85rem;">Latest on ${data.updateRepoIsDefault ? 'Master' : escapeHtml(data.updateRepo)}: unknown${data.masterCheckError ? ' (' + escapeHtml(checkErr(data.masterCheckError)) + ')' : ''}</div>`;
+          }
+        }
+        if (data.onMaster) { /* releases aren't offered on Master */ }
+        else if (data.latestVersion) {
           statusHtml += `<div><strong>Latest version:</strong> ${escapeHtml(data.latestVersion)}`;
           if (data.latestRelease && data.latestRelease.url) {
-            statusHtml += ` &middot; <a href="${escapeAttr(data.latestRelease.url)}" target="_blank" rel="noopener">release notes</a>`;
+            statusHtml += ` &middot; <a href="${escapeAttr(data.latestRelease.url)}" target="_blank" rel="noopener" style="color: var(--accent);">release notes</a>`;
           }
           statusHtml += '</div>';
         } else {
           statusHtml += '<div class="muted" style="font-size: 0.85rem;">Latest version: unknown';
           if (data.lastCheckError) {
-            statusHtml += ` (${escapeHtml(data.lastCheckError)})`;
+            statusHtml += ` (${escapeHtml(checkErr(data.lastCheckError))})`;
           }
           statusHtml += '</div>';
         }
 
         // Status pill — up to date / available / unavailable here.
-        if (data.updateAvailable) {
+        if (data.onMaster) { /* pill shown above */ }
+        else if (data.updateAvailable) {
           statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-warning">Update available</span></div>`;
         } else if (data.latestVersion) {
           statusHtml += `<div style="margin-top: 0.5rem;"><span class="pill pill-success">Up to date</span></div>`;
@@ -5497,6 +5864,43 @@
           </div>`;
         }
 
+        // What's new (v0.33.259): the changelog of every version between this
+        // install and the update, newest first; the newest is open, older
+        // ones fold away.
+        if (Array.isArray(data.whatsNew) && data.whatsNew.length) {
+          // Changelog entries start with their kind (v0.33.263): shown as a label.
+          const KINDS = /^(Bug fix|Feature update|Feature request):\s*/i;
+          const fmt = (t) => {
+            const m = KINDS.exec(String(t));
+            const rest = escapeHtml(m ? String(t).slice(m[0].length) : t).replace(/`([^`]+)`/g, '<code>$1</code>');
+            if (!m) return rest;
+            const k = m[1].toLowerCase().replace(/\s+/g, '-');
+            return `<span class="wn-kind wn-${k}">${escapeHtml(m[1])}</span> ` + rest;
+          };
+          const many = data.whatsNew.length > 1;
+          // Up to date (v0.33.260): the running version's notes first, earlier
+          // updates folded under their own heading.
+          const installed = !!data.whatsNewInstalled;
+          const isCurrent = (n) => n.version === String(data.currentVersion).replace(/^v/, '');
+          const head = installed
+            ? (isCurrent(data.whatsNew[0]) ? 'What\'s new in your version (v' + escapeHtml(data.whatsNew[0].version) + ')' : 'Recent updates')
+            : 'What\'s new' + (many ? ' since v' + escapeHtml(data.currentVersion) + ' (' + data.whatsNew.length + ' updates)' : ' in v' + escapeHtml(data.whatsNew[0].version));
+          statusHtml += `<div class="whats-new"><div class="whats-new-head">${head}</div>`;
+          data.whatsNew.forEach((n, i) => {
+            if (installed && i === 1) statusHtml += `<div class="whats-new-sub">Earlier updates</div>`;
+            const when = n.publishedAt ? new Date(n.publishedAt).toLocaleDateString() : '';
+            const body = (n.items && n.items.length)
+              ? '<ul>' + n.items.map(x => '<li>' + fmt(x) + '</li>').join('') + '</ul>'
+              : '';
+            statusHtml += `<details class="whats-new-item"${i === 0 ? ' open' : ''}><summary><strong>v${escapeHtml(n.version)}</strong>${n.title ? ' — ' + fmt(n.title) : ''}${when ? ' <span class="muted">· ' + escapeHtml(when) + '</span>' : ''}</summary>${body}</details>`;
+          });
+          statusHtml += `</div>`;
+        }
+
+        if (data.whatsNewPending) {
+          statusHtml += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.6rem;">The notes for ${escapeHtml(data.latestVersion)} aren't on GitHub yet (it was just released). Check again in a minute to see what's new.</div>`;
+        }
+
         if (data.lastCheckAt) {
           const t = new Date(data.lastCheckAt).toLocaleString();
           statusHtml += `<div class="muted" style="font-size: 0.75rem; margin-top: 0.5rem;">Last checked: ${escapeHtml(t)}</div>`;
@@ -5506,7 +5910,12 @@
         actionRow.style.display = 'flex';
 
         // Show/hide the apply button.
-        if (data.updateAvailable && data.updaterAvailable) {
+        delete applyBtn.dataset.masterSha;
+        if (data.masterAvailable && data.updaterAvailable && data.master) {
+          applyBtn.style.display = '';
+          applyBtn.textContent = data.master.behindBy > 0 ? `Install ${data.master.behindBy} Master update${data.master.behindBy === 1 ? '' : 's'}` : `Install the latest Master update${data.master.version ? ' (v' + data.master.version + ')' : ''}`;
+          applyBtn.dataset.masterSha = data.master.sha;
+        } else if (data.updateAvailable && data.updaterAvailable) {
           applyBtn.style.display = '';
           applyBtn.textContent = `Update to ${data.latestVersion}`;
         } else {
@@ -5521,7 +5930,9 @@
           rollbackBtn.style.display = 'none';
         }
 
+        renderUpdateChannel(data);
         renderBetaChannel(data);
+        renderUpdateSource(data);
       } catch (err) {
         box.innerHTML = `<div style="color: var(--status-danger);">Could not load update status: ${escapeHtml(err.message)}</div>`;
         actionRow.style.display = 'flex';
@@ -5539,10 +5950,118 @@
       }
     }
 
+    // ---- Update channel (v0.33.276+): Stable (releases) or Master (every update) ----
+    function renderUpdateChannel(data) {
+      const box = document.getElementById('updateChannelBox');
+      if (!box) return;
+      if (data.isDemoMode || data.onBeta) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      // Custom update source (v0.33.277-master.2): no channel choice; it
+      // follows that repo's main branch. Made to stand out.
+      if (!data.updateRepoIsDefault) {
+        box.innerHTML = `<div style="display: flex; gap: 0.6rem; align-items: flex-start;">
+            <span style="font-size: 1.3rem; line-height: 1;">⚠</span>
+            <div style="flex: 1;"><div style="font-weight: 600;">Custom update source: ${escapeHtml(data.updateRepo)}</div>
+            <div class="muted" style="font-size: 0.85rem; margin-top: 0.15rem;">This server updates from the main branch of <a href="https://github.com/${escapeAttr(data.updateRepo)}" target="_blank" rel="noopener" style="color: var(--accent);">${escapeHtml(data.updateRepo)}</a>, not from ShowPilot. Stable and Master come back when you switch back.</div>
+            <button type="button" class="secondary" style="margin-top: 0.5rem;" onclick="saveUpdateRepo('')">Back to ShowPilot</button></div></div>`;
+        box.style.border = '2px solid var(--warning, #e0a030)';
+        box.style.display = '';
+        return;
+      }
+      box.style.border = '1px solid var(--border)';
+      const ch = data.channel === 'master' ? 'master' : 'stable';
+      const opt = (v, label, desc) => `<label style="display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.35rem 0; cursor: pointer;">
+          <input type="radio" name="updChannel" value="${v}" ${ch === v ? 'checked' : ''} onchange="setUpdateChannel('${v}')" style="margin-top: 0.2rem;" />
+          <span><strong>${label}</strong><br><span class="muted" style="font-size: 0.85rem;">${desc}</span></span></label>`;
+      let html = `<div style="font-weight: 600; margin-bottom: 0.25rem;">Update channel</div>`
+        + opt('stable', 'Stable', 'Only full releases. Fewer, bigger updates, each with release notes. Recommended for most shows.')
+        + opt('master', 'Master', 'Every fix and feature as soon as it\'s ready, like FPP\'s master. More frequent updates; newest things first.');
+      if (data.isDocker) {
+        html += `<div class="muted" style="font-size: 0.85rem; margin-top: 0.4rem;">Docker: the channel is the image you run. Use <code>:latest</code> for Stable or <code>:master</code> for Master.</div>`;
+      } else if (ch === 'stable' && data.returnToStable) {
+        html += `<div style="margin-top: 0.4rem; font-size: 0.9rem;">This server is running a Master update (v${escapeHtml(data.currentVersion)}). <button type="button" onclick="applyUpdate()" style="margin-left: 0.4rem;">Go to Stable ${escapeHtml(data.returnToStable)}</button></div>`;
+      }
+      html += `<div id="updChannelStatus" class="muted" style="font-size: 0.8rem; margin-top: 0.3rem;"></div>`;
+      box.innerHTML = html;
+      box.style.display = '';
+    }
+    // ---- Update source (v0.33.277): ShowPilot's repo or the owner's fork ----
+    function renderUpdateSource(data) {
+      const box = document.getElementById('updateSourceBox');
+      if (!box) return;
+      if (data.isDemoMode || data.isDocker) { box.style.display = 'none'; return; }
+      box.style.display = '';
+      const now = document.getElementById('updateSourceNow');
+      if (now) now.textContent = data.updateRepoIsDefault ? '— ShowPilot (default)' : '— ' + data.updateRepo;
+      const inp = document.getElementById('updateRepoInput');
+      if (inp && document.activeElement !== inp) inp.value = data.updateRepoIsDefault ? '' : data.updateRepo;
+      const reset = document.getElementById('updateRepoResetBtn');
+      if (reset) reset.style.display = data.updateRepoIsDefault ? 'none' : '';
+      if (!data.updateRepoIsDefault) box.open = true;
+    }
+    async function saveUpdateRepo(value) {
+      const inp = document.getElementById('updateRepoInput');
+      const st = document.getElementById('updateRepoStatus');
+      const repo = value === '' ? '' : (inp ? inp.value.trim() : '');
+      if (repo && !(await showConfirm('Update from ' + repo + '?\n\nThis server will follow the main branch of that repo instead of ShowPilot (Stable and Master come back if you switch back). Only use a repo you trust: an update runs its code on this server.'))) return;
+      if (st) st.textContent = 'Checking…';
+      const r = await fetch('/api/admin/updates/repo', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { if (st) st.textContent = d.error || ('Could not save (HTTP ' + r.status + ').'); return; }
+      if (st) st.textContent = repo ? 'Updates now come from ' + d.updateRepo + '.' : 'Updates come from ShowPilot again.';
+      _spUpdAskedAt = 0;
+      await refreshUpdateStatus();
+    }
+
+    async function setUpdateChannel(ch) {
+      const st = document.getElementById('updChannelStatus');
+      if (st) st.textContent = 'Saving…';
+      const r = await fetch('/api/admin/updates/channel', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: ch }) });
+      if (!r.ok) { if (st) st.textContent = 'Could not change the channel.'; return; }
+      _spUpdAskedAt = 0;
+      await refreshUpdateStatus();
+    }
+
+    async function applyMasterUpdate(opts) {
+      opts = opts || {};
+      const status = document.getElementById('updateActionStatus');
+      const applyBtn = document.getElementById('updateApplyBtn');
+      const sha = applyBtn && applyBtn.dataset.masterSha;
+      if (!sha) return;
+      if (!opts.force) {
+        const ok = await showConfirm('Install the latest Master update?\n\nThis will restart the server. Active viewers will reconnect automatically.');
+        if (!ok) return;
+      }
+      applyBtn.disabled = true;
+      status.textContent = 'Installing — this may take 30–60 seconds. The server will restart when done.';
+      try {
+        const r = await fetch('/api/admin/updates/apply-master', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sha, force: !!opts.force }) });
+        const data = await r.json();
+        if (!r.ok) {
+          if (data.preflightErrors && Array.isArray(data.preflightErrors)) {
+            const items = data.preflightErrors.map(e => typeof e === 'string' ? { msg: e, override: false } : e);
+            status.innerHTML = 'Cannot update right now:<ul style="margin: 0.4rem 0 0 1.2rem;">' + items.map(e => '<li>' + escapeHtml(e.msg) + '</li>').join('') + '</ul>'
+              + (items.some(e => e.override) ? '<button id="updateForceBtn" class="btn btn-warning" style="margin-top: 0.6rem;">Update anyway</button>' : '');
+            const fb = document.getElementById('updateForceBtn');
+            if (fb) fb.addEventListener('click', async () => { if (await showConfirm('Update while a show is active?\n\nViewers in the middle of voting or the queue will be disrupted.')) applyMasterUpdate({ force: true }); });
+          } else {
+            status.textContent = 'Update failed: ' + (data.error || ('HTTP ' + r.status));
+          }
+          applyBtn.disabled = false;
+          return;
+        }
+        status.textContent = 'Master update installed. The server is restarting. This page will reload in a moment…';
+        setTimeout(() => { location.reload(); }, 8000);
+      } catch (err) {
+        status.textContent = 'Update failed: ' + err.message;
+        applyBtn.disabled = false;
+      }
+    }
+
     async function applyUpdate(opts) {
       opts = opts || {};
       const status = document.getElementById('updateActionStatus');
       const applyBtn = document.getElementById('updateApplyBtn');
+      if (applyBtn && applyBtn.dataset.masterSha && !opts.stable) return applyMasterUpdate(opts);
 
       // Read the latest known tag from the visible button label —
       // the button text was set by refreshUpdateStatus from server data.
@@ -6230,10 +6749,14 @@
         window._ofCurrentUser = r.data;
         syncThemeWithServer(r.data);
         renderHeaderUser();
+        // v0.33.209: new layout (default) unless the user chose classic.
+        // Applied before the page is shown (v0.33.270), so the classic
+        // layout never flashes up first while the data loads.
+        // View preferences follow the user (v0.33.277).
+        if (window.SPPrefs) window.SPPrefs.load(r.data.uiPrefs);
+        if (window.SPNew) window.SPNew.apply(r.data);
         hide('loginView'); show('appView');
         await loadAll();
-        // v0.33.209: new layout (default) unless the user chose classic.
-        if (window.SPNew) window.SPNew.apply(r.data);
         // Reopen the section + sub-page named in the address, then keep the
         // address in step with navigation (v0.33.222+).
         restoreSectionFromUrl();
@@ -6326,10 +6849,11 @@
           syncThemeWithServer(me.data);
         }
         renderHeaderUser();
+        // New layout before the page is shown (v0.33.270): no classic flash.
+        if (me.ok && window.SPPrefs) window.SPPrefs.load(me.data.uiPrefs);
+        if (me.ok && window.SPNew) window.SPNew.apply(me.data);
         hide('loginView'); show('appView');
         await loadAll();
-        // v0.33.209: new layout (default) unless the user chose classic.
-        if (me.ok && window.SPNew) window.SPNew.apply(me.data);
         restoreSectionFromUrl();
         if (r.data?.mustChangePassword) showChangePasswordModal(true);
         // Clear sensitive fields
@@ -6393,6 +6917,9 @@
 
       // General settings
       setVal('cfg_show_name', c.show_name || '');
+      setChk('cfg_install_count_enabled', c.install_count_enabled !== 0);
+      setVal('cfg_install_count_location', c.install_count_location || 'off');
+      loadInstallCountStatus().then(st => maybeShowInstallCountNotice(c, st));
 
       // Populate safeguard settings
       setVal('cfg_jukebox_queue_depth', c.jukebox_queue_depth);
@@ -6430,12 +6957,22 @@
       setChk('cfg_check_viewer_present', c.check_viewer_present);
       setVal('cfg_show_latitude', c.show_latitude);
       setVal('cfg_show_longitude', c.show_longitude);
-      setVal('cfg_check_radius_miles', c.check_radius_miles);
+      setVal('cfg_check_radius_miles', spToUnits(c.check_radius_miles));
+      setChk('cfg_app_listing_enabled', c.app_listing_enabled === 1);
+      setVal('cfg_app_listing_name', c.app_listing_name || '');
+      const nameEl = document.getElementById('cfg_app_listing_name');
+      if (nameEl) nameEl.placeholder = c.show_name || 'Your show name';
+      setVal('cfg_app_listing_town', c.app_listing_town || '');
+      if (!_spUnitsLoaded) { _spUnitsLoaded = true; loadUnits(false); }
+      setChk('cfg_app_listing_fuzz', c.app_listing_fuzz !== 0);
+      setChk('cfg_app_listing_directions', c.app_listing_directions === 1);
+      loadAppListingStatus();
       setChk('cfg_location_code_enabled', c.location_code_enabled);
       setVal('cfg_location_code', c.location_code || '');
       setChk('cfg_audio_enabled', c.audio_enabled !== 0);
+      document.documentElement.classList.toggle('sp-audio-locked', !!c.audio_locked);
       setChk('cfg_audio_gate_enabled', c.audio_gate_enabled);
-      setVal('cfg_audio_gate_radius_miles', c.audio_gate_radius_miles || 0.5);
+      setVal('cfg_audio_gate_radius_miles', spToUnits(c.audio_gate_radius_miles || 0.5));
       setVal('cfg_audio_sync_offset_ms', c.audio_sync_offset_ms || 0);
       setVal('cfg_audio_daemon_port', c.audio_daemon_port || 8090);
       setChk('cfg_viewer_source_obfuscate', c.viewer_source_obfuscate);
@@ -6461,6 +6998,11 @@
       updateAllowVoteChangeVisibility();
       setVal('cfg_hide_sequence_after_played', c.hide_sequence_after_played);
       setChk('cfg_cooldown_suppress_fpp_playlist', c.cooldown_suppress_fpp_playlist);
+      cooldownUnit = c.cooldown_unit === 'songs' ? 'songs' : 'minutes';
+      cooldownGlobal = parseInt(c.cooldown_default, 10) || 0;
+      setVal('cfg_cooldown_unit', cooldownUnit);
+      setVal('cfg_cooldown_default', cooldownGlobal);
+      setChk('cfg_cooldown_show_cooled', c.cooldown_show_cooled);
       setVal('cfg_blocked_ips', c.blocked_ips || '');
       setVal('cfg_public_base_url', c.public_base_url || '');
       setVal('cfg_player_decoration', c.player_decoration || 'none');
@@ -6495,6 +7037,12 @@
       setVal('cfg_launcher_bg_color', window._launcherColors.launcher_bg_color || LAUNCHER_DEFAULT_COLORS.launcher_bg_color);
       setVal('cfg_launcher_fg_color', window._launcherColors.launcher_fg_color || LAUNCHER_DEFAULT_COLORS.launcher_fg_color);
       updateLauncherIconPreview(c.launcher_icon_data || '');
+      // Show buttons (v0.33.278-master.12+)
+      setChk('cfg_show_buttons_enabled', c.show_buttons_enabled === 1);
+      setVal('cfg_show_buttons_when', c.show_buttons_when === 'always' ? 'always' : 'show');
+      setVal('cfg_show_buttons_viewer_gap_seconds', c.show_buttons_viewer_gap_seconds ?? 10);
+      setVal('cfg_show_buttons_heading', c.show_buttons_heading == null ? 'Light up the show' : c.show_buttons_heading);
+      setVal('cfg_show_buttons_layout', c.show_buttons_layout === 'grid' ? 'grid' : 'row');
       // Visitor messages (v0.33.250+)
       setChk('cfg_visitor_messages_enabled', c.visitor_messages_enabled === 1);
       setVal('cfg_visitor_messages_when', c.visitor_messages_when === 'always' ? 'always' : 'show');
@@ -7134,6 +7682,7 @@
       if (name === 'viewer-schedule') loadSchedules();
       if (name === 'viewer-globalcss') loadGlobalCss();
       if (name === 'debug') loadServerLog();
+      if (name === 'show-buttons') loadShowButtons();
       if (name === 'tools-normalizer' && window.SPNormalizer) window.SPNormalizer.open();
       if (name === 'tools-announcer' && window.SPAnnouncer) window.SPAnnouncer.open();
       if (name === 'updates') {
@@ -7146,6 +7695,137 @@
       }
     }
 
+    // ---- Show buttons (v0.33.278-master.12+, lib/show-buttons.js) ----
+    let sbButtons = [];
+    let sbActions = {};
+    const SB_TARGET = {
+      effect: ['Effect name in FPP', 'The effect file’s name as FPP lists it under Content Setup › File Manager › Effects, e.g. Flood.eseq. It plays once on its own channels, on top of the sequence.'],
+      preset: ['Command preset name in FPP', 'A preset from FPP’s Content Setup › Command Presets. Use this for anything FPP can do: an overlay model effect, a GPIO output, a script with arguments.'],
+      script: ['Script name in FPP', 'A script from FPP’s File Manager › Scripts, e.g. fog_on.sh.'],
+    };
+    async function sbFetch(path, body) {
+      const res = await fetch('/api/admin/show-buttons' + path, {
+        method: body ? 'POST' : 'GET', credentials: 'include',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      return { ok: res.ok, data };
+    }
+    function sbSay(id, text, ok) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.color = ok === false ? 'var(--danger, #dc2626)' : '';
+    }
+    async function loadShowButtons() {
+      const r = await sbFetch('');
+      if (!r.ok) { sbSay('sbMsg', 'Could not load the buttons.', false); return; }
+      sbButtons = r.data.buttons || [];
+      sbActions = r.data.actions || {};
+      const sel = document.getElementById('sb_action');
+      if (sel && !sel.options.length) {
+        Object.keys(sbActions).forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = sbActions[k]; sel.appendChild(o); });
+      }
+      renderShowButtons();
+    }
+    function renderShowButtons() {
+      const box = document.getElementById('sbList');
+      if (!box) return;
+      box.textContent = '';
+      document.getElementById('sbEmpty').style.display = sbButtons.length ? 'none' : '';
+      sbButtons.forEach((b, i) => {
+        const row = document.createElement('div');
+        row.className = 'sb-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:8px;' + (b.enabled ? '' : 'opacity:.6;');
+        const chip = document.createElement('span');
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;font-weight:700;background:' + (b.color || '#dc2626') + ';color:' + sbTextOn(b.color || '#dc2626') + ';';
+        chip.textContent = (b.icon ? b.icon + ' ' : '') + b.label;
+        const info = document.createElement('span');
+        info.className = 'muted';
+        info.style.cssText = 'flex:1;min-width:160px;font-size:0.85rem;';
+        info.textContent = (sbActions[b.action] || b.action) + ': ' + b.target + ' · wait ' + b.cooldownSeconds + 's' + (b.enabled ? '' : ' · off') + (b.pressCount ? ' · pressed ' + b.pressCount + '×' : '');
+        row.appendChild(chip);
+        row.appendChild(info);
+        const btn = (label, fn, cls, dis) => { const x = document.createElement('button'); x.type = 'button'; x.className = cls || 'secondary'; x.textContent = label; x.style.fontSize = '0.85rem'; x.disabled = !!dis; x.onclick = fn; row.appendChild(x); };
+        btn('↑', () => sbMove(i, -1), 'secondary', i === 0);
+        btn('↓', () => sbMove(i, 1), 'secondary', i === sbButtons.length - 1);
+        btn('Test', () => sbTest(b.id));
+        btn('Edit', () => sbEdit(b));
+        btn('Delete', () => sbDelete(b), 'danger');
+        box.appendChild(row);
+      });
+    }
+    function sbTextOn(hex) {
+      const n = parseInt(String(hex).slice(1), 16);
+      if (!Number.isFinite(n)) return '#fff';
+      return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6 ? '#111' : '#fff';
+    }
+    function sbActionHint() {
+      const a = document.getElementById('sb_action').value;
+      const t = SB_TARGET[a] || SB_TARGET.effect;
+      document.getElementById('sb_target_label').textContent = t[0];
+      document.getElementById('sb_hint').textContent = t[1];
+    }
+    function sbEdit(b) {
+      const ed = document.getElementById('sbEditor');
+      document.getElementById('sbEditorTitle').textContent = b ? 'Edit button' : 'Add a button';
+      document.getElementById('sb_id').value = b ? b.id : '';
+      document.getElementById('sb_label').value = b ? b.label : '';
+      document.getElementById('sb_icon').value = b ? b.icon : '';
+      document.getElementById('sb_color').value = b && b.color ? b.color : '#dc2626';
+      document.getElementById('sb_color_default').checked = b ? !b.color : false;
+      document.getElementById('sb_action').value = b ? b.action : 'effect';
+      document.getElementById('sb_target').value = b ? b.target : '';
+      document.getElementById('sb_cooldown').value = b ? b.cooldownSeconds : 30;
+      document.getElementById('sb_enabled').checked = b ? b.enabled : true;
+      sbSay('sbEditorMsg', '');
+      sbActionHint();
+      ed.style.display = '';
+      document.getElementById('sb_label').focus();
+    }
+    function sbCloseEditor() { document.getElementById('sbEditor').style.display = 'none'; }
+    async function sbSave() {
+      const id = document.getElementById('sb_id').value;
+      const body = {
+        id: id ? Number(id) : undefined,
+        label: document.getElementById('sb_label').value,
+        icon: document.getElementById('sb_icon').value,
+        color: document.getElementById('sb_color_default').checked ? '' : document.getElementById('sb_color').value,
+        action: document.getElementById('sb_action').value,
+        target: document.getElementById('sb_target').value,
+        cooldownSeconds: parseInt(document.getElementById('sb_cooldown').value, 10) || 0,
+        enabled: document.getElementById('sb_enabled').checked,
+      };
+      const r = await sbFetch('', body);
+      if (!r.ok) { sbSay('sbEditorMsg', r.data.error || 'Could not save the button.', false); return; }
+      sbCloseEditor();
+      sbSay('sbMsg', 'Saved.', true);
+      loadShowButtons();
+    }
+    async function sbDelete(b) {
+      if (!confirm('Delete the "' + b.label + '" button?')) return;
+      const r = await sbFetch('/delete', { id: b.id });
+      sbSay('sbMsg', r.ok ? 'Deleted.' : 'Could not delete the button.', r.ok);
+      loadShowButtons();
+    }
+    async function sbMove(i, d) {
+      const j = i + d;
+      if (j < 0 || j >= sbButtons.length) return;
+      const ids = sbButtons.map(b => b.id);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await sbFetch('/order', { ids });
+      loadShowButtons();
+    }
+    async function sbTest(id) {
+      const r = await sbFetch('/test', { id });
+      if (!r.ok) { sbSay('sbMsg', r.data.error || 'Could not run the button.', false); return; }
+      if (!r.data.pluginConnected) sbSay('sbMsg', 'Sent, but the FPP plugin isn’t connected, so nothing will happen until it is.', false);
+      else if (!r.data.pluginPolling) sbSay('sbMsg', 'Sent. The plugin only picks up presses while the buttons are turned on above (it checks within 15 seconds of turning them on).', false);
+      else sbSay('sbMsg', 'Sent to the show. Watch your prop!', true);
+    }
+
     // Song progress bar color: '' means match the player theme (v0.33.207+).
     function resetProgressBarColor() {
       const el = document.getElementById('cfg_viewer_progress_bar_color');
@@ -7153,7 +7833,75 @@
       saveSetting('viewer_progress_bar_color', '');
     }
 
+    // ======= Song cooldown (v0.33.258) =======
+    let cooldownUnit = 'minutes';
+    let cooldownGlobal = 0;
+    function cooldownUnitWord(n) {
+      if (cooldownUnit === 'songs') return n === 1 ? 'song' : 'songs';
+      return n === 1 ? 'minute' : 'minutes';
+    }
+    async function saveCooldownDefault(el) {
+      let v = parseInt(el.value, 10);
+      if (!Number.isFinite(v) || v < 0) v = 0;
+      if (v > 1440) v = 1440;
+      el.value = v;
+      cooldownGlobal = v;
+      await saveSetting('cooldown_default', v);
+      if (typeof loadSequences === 'function' && sequencesCache) loadSequences();
+    }
+    async function saveCooldownUnit(el) {
+      cooldownUnit = el.value === 'songs' ? 'songs' : 'minutes';
+      await saveSetting('cooldown_unit', cooldownUnit);
+      if (typeof loadSequences === 'function' && sequencesCache) loadSequences();
+    }
+
+    // Miles or kilometres, picked from the show's location (lib/units.js).
+    // Distances are always saved in miles; only what's shown changes.
+    let spUnits = 'mi';
+    let _spUnitsLoaded = false;
+    let _spUnitsTimer = null;
+    const SP_KM_PER_MI = 1.609344;
+    const SP_DIST_FIELDS = ['cfg_check_radius_miles', 'cfg_audio_gate_radius_miles'];
+    function spToUnits(mi) {
+      const n = Number(mi);
+      if (mi === '' || mi == null || !isFinite(n)) return mi;
+      return spUnits === 'km' ? Math.round(n * SP_KM_PER_MI * 10) / 10 : n;
+    }
+    function spFromUnits(v) {
+      const n = parseFloat(v);
+      if (!isFinite(n)) return v;
+      return spUnits === 'km' ? Math.round(n / SP_KM_PER_MI * 10000) / 10000 : n;
+    }
+    async function loadUnits(refresh) {
+      let r;
+      try { r = await api('/units' + (refresh ? '?refresh=1' : '')); } catch { return; }
+      if (!r || !r.ok || !r.data) return;
+      const next = r.data.units === 'km' ? 'km' : 'mi';
+      if (next === spUnits) return;
+      // Convert what's on screen: read it in the old units, show it in the new.
+      const miles = SP_DIST_FIELDS.map((id) => {
+        const el = document.getElementById(id);
+        return el && el.value !== '' ? spFromUnits(el.value) : null;
+      });
+      spUnits = next;
+      SP_DIST_FIELDS.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (!el.dataset.miMin) { el.dataset.miMin = el.min; el.dataset.miMax = el.max; }
+        el.min = spToUnits(el.dataset.miMin);
+        el.max = spToUnits(el.dataset.miMax);
+        if (miles[i] != null) el.value = spToUnits(miles[i]);
+      });
+      document.querySelectorAll('.sp-unit').forEach((e) => { e.textContent = spUnits === 'km' ? 'km' : 'miles'; });
+      if (typeof updateLocationMap === 'function') updateLocationMap();
+    }
+
     async function saveSetting(key, value) {
+      if (key === 'show_latitude' || key === 'show_longitude') {
+        // New show location: look up its country (miles or km) once it's saved.
+        clearTimeout(_spUnitsTimer);
+        _spUnitsTimer = setTimeout(() => loadUnits(true), 2500);
+      }
       const body = {};
       body[key] = value;
       const r = await api('/config', {
@@ -7163,6 +7911,99 @@
       if (!r.ok) {
         showAlert('Failed to save ' + key);
       }
+    }
+
+    // Anonymous install count (v0.33.266+). See lib/install-count.js.
+    // ShowPilot app listing (lib/app-listing.js).
+    function renderAppListingStatus(st) {
+      if (!st) return;
+      const probs = document.getElementById('appListingProblems');
+      const status = document.getElementById('appListingStatus');
+      const sample = document.getElementById('appListingSample');
+      const chk = document.getElementById('cfg_app_listing_enabled');
+      if (chk) chk.disabled = !!st.demo;
+      if (probs) {
+        const list = st.demo ? ['Demo mode never lists a show.'] : (st.problems || []);
+        probs.textContent = list.join(' ');
+        probs.style.display = list.length && (st.enabled || st.demo) ? '' : 'none';
+      }
+      if (status) {
+        const lr = st.lastResult;
+        let t = '';
+        if (lr) {
+          const when = new Date(lr.at).toLocaleTimeString();
+          t = (lr.ok ? '\u2705 ' : '\u26a0\ufe0f ') + lr.message + ' (' + when + ')';
+        } else if (st.removePending) {
+          t = 'Removing from the app\u2026';
+        } else if (st.enabled) {
+          t = 'Waiting for the first check-in\u2026';
+        } else {
+          t = 'Not listed.';
+        }
+        status.textContent = t;
+      }
+      if (sample && st.sample) sample.textContent = JSON.stringify(st.sample, null, 2);
+    }
+    async function loadAppListingStatus() {
+      const r = await api('/app-listing');
+      if (r.ok) renderAppListingStatus(r.data);
+      return r.ok ? r.data : null;
+    }
+    async function saveAppListing(key, value) {
+      await saveSetting(key, value);
+      loadAppListingStatus();
+    }
+    async function appListingCheckInNow(btn) {
+      if (btn) btn.disabled = true;
+      const status = document.getElementById('appListingStatus');
+      if (status) status.textContent = 'Checking in\u2026';
+      try {
+        const r = await api('/app-listing/check-in', { method: 'POST' });
+        if (r.ok) renderAppListingStatus(r.data);
+        else if (status) status.textContent = 'Check-in failed.';
+      } finally { if (btn) btn.disabled = false; }
+    }
+
+    async function loadInstallCountStatus() {
+      const r = await api('/install-count');
+      if (!r.ok) return null;
+      const st = r.data;
+      const sample = document.getElementById('installCountSample');
+      if (sample) sample.textContent = JSON.stringify(st.sample);
+      const locked = document.getElementById('installCountLocked');
+      const chk = document.getElementById('cfg_install_count_enabled');
+      const sel = document.getElementById('cfg_install_count_location');
+      const why = { demo: 'Demo mode never sends a count.', config: 'Turned off in config.js (installCount: false).', env: 'Turned off by the SHOWPILOT_NO_INSTALL_COUNT or DO_NOT_TRACK environment variable.' }[st.lockedReason];
+      if (locked) { locked.textContent = why || ''; locked.style.display = why ? '' : 'none'; }
+      if (chk) chk.disabled = !!why;
+      if (sel) sel.disabled = !!why || (chk && !chk.checked);
+      return st;
+    }
+
+    async function saveInstallCount(key, value) {
+      await saveSetting(key, value);
+      loadInstallCountStatus();
+    }
+
+    let _installNoticeShown = false;
+    async function maybeShowInstallCountNotice(c, st) {
+      if (_installNoticeShown || !st || st.lockedReason || c.install_count_notice_seen) return;
+      _installNoticeShown = true;
+      const keep = await _spModalShow({
+        title: 'Anonymous install count',
+        icon: 'info',
+        message: 'ShowPilot now sends one anonymous check-in a day so we can see how many shows are running and which versions they use. '
+          + 'It sends only a random ID, the product name and the version. No show name, URL, IP address or settings, and nothing comes back.\n\n'
+          + 'You can turn it off any time, or add your show to the public map (country, state or town), in Settings → General → Install count.',
+        okLabel: 'Keep it on',
+        cancelLabel: 'Turn it off',
+      });
+      await saveSetting('install_count_notice_seen', 1);
+      if (!keep) {
+        await saveSetting('install_count_enabled', 0);
+        setChk('cfg_install_count_enabled', false);
+      }
+      loadInstallCountStatus();
     }
 
     // PSA trigger mode UI helpers (v0.30.0+). Two pieces:
@@ -7285,7 +8126,8 @@
       const hint = document.getElementById('locationMapHint');
       const lat = parseFloat(document.getElementById('cfg_show_latitude').value);
       const lng = parseFloat(document.getElementById('cfg_show_longitude').value);
-      const radiusMi = parseFloat(document.getElementById('cfg_check_radius_miles').value) || 1.0;
+      const radiusShown = parseFloat(document.getElementById('cfg_check_radius_miles').value) || 1.0;
+      const radiusMi = Number(spFromUnits(radiusShown)) || 1.0;
       if (!isFinite(lat) || !isFinite(lng)) {
         if (_lastMapSrc !== '') {
           mapEl.innerHTML = `<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:0.85rem;">Set coordinates above to preview your show location.</div>`;
@@ -7327,13 +8169,13 @@
       // Skip the rebuild if nothing changed since last call. This is what
       // prevents the periodic config-refresh poll from causing a map reload.
       if (src === _lastMapSrc) {
-        if (hint) hint.textContent = `(red pin = show; radius ${radiusMi} mi for interactions, separate radius for audio gate)`;
+        if (hint) hint.textContent = `(red pin = show; radius ${radiusShown} ${spUnits} for interactions, separate radius for audio gate)`;
         return;
       }
       mapEl.innerHTML = `<iframe src="${src}" style="width:100%; height:100%; border:0;"
                                  sandbox="allow-scripts allow-same-origin allow-popups"></iframe>`;
       _lastMapSrc = src;
-      if (hint) hint.textContent = `(red pin = show; radius ${radiusMi} mi for interactions, separate radius for audio gate)`;
+      if (hint) hint.textContent = `(red pin = show; radius ${radiusShown} ${spUnits} for interactions, separate radius for audio gate)`;
     }
 
     function updateViewerControlBadge(mode) {
@@ -7450,10 +8292,10 @@
     // Top Sequences card (dashboard). "Hide PSAs" is remembered per browser.
     let _topStats = null;
     function topHidePsa() {
-      try { return localStorage.getItem('sp_top_hide_psa') === '1'; } catch (e) { return false; }
+      try { return SPPrefs.get('sp_top_hide_psa') === '1'; } catch (e) { return false; }
     }
     function toggleTopHidePsa(on) {
-      try { localStorage.setItem('sp_top_hide_psa', on ? '1' : '0'); } catch (e) {}
+      try { SPPrefs.set('sp_top_hide_psa', on ? '1' : '0'); } catch (e) {}
       if (_topStats) renderTopSequences(_topStats);
     }
     function renderTopSequences(d) {
@@ -7784,7 +8626,26 @@
         schedBtn.innerHTML = SEQ_ICONS.clock + '<span>' + (c.schedule ? 'Schedule' : 'Add schedule') + '</span>';
         schedBtn.addEventListener('click', () => openCategoryScheduleModal(c));
 
-        [grip, tog, name, sched, count, schedBtn, ren, del].forEach(el => row.appendChild(el));
+        // Category cooldown (v0.33.258): empty = use the show's.
+        const cdWrap = document.createElement('label');
+        cdWrap.className = 'cat-cooldown';
+        cdWrap.title = 'Cooldown for songs in this category (songs that have their own keep it). Empty = use the show\'s cooldown (Settings → Jukebox).';
+        const cdIn = document.createElement('input');
+        cdIn.type = 'number'; cdIn.min = '0'; cdIn.max = '1440'; cdIn.step = '1';
+        cdIn.value = (c.cooldown === undefined || c.cooldown === null) ? '' : String(c.cooldown);
+        cdIn.placeholder = String(cooldownGlobal || 0);
+        cdIn.setAttribute('aria-label', 'Cooldown for ' + c.name);
+        cdIn.addEventListener('change', () => {
+          const raw = cdIn.value.trim();
+          let v = null;
+          if (raw !== '') { v = parseInt(raw, 10); if (!Number.isFinite(v) || v < 0) v = 0; if (v > 1440) v = 1440; cdIn.value = v; }
+          categoryAction('/categories/cooldown', { name: c.name, cooldown: v });
+        });
+        const cdUnit = document.createElement('span');
+        cdUnit.textContent = cooldownUnit === 'songs' ? 'songs' : 'min';
+        cdWrap.append('Cooldown', cdIn, cdUnit);
+
+        [grip, tog, name, sched, count, cdWrap, schedBtn, ren, del].forEach(el => row.appendChild(el));
         host.appendChild(row);
       });
       if (categoriesCache.length > 1) {
@@ -8021,13 +8882,150 @@
 
     let _categoryOptionsLoaded = false;
 
+    // ======= Resizable text columns in the Sequences table (v0.33.258; reworked in 0.33.259 and 0.33.263) =======
+    // The five text columns (Display Name, Sequence Name, Artist, Category,
+    // Badge) share ALL the room the other columns leave, in the proportions
+    // you set by dragging; the table always fills the card. While you drag,
+    // the edge follows the pointer exactly (the buttons column on the right
+    // gives or takes the room); when you let go, the text columns are scaled
+    // together to fill the card again. Proportions are kept in this browser;
+    // double-click an edge to go back to the automatic layout.
+    // How: table-layout: fixed with every visible header's width pinned (the
+    // automatic layout reshuffles columns and never lets an edge follow the
+    // pointer).
+    const SEQ_COLW_KEY = 'sp-seq-col-widths-v3';
+    const SEQ_COL_MIN = 50;
+    function seqColWidths() {
+      try { const w = JSON.parse(SPPrefs.get(SEQ_COLW_KEY) || 'null'); return w && typeof w === 'object' ? w : null; } catch (e) { return null; }
+    }
+    function seqTableHeads(t) { return Array.from(t.tHead ? t.tHead.rows[0].cells : []); }
+    // Back to the automatic layout (and the CSS default widths).
+    function unpinSeqTable(t) {
+      t.classList.remove('sp-fixed-cols');
+      t.style.width = ''; t.style.minWidth = '';
+      seqTableHeads(t).forEach((th) => { th.style.width = ''; });
+    }
+    // Fixed layout. Other columns keep their natural width; the text columns
+    // get the rest, split by the saved proportions (or their current widths).
+    // fit = false (while dragging) leaves the text widths as given.
+    function pinSeqTable(t, saved, fit = true) {
+      if (!t || !t.offsetParent) return false;
+      unpinSeqTable(t);
+      const ths = seqTableHeads(t).filter((th) => th.offsetParent);
+      const natural = new Map(ths.map((th) => [th, th.getBoundingClientRect().width]));
+      const text = ths.filter((th) => th.hasAttribute('data-resize'));
+      const other = ths.filter((th) => !th.hasAttribute('data-resize'));
+      const otherSum = other.reduce((n, th) => n + natural.get(th), 0);
+      const want = new Map(text.map((th) => {
+        const c = th.getAttribute('data-resize');
+        return [th, saved && saved[c] > 0 ? saved[c] : natural.get(th)];
+      }));
+      let wantSum = text.reduce((n, th) => n + want.get(th), 0) || 1;
+      const avail = (t.parentElement ? t.parentElement.clientWidth : t.getBoundingClientRect().width) - otherSum;
+      const factor = fit && avail > text.length * SEQ_COL_MIN ? avail / wantSum : 1;
+      let total = otherSum;
+      text.forEach((th) => {
+        const w = Math.max(SEQ_COL_MIN, Math.floor(want.get(th) * factor));
+        th.style.width = w + 'px';
+        total += w;
+      });
+      other.forEach((th) => {
+        // The buttons column takes any rounding leftover (and, while
+        // dragging, the room a column gives or takes).
+        th.style.width = th.classList.contains('col-actions') ? 'auto' : Math.round(natural.get(th)) + 'px';
+      });
+      t.classList.add('sp-fixed-cols');
+      t.style.width = '100%';
+      t.style.minWidth = Math.round(total) + 'px';
+      return true;
+    }
+    function applySeqColWidths() {
+      const t = document.getElementById('sequencesTable');
+      if (!t) return;
+      const saved = seqColWidths();
+      if (saved) pinSeqTable(t, saved); else unpinSeqTable(t);
+    }
+    // Apply saved proportions when the table first shows (a hidden table
+    // can't be measured) and fit again when the window changes width.
+    let _seqColWatch = null;
+    function watchSeqColWidths() {
+      const t = document.getElementById('sequencesTable');
+      if (!t || _seqColWatch || typeof ResizeObserver === 'undefined') return;
+      let lastW = -1, timer = null;
+      _seqColWatch = new ResizeObserver(() => {
+        const box = t.parentElement || t;
+        const w = t.offsetParent ? box.clientWidth : 0;
+        if (w === lastW) return;
+        lastW = w;
+        if (!w || !seqColWidths() || t.__spDragging) return;
+        clearTimeout(timer);
+        timer = setTimeout(applySeqColWidths, 80);
+      });
+      _seqColWatch.observe(t.parentElement || t);
+    }
+    function initSeqColResize() {
+      const t = document.getElementById('sequencesTable');
+      if (!t || t.__spResize) return;
+      t.__spResize = true;
+      watchSeqColWidths();
+      t.querySelectorAll('th[data-resize]').forEach((th) => {
+        const col = th.getAttribute('data-resize');
+        const h = document.createElement('span');
+        h.className = 'col-resize';
+        h.title = 'Drag to resize · double-click to reset all columns';
+        h.addEventListener('click', (e) => e.stopPropagation());
+        h.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          try { SPPrefs.set(SEQ_COLW_KEY, null); } catch (err) {}
+          unpinSeqTable(t);
+        });
+        h.addEventListener('pointerdown', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          // Start from what's on screen, without re-fitting.
+          const current = {};
+          t.querySelectorAll('th[data-resize]').forEach((x) => { if (x.offsetParent) current[x.getAttribute('data-resize')] = x.getBoundingClientRect().width; });
+          if (!pinSeqTable(t, current, false)) return;
+          t.__spDragging = true;
+          const startX = e.clientX;
+          const startW = parseFloat(th.style.width) || th.getBoundingClientRect().width;
+          const startMin = parseFloat(t.style.minWidth) || t.getBoundingClientRect().width;
+          h.classList.add('dragging');
+          document.body.style.cursor = 'col-resize';
+          try { h.setPointerCapture(e.pointerId); } catch (err) {}
+          const move = (ev) => {
+            const w = Math.max(SEQ_COL_MIN, Math.round(startW + ev.clientX - startX));
+            th.style.width = w + 'px';
+            t.style.minWidth = Math.round(startMin + (w - startW)) + 'px';
+          };
+          const up = () => {
+            h.classList.remove('dragging');
+            document.body.style.cursor = '';
+            h.removeEventListener('pointermove', move);
+            h.removeEventListener('pointerup', up);
+            h.removeEventListener('pointercancel', up);
+            const w = {};
+            t.querySelectorAll('th[data-resize]').forEach((x) => { if (x.offsetParent) w[x.getAttribute('data-resize')] = Math.round(parseFloat(x.style.width) || x.getBoundingClientRect().width); });
+            try { SPPrefs.set(SEQ_COLW_KEY, JSON.stringify(w)); } catch (err) {}
+            t.__spDragging = false;
+            pinSeqTable(t, w); // fill the card again with the new proportions
+          };
+          h.addEventListener('pointermove', move);
+          h.addEventListener('pointerup', up);
+          h.addEventListener('pointercancel', up);
+        });
+        th.appendChild(h);
+      });
+    }
+
     async function loadSequences() {
+      initSeqColResize();
       // Categories first — each row's Category dropdown is built from the cache.
       await loadCategories();
       if (!_categoryOptionsLoaded) { _categoryOptionsLoaded = true; loadCategoryDisplayOptions(); }
       const r = await api('/sequences');
       if (!r.ok) return;
       sequencesCache = r.data;
+      { const h = document.getElementById('seqCooldownUnitHead'); if (h) h.textContent = cooldownUnit === 'songs' ? '(songs)' : '(min)'; }
       {
         const inactive = r.data.filter(s => s.active === 0).length;
         document.getElementById('sequenceCount').textContent = inactive
@@ -8057,6 +9055,8 @@
       // toolbar should hide).
       updateBulkToolbar();
       syncSelectAllState();
+      // Saved column widths need the rows in place to measure the others.
+      requestAnimationFrame(applySeqColWidths);
     }
 
     // Songs listed more than once in the synced playlist (v0.33.249+).
@@ -8106,14 +9106,15 @@
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
         <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
         <td class="col-badge"><select class="seq-badge-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.badge || '')}"></select></td>
-        <td class="col-tight col-visible"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.visible ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td class="col-tight col-vote"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.votable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td class="col-tight col-jukebox"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td class="col-tight col-psa"><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
-        <td class="col-tight col-cooldown"><input type="number" min="0" max="1440" step="1" value="${seq.cooldown_minutes || 0}"
+        <td class="col-tight col-visible col-flag"><label class="toggle seq-flag seq-flag-visible" title="Visible: ${seq.visible ? 'on' : 'off'}"><input type="checkbox" ${seq.visible ? 'checked' : ''} aria-label="Visible" onchange="this.parentNode.title='Visible: ' + (this.checked ? 'on' : 'off'); updateSeqField(${seq.id}, 'visible', this.checked ? 1 : 0)" /><span class="slider"></span><span class="seq-flag-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flag-svg"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span></label></td>
+        <td class="col-tight col-vote col-flag"><label class="toggle seq-flag seq-flag-vote" title="Vote: ${seq.votable ? 'on' : 'off'}"><input type="checkbox" ${seq.votable ? 'checked' : ''} aria-label="Vote" onchange="this.parentNode.title='Vote: ' + (this.checked ? 'on' : 'off'); updateSeqField(${seq.id}, 'votable', this.checked ? 1 : 0)" /><span class="slider"></span><span class="seq-flag-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12.5l3 3 5-6"/></svg></span></label></td>
+        <td class="col-tight col-jukebox col-flag"><label class="toggle seq-flag seq-flag-jukebox" title="Jukebox: ${seq.jukeboxable ? 'on' : 'off'}"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} aria-label="Jukebox" onchange="this.parentNode.title='Jukebox: ' + (this.checked ? 'on' : 'off'); updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span><span class="seq-flag-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span></label></td>
+        <td class="col-tight col-psa col-flag"><label class="toggle seq-flag seq-flag-psa" title="PSA: ${seq.is_psa ? 'on' : 'off'}"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} aria-label="PSA" onchange="this.parentNode.title='PSA: ' + (this.checked ? 'on' : 'off'); updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span><span class="seq-flag-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="4"/><path d="M2 21a6 6 0 0 1 12 0"/><path d="M15 5.5l3-2M15.5 9h4.5M15 12.5l3 2"/></svg></span></label></td>
+        <td class="col-tight col-cooldown"><input type="number" min="0" max="1440" step="1" value="${seq.cooldown_own === null || seq.cooldown_own === undefined ? '' : seq.cooldown_own}"
+                   placeholder="${seq.cooldown_own === null || seq.cooldown_own === undefined ? (seq.cooldown_effective || 0) : ''}"
                    onchange="updateSeqCooldown(${seq.id}, this)"
-                   style="width: 64px; padding: 0.3rem 0.4rem; font-size: 0.9rem;"
-                   title="Minutes to suppress this sequence after it plays. 0 = no cooldown." /></td>
+                   class="cd-input"
+                   title="${escapeAttr(seqCooldownTitle(seq))}" /></td>
         <td class="col-tight col-actions">
           <button class="secondary seq-icon-btn col-preview" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" aria-label="Preview">${SEQ_ICONS.play}</button><button class="secondary seq-icon-btn col-search" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" aria-label="Search">${SEQ_ICONS.search}</button>${seq.media_name ? '<button class="secondary seq-icon-btn sp-lang-btn col-lang" title="Manage alternate-language audio variants" aria-label="Languages">' + SEQ_ICONS.lang + '</button>' : '<span class="seq-icon-slot col-lang"></span>'}<button class="danger seq-icon-btn" onclick="delSeq(${seq.id})" title="Delete this sequence" aria-label="Delete">${SEQ_ICONS.trash}</button>
         </td>
@@ -8260,13 +9261,13 @@
     let _seqColOrder = SEQ_DEFAULT_ORDER.slice();
     (function loadSeqColumnPrefs() {
       try {
-        const raw = JSON.parse(localStorage.getItem('sp_seq_hidden_cols') || '[]');
+        const raw = JSON.parse(SPPrefs.get('sp_seq_hidden_cols') || '[]');
         if (Array.isArray(raw)) _seqHiddenCols = new Set(raw);
         else { _seqHiddenCols = new Set(raw.hidden || []); _seqShownCols = new Set(raw.shown || []); }
       } catch (e) {}
       SEQ_COLS.forEach(c => { if (c.defaultHidden && !_seqShownCols.has(c.key)) _seqHiddenCols.add(c.key); });
       try {
-        const saved = JSON.parse(localStorage.getItem('sp_seq_col_order') || 'null');
+        const saved = JSON.parse(SPPrefs.get('sp_seq_col_order') || 'null');
         if (Array.isArray(saved)) {
           const known = saved.filter(k => SEQ_DEFAULT_ORDER.includes(k));
           SEQ_DEFAULT_ORDER.forEach((k, i) => {
@@ -8284,8 +9285,8 @@
 
     function saveSeqColumnPrefs() {
       try {
-        localStorage.setItem('sp_seq_hidden_cols', JSON.stringify({ hidden: Array.from(_seqHiddenCols), shown: Array.from(_seqShownCols) }));
-        localStorage.setItem('sp_seq_col_order', JSON.stringify(_seqColOrder));
+        SPPrefs.set('sp_seq_hidden_cols', JSON.stringify({ hidden: Array.from(_seqHiddenCols), shown: Array.from(_seqShownCols) }));
+        SPPrefs.set('sp_seq_col_order', JSON.stringify(_seqColOrder));
       } catch (e) {}
     }
 
@@ -8305,6 +9306,7 @@
       if (!t) return;
       SEQ_COLS.concat(SEQ_BUTTONS).forEach(c => { if (!c.fixed) t.classList.toggle('hide-' + c.key, _seqHiddenCols.has(c.key)); });
       t.querySelectorAll('tr').forEach(orderSeqCells);
+      applySeqColWidths(); // saved widths: re-pin for the columns now shown
     }
     function setSeqColumnVisible(key, visible) {
       if (visible) { _seqHiddenCols.delete(key); _seqShownCols.add(key); }
@@ -8479,11 +9481,29 @@
     function setSeqCompact(on) {
       const t = document.getElementById('sequencesTable');
       if (t) t.classList.toggle('seq-compact', !!on);
-      try { localStorage.setItem('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
+      try { SPPrefs.set('sp_seq_compact', on ? '1' : '0'); } catch (e) {}
     }
+    // Visible / Vote / Jukebox / PSA as icons instead of switches (per browser).
+    function setSeqFlagIcons(on) {
+      const t = document.getElementById('sequencesTable');
+      if (t) t.classList.toggle('seq-flag-icons', !!on);
+      try { SPPrefs.set('sp_seq_flag_icons', on ? '1' : '0'); } catch (e) {}
+      if (typeof applySeqColWidths === 'function') applySeqColWidths();
+    }
+    (function initSeqFlagIcons() {
+      let on = false;
+      try { on = SPPrefs.get('sp_seq_flag_icons') === '1'; } catch (e) {}
+      const apply = () => {
+        const cb = document.getElementById('seqFlagIcons');
+        if (cb) cb.checked = on;
+        const t = document.getElementById('sequencesTable');
+        if (t) t.classList.toggle('seq-flag-icons', on);
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply); else apply();
+    })();
     (function initSeqCompact() {
       let on = false;
-      try { on = localStorage.getItem('sp_seq_compact') === '1'; } catch (e) {}
+      try { on = SPPrefs.get('sp_seq_compact') === '1'; } catch (e) {}
       const apply = () => {
         const cb = document.getElementById('seqCompact');
         if (cb) cb.checked = on;
@@ -8558,12 +9578,41 @@
     // Cooldown input has its own helper because we need to coerce to a
     // valid integer in [0, 1440] before sending — invalid values would
     // either blow up the server validation or, worse, save garbage.
-    function updateSeqCooldown(id, inputEl) {
-      let v = parseInt(inputEl.value, 10);
-      if (!Number.isFinite(v) || v < 0) v = 0;
-      if (v > 1440) v = 1440; // cap at 24 hours; longer makes no sense for a single show
-      inputEl.value = v; // reflect the clamp back into the input
-      updateSeqField(id, 'cooldown_minutes', v);
+    // v0.33.258: empty = use the category's / show's cooldown (sent as null).
+    async function updateSeqCooldown(id, inputEl) {
+      let v = null;
+      if (String(inputEl.value).trim() !== '') {
+        v = parseInt(inputEl.value, 10);
+        if (!Number.isFinite(v) || v < 0) v = 0;
+        if (v > 1440) v = 1440; // cap; longer makes no sense for a single show
+        inputEl.value = v; // reflect the clamp back into the input
+      }
+      await updateSeqField(id, 'cooldown', v);
+      // Refresh just this box's hint (no list reload, so focus stays put).
+      const seq = sequencesCache.find(s => s.id === id);
+      if (seq) {
+        seq.cooldown_own = v;
+        const r = localCooldownResolve(seq);
+        seq.cooldown_effective = r.value; seq.cooldown_from = r.from;
+        inputEl.placeholder = v === null ? String(r.value || 0) : '';
+        inputEl.title = seqCooldownTitle(seq);
+      }
+    }
+    function localCooldownResolve(seq) {
+      if (seq.cooldown_own !== null && seq.cooldown_own !== undefined) return { value: seq.cooldown_own, from: 'song' };
+      const key = String(seq.category || '').trim().toLowerCase();
+      const cat = key ? categoriesCache.find(c => String(c.name).trim().toLowerCase() === key) : null;
+      if (cat && cat.cooldown !== undefined && cat.cooldown !== null) return { value: cat.cooldown, from: 'category' };
+      return { value: cooldownGlobal, from: 'show' };
+    }
+    function seqCooldownTitle(seq) {
+      const n = seq.cooldown_effective || 0;
+      const what = n ? n + ' ' + cooldownUnitWord(n) : 'no cooldown';
+      const now = seq.cooldown_now ? '\nCooling down now: viewers can pick it again ' + seq.cooldown_now + '.' : '';
+      if (seq.cooldown_own !== null && seq.cooldown_own !== undefined) {
+        return 'This song\'s own cooldown: ' + what + '. Clear the box to use its category\'s or the show\'s.' + now;
+      }
+      return 'Empty: uses ' + (seq.cooldown_from === 'category' ? 'its category\'s' : 'the show\'s') + ' cooldown (' + what + '). Type a number to give this song its own; 0 = never cools down.' + now;
     }
 
     // ======= Audio preview (v0.33.248-beta.3) =======
@@ -8581,6 +9630,14 @@
     }
 
     function paintSeqPreviewBtns() {
+      // Widen the button area only while something previews, and re-fit
+      // the columns when that changes (not on every time update).
+      const t = document.getElementById('sequencesTable');
+      const any = !!(_preview.audio && _preview.id !== null);
+      if (t && t.classList.contains('seq-previewing-any') !== any) {
+        t.classList.toggle('seq-previewing-any', any);
+        if (t.classList.contains('sp-fixed-cols')) applySeqColWidths();
+      }
       document.querySelectorAll('#sequencesBody .col-preview').forEach(btn => {
         const id = Number(btn.closest('tr').dataset.id);
         const on = _preview.audio && _preview.id === id;
@@ -9240,6 +10297,23 @@
       ));
       clearSeqSelection();
       loadSequences();
+    }
+
+    // v0.33.258: one cooldown for every selected song; empty = use the
+    // category's / show's.
+    async function bulkSetCooldown() {
+      const n = _seqSelection.size;
+      if (!n) return;
+      const unit = cooldownUnit === 'songs' ? 'songs' : 'minutes';
+      const raw = await showPrompt('Cooldown for ' + n + ' selected song' + (n === 1 ? '' : 's') + ', in ' + unit + '.\nLeave empty to use their category\'s or the show\'s cooldown; 0 = never cools down.', '');
+      if (raw === null || raw === undefined) return;
+      let v = null;
+      if (String(raw).trim() !== '') {
+        v = parseInt(raw, 10);
+        if (!Number.isFinite(v) || v < 0) { showAlert('Enter a number, or leave it empty.'); return; }
+        if (v > 1440) v = 1440;
+      }
+      await bulkSetField('cooldown', v);
     }
 
     async function bulkDeleteSelected() {
@@ -10356,6 +11430,8 @@
     // gap = index the new section is inserted at.
     async function secAddBlock(gap, type) {
       if (secLocked()) return;
+      const bt = blockTypes.find((b) => b.type === type);
+      if (bt && !confirmAddAgain(bt, blockUsage(bt, secModel.sections.map((x) => x.src).join('\n')))) return;
       const r = await api('/designer/render-block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }) });
       if (!r.ok || typeof r.data?.html !== 'string') { showAlert(r.data?.error || 'Could not add that block'); return; }
       secSnapshot();
@@ -10374,7 +11450,12 @@
       const x = secModel.sections[i];
       const run = secRuns[k];
       const val = el.value;
-      const enc = run.isRaw ? val : SPSections.encode(val);
+      // Formatting codes ([b]…[/b] and so on, from the buttons) become real
+      // tags in the page's code (v0.33.278-master.5). The box keeps the codes
+      // while you type; reopening the section shows the formatted words as
+      // their own boxes, like the page's other bold or italic text.
+      const enc0 = run.isRaw ? val : SPSections.encode(val);
+      const enc = window.SPFormatBar ? SPFormatBar.codesToHtml(enc0) : enc0;
       const delta = enc.length - (run.end - run.start);
       x.src = x.src.slice(0, run.start) + enc + x.src.slice(run.end);
       run.end = run.start + enc.length;
@@ -10419,8 +11500,11 @@
         const gapCls = 'sec-gap' + (secPicker === gap ? ' open' : '');
         let h = '<div class="' + gapCls + '"><button class="secondary" onclick="secTogglePicker(' + gap + ')" title="Add a ready-made block here">＋ Add block here</button></div>';
         if (secPicker === gap) {
-          h += '<div class="sec-picker">' + blockTypes.map((b) =>
-            '<button class="secondary" onclick="secAddBlock(' + gap + ', \'' + escapeHtml(b.type) + '\')">' + escapeHtml(b.label) + '<small>' + escapeHtml(b.description || '') + '</small></button>').join('') +
+          const pageHtml = secModel.sections.map((x) => x.src).join('\n');
+          h += '<div class="sec-picker">' + blockTypes.map((b) => {
+            const n = blockUsage(b, pageHtml);
+            return '<button class="secondary' + (n && b.once ? ' sp-used-once' : '') + '" onclick="secAddBlock(' + gap + ', \'' + escapeHtml(b.type) + '\')">' + escapeHtml(b.label) + usedTagHtml(n) + '<small>' + escapeHtml(b.description || '') + '</small></button>';
+          }).join('') +
             '</div><p class="sec-note" style="text-align:center;">Added blocks use their own simple styling; change their text in the section, or their look under Edit HTML.</p>';
         }
         return h;
@@ -10461,6 +11545,16 @@
       });
       if (!shownAny) html = picker(A.length);
       list.innerHTML = html;
+      // List settings of an open block section (v0.33.268+).
+      list.querySelectorAll('.sp-list-editor').forEach((el) => {
+        const i = Number(String(el.dataset.ctx).slice(4)), key = el.dataset.key;
+        const blk = secBlockInfo(secModel.sections[i] && secModel.sections[i].src);
+        if (!blk || !window.SPBlockEditors) return;
+        SPBlockEditors.mount(el, blk.def.propTypes[key], blk.props[key], (v) => {
+          secBlockProp(i, key, v);
+          if (blk.def.type === 'socialLinks' && key === 'links') for (const k of ['facebook', 'instagram', 'youtube']) if (blk.props[k]) secBlockProp(i, k, '');
+        }, blk.props);
+      });
     }
     function fixedName(src) {
       const t = (/^<\s*([a-z0-9-]+)/i.exec(src) || [])[1] || '';
@@ -10470,8 +11564,63 @@
       if (id) return 'Pop-up message: ' + id;
       return 'Decoration <' + t.toLowerCase() + '> (kept in place)';
     }
+    // A block added from the library (v0.33.268+): its type and settings
+    // live on the wrapper <div class="sp-added-block" data-sp-block
+    // data-sp-props>. Blocks added before that only carry the
+    // <!-- sp-added: Label --> comment; they get the block's default
+    // settings, and changing one rebuilds the section.
+    function secBlockInfo(src) {
+      const m = /^\s*<div class="sp-added-block"([^>]*)>\s*<!--\s*sp-added:\s*([^>]*?)\s*-->/.exec(src || '');
+      if (!m) return null;
+      const t = /data-sp-block="([^"]*)"/.exec(m[1]);
+      const pr = /data-sp-props="([^"]*)"/.exec(m[1]);
+      const type = t ? SPSections.decode(t[1]) : (blockTypes.find((b) => b.label === m[2]) || {}).type;
+      const def = blockTypes.find((b) => b.type === type);
+      if (!def) return null;
+      let props = {};
+      if (pr) { try { props = JSON.parse(SPSections.decode(pr[1])) || {}; } catch (_) { props = {}; } }
+      const keys = Object.keys(def.defaultProps || {}).filter((k) => !(def.propTypes && def.propTypes[k] && def.propTypes[k].type === 'hidden'));
+      if (!keys.length) return null;
+      return { def, props: { ...(def.defaultProps || {}), ...props }, saved: !!pr };
+    }
+    let secBlkPending = null;   // { i, props, timer } while a rebuild is waiting
+    function secBlockProp(i, key, value) {
+      if (_isLocked) return;
+      const x = secModel.sections[i];
+      const info = secBlockInfo(x && x.src);
+      if (!info) return;
+      if (!secBlkPending || secBlkPending.i !== i) secBlkPending = { i, props: { ...info.props }, timer: null };
+      secBlkPending.props[key] = value;
+      clearTimeout(secBlkPending.timer);
+      secBlkPending.timer = setTimeout(async () => {
+        const pend = secBlkPending; secBlkPending = null;
+        if (!pend) return;
+        const r = await api('/designer/render-block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: info.def.type, props: pend.props }) });
+        if (!r.ok || typeof r.data?.html !== 'string') { showAlert(r.data?.error || 'Could not update that block'); return; }
+        const sec = secModel.sections[pend.i];
+        if (!sec) return;
+        if (!secTypingSnap) { secSnapshot(); secTypingSnap = true; }
+        sec.src = r.data.html;
+        secRuns = null;
+        const ta = document.getElementById('secHtml');
+        if (ta && secOpen === pend.i) ta.value = sec.src;
+        secApply();
+      }, 350);
+    }
     function secBodyHtml(i) {
       const x = secModel.sections[i];
+      const blk = secBlockInfo(x.src);
+      if (blk) {
+        let h = '<div class="sec-body"><p class="sec-note" style="margin-top:0;"><b>' + escapeHtml(blk.def.label) + ' settings.</b> ' +
+          (blk.saved ? 'Changes show in the preview right away.' : 'This block was added before its settings could be changed here. Changing one rebuilds the block, which replaces any text you changed in it.') + '</p>';
+        const pt = blk.def.propTypes || {};
+        h += '<div class="of-block-body expanded sec-blk-form">' + Object.entries(blk.props).map(([key, value]) =>
+          blockPropFieldHtml(key, value, pt[key], (expr) => 'secBlockProp(' + i + ', \'' + escapeAttr(key) + '\', ' + expr + ')', 'sec:' + i)).join('') + '</div>';
+        h += '<details style="margin-top:0.6rem;"><summary class="sec-note" style="cursor:pointer;">Edit HTML of this section</summary>' +
+          '<textarea id="secHtml" class="sec-html" spellcheck="false" oninput="secOnHtml(' + i + ',this)" onblur="secHtmlBlur()"' + (_isLocked ? ' disabled' : '') + '>' + escapeHtml(x.src) + '</textarea>' +
+          '<p class="sec-note">Editing the HTML by hand is fine; changing a setting above rebuilds the block from its settings.</p></details>';
+        return h + '</div>';
+      }
       if (!secRuns) secRuns = SPSections.textRuns(x.src);
       let h = '<div class="sec-body">';
       if (!secRuns.length) h += '<p class="sec-note">No plain text to change here (it may be pictures or live show info). Use Edit HTML below for anything else.</p>';
@@ -10479,6 +11628,8 @@
         const long = r.text.length > 70;
         const hint = { h1: 'Big title', h2: 'Heading', h3: 'Heading', h4: 'Heading', p: 'Paragraph', a: 'Link text', button: 'Button', li: 'List item', b: 'Bold', strong: 'Bold', em: 'Italic', i: 'Italic', span: 'Text', div: 'Text', td: 'Table cell', label: 'Label', small: 'Small text' }[r.tag] || 'Text';
         h += '<label>' + hint + (r.isRaw ? ' (contains special codes)' : '') + '</label>';
+        // Formatting buttons (v0.33.278-master.5): shown above this box while you type in it.
+        if (window.SPFormatBar) h += SPFormatBar.html();
         const attrs = ' oninput="secOnText(' + i + ',' + k + ',this)" onblur="secFieldBlur()"' + (_isLocked ? ' disabled' : '');
         h += long ? '<textarea rows="3"' + attrs + '>' + escapeHtml(r.text) + '</textarea>' : '<input type="text" value="' + escapeHtml(r.text).replace(/"/g, '&quot;') + '"' + attrs + '>';
       });
@@ -10491,7 +11642,9 @@
     async function loadDesignerMeta() {
       if (blockTypes.length === 0) {
         const r = await api('/designer/blocks');
-        if (r.ok) blockTypes = r.data?.blocks || [];
+        // A–Z by name, so blocks are easy to find in both the Blocks tab
+        // library and the Sections tab "Add block" picker.
+        if (r.ok) blockTypes = (r.data?.blocks || []).slice().sort((x, y) => String(x.label || x.type).localeCompare(String(y.label || y.type), undefined, { sensitivity: 'base' }));
       }
       if (Object.keys(defaultSettings).length === 0) {
         const r = await api('/designer/defaults');
@@ -10500,15 +11653,38 @@
       renderBlockLibrary();
     }
 
+    // How many times a block is already on the page (v0.33.265). Blocks
+    // tab: count the builder's blocks. Sections tab: match the block's
+    // `detect` pattern, or the <!-- sp-added: Label --> marker that added
+    // blocks carry, against the page's code.
+    function blockUsage(b, html) {
+      if (html == null) return currentBlocks.filter(x => x.type === b.type).length;
+      let n = 0;
+      if (b.detect) {
+        try { n = (html.match(new RegExp(b.detect, 'g')) || []).length; } catch (_) { n = 0; }
+      }
+      const tag = '<!-- sp-added: ' + String(b.label || b.type).replace(/--+|[<>]/g, '');
+      n = Math.max(n, html.split(tag).length - 1);
+      return n;
+    }
+    function usedTagHtml(n) {
+      return n ? '<span class="sp-used-tag">✓ On page' + (n > 1 ? ' ×' + n : '') + '</span>' : '';
+    }
+    function confirmAddAgain(b, n) {
+      if (!n || !b.once) return true;
+      return confirm(b.label + ' is already on this page. Add another one?');
+    }
     function renderBlockLibrary() {
       const lib = document.getElementById('blockLibrary');
       if (!lib) return;
-      lib.innerHTML = blockTypes.map(b => `
-        <button class="of-block-lib-item" onclick="addBlock('${b.type}')">
-          <span class="of-block-lib-item-label">${escapeHtml(b.label)}</span>
+      lib.innerHTML = blockTypes.map(b => {
+        const n = blockUsage(b);
+        return `
+        <button class="of-block-lib-item${n && b.once ? ' sp-used-once' : ''}" onclick="addBlock('${b.type}')">
+          <span class="of-block-lib-item-label">${escapeHtml(b.label)}${usedTagHtml(n)}</span>
           <span class="of-block-lib-item-desc">${escapeHtml(b.description)}</span>
-        </button>
-      `).join('');
+        </button>`;
+      }).join('');
     }
 
     // ---- Settings form ----
@@ -10556,6 +11732,7 @@
     function addBlock(type) {
       const def = blockTypes.find(b => b.type === type);
       if (!def) return;
+      if (!confirmAddAgain(def, blockUsage(def))) return;
       currentBlocks.push({
         type,
         props: { ...(def.defaultProps || {}) },
@@ -10588,9 +11765,92 @@
       body.classList.toggle('expanded');
     }
 
+    // One block setting as a form field (shared by the Blocks tab and, from
+    // v0.33.268, the Sections tab). call(expr) returns the inline handler
+    // that saves the JS expression's value; ctx tags list editors so the
+    // caller can mount them after rendering.
+    // Formatting buttons above block text (v0.33.278-master.1+).
+    function fmtBar(key) {
+      return (window.SPFormatBar && SPFormatBar.wantsBar(key)) ? SPFormatBar.html() : '';
+    }
+    function blockPropFieldHtml(key, value, declaredType, call, ctx) {
+      // A setting can name itself (propTypes[key].label, v0.33.268+).
+      const ownLabel = declaredType && declaredType.label;
+      const prettifyKey = (k) => ownLabel || prettifyKeyBase(k);
+      if (declaredType && declaredType.type === 'color') declaredType = null; // colour picker via inference below
+      // Hidden (older settings a newer one replaced) and list settings
+      // (v0.33.268+, mounted by SPBlockEditors after the cards render).
+      if (declaredType && declaredType.type === 'hidden') return '';
+      if (declaredType && (declaredType.type === 'rows' || declaredType.type === 'socialLinks')) {
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <div class="sp-list-editor" data-ctx="${escapeAttr(ctx)}" data-key="${escapeAttr(key)}"></div>`;
+      }
+
+      // Declared enum → <select>.
+      if (declaredType && declaredType.type === 'enum' && Array.isArray(declaredType.options)) {
+        const options = declaredType.options.map(opt => {
+          const optVal = escapeAttr(opt.value);
+          const optLbl = escapeHtml(opt.label != null ? opt.label : opt.value);
+          const sel = (opt.value === value) ? ' selected' : '';
+          return `<option value="${optVal}"${sel}>${optLbl}</option>`;
+        }).join('');
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <select onchange="${call("this.value")}">${options}</select>`;
+      }
+
+      // Declared number → <input type="number">. Coerce to Number on
+      // input so block render() functions don't have to defensively
+      // parseFloat. Empty string sends null so the default kicks back in.
+      if (declaredType && declaredType.type === 'number') {
+        const minAttr  = (typeof declaredType.min === 'number')  ? ` min="${declaredType.min}"`   : '';
+        const maxAttr  = (typeof declaredType.max === 'number')  ? ` max="${declaredType.max}"`   : '';
+        const stepAttr = (typeof declaredType.step === 'number') ? ` step="${declaredType.step}"` : '';
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <input type="number" value="${escapeAttr(value == null ? '' : value)}"${minAttr}${maxAttr}${stepAttr}
+                 oninput="${call("this.value === '' ? null : Number(this.value)")}" />`;
+      }
+
+      // Declared lines / time / datetime (v0.33.265).
+      if (declaredType && declaredType.type === 'lines') {
+        return `<label>${escapeHtml(prettifyKey(key))} <small style="opacity:.7;font-weight:400;">(one per line)</small></label>
+          ${fmtBar(key)}<textarea rows="5" oninput="${call("this.value")}">${escapeHtml(value || '')}</textarea>`;
+      }
+      if (declaredType && (declaredType.type === 'time' || declaredType.type === 'datetime')) {
+        const it = declaredType.type === 'time' ? 'time' : 'datetime-local';
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <input type="${it}" value="${escapeAttr(value || '')}"
+                 onchange="${call("this.value")}" />`;
+      }
+
+      // Auto-inference fallback (the original behavior).
+      const isColor = typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+      const isBool = typeof value === 'boolean';
+      const isLong = typeof value === 'string' && value.length > 60;
+      if (isBool) {
+        return `<label style="display:flex; gap:0.4rem; align-items:center;">
+          <input type="checkbox" ${value ? 'checked' : ''} style="width:auto; margin:0;"
+                 onchange="${call("this.checked")}" />
+          <span>${escapeHtml(prettifyKey(key))}</span>
+        </label>`;
+      }
+      if (isColor) {
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          <input type="color" value="${escapeAttr(value)}"
+                 oninput="${call("this.value")}" />`;
+      }
+      if (isLong) {
+        return `<label>${escapeHtml(prettifyKey(key))}</label>
+          ${fmtBar(key)}<textarea rows="3" oninput="${call("this.value")}">${escapeHtml(value)}</textarea>`;
+      }
+      return `<label>${escapeHtml(prettifyKey(key))}</label>
+        ${fmtBar(key)}<input type="text" value="${escapeAttr(value || '')}"
+               oninput="${call("this.value")}" />`;
+    }
+
     function renderBlocksCanvas() {
       const canvas = document.getElementById('blocksCanvas');
       if (!canvas) return;
+      renderBlockLibrary();
       canvas.innerHTML = currentBlocks.map((b, idx) => {
         const def = blockTypes.find(t => t.type === b.type);
         const label = def ? def.label : b.type;
@@ -10613,57 +11873,9 @@
         // render() merges the same defaults, so the shown value is the one
         // in effect.
         const shownProps = { ...((def && def.defaultProps) || {}), ...(b.props || {}) };
-        const propFields = Object.entries(shownProps).map(([key, value]) => {
-          const declaredType = propTypes[key];
-
-          // Declared enum → <select>.
-          if (declaredType && declaredType.type === 'enum' && Array.isArray(declaredType.options)) {
-            const options = declaredType.options.map(opt => {
-              const optVal = escapeAttr(opt.value);
-              const optLbl = escapeHtml(opt.label != null ? opt.label : opt.value);
-              const sel = (opt.value === value) ? ' selected' : '';
-              return `<option value="${optVal}"${sel}>${optLbl}</option>`;
-            }).join('');
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <select onchange="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)">${options}</select>`;
-          }
-
-          // Declared number → <input type="number">. Coerce to Number on
-          // input so block render() functions don't have to defensively
-          // parseFloat. Empty string sends null so the default kicks back in.
-          if (declaredType && declaredType.type === 'number') {
-            const minAttr  = (typeof declaredType.min === 'number')  ? ` min="${declaredType.min}"`   : '';
-            const maxAttr  = (typeof declaredType.max === 'number')  ? ` max="${declaredType.max}"`   : '';
-            const stepAttr = (typeof declaredType.step === 'number') ? ` step="${declaredType.step}"` : '';
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <input type="number" value="${escapeAttr(value == null ? '' : value)}"${minAttr}${maxAttr}${stepAttr}
-                     oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value === '' ? null : Number(this.value))" />`;
-          }
-
-          // Auto-inference fallback (the original behavior).
-          const isColor = typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
-          const isBool = typeof value === 'boolean';
-          const isLong = typeof value === 'string' && value.length > 60;
-          if (isBool) {
-            return `<label style="display:flex; gap:0.4rem; align-items:center;">
-              <input type="checkbox" ${value ? 'checked' : ''} style="width:auto; margin:0;"
-                     onchange="updateBlockProp(${idx}, '${escapeAttr(key)}', this.checked)" />
-              <span>${escapeHtml(prettifyKey(key))}</span>
-            </label>`;
-          }
-          if (isColor) {
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <input type="color" value="${escapeAttr(value)}"
-                     oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
-          }
-          if (isLong) {
-            return `<label>${escapeHtml(prettifyKey(key))}</label>
-              <textarea rows="3" oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)">${escapeHtml(value)}</textarea>`;
-          }
-          return `<label>${escapeHtml(prettifyKey(key))}</label>
-            <input type="text" value="${escapeAttr(value || '')}"
-                   oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
-        }).join('');
+        const propFields = Object.entries(shownProps).map(([key, value]) =>
+          blockPropFieldHtml(key, value, propTypes[key], (expr) => `updateBlockProp(${idx}, '${escapeAttr(key)}', ${expr})`, 'blk:' + idx)
+        ).join('');
         // Only the header is draggable, not the whole card. Earlier versions
         // had draggable="true" on the card, which made the browser's native
         // drag-handler intercept click-and-drag inside any input/textarea
@@ -10692,8 +11904,25 @@
           </div>
         `;
       }).join('');
+      // List settings get their own small editor (v0.33.268+).
+      canvas.querySelectorAll('.sp-list-editor').forEach((el) => {
+        const idx = Number(String(el.dataset.ctx).slice(4)), key = el.dataset.key;
+        const b = currentBlocks[idx];
+        const def = blockTypes.find(t => t.type === b.type);
+        const props = { ...((def && def.defaultProps) || {}), ...(b.props || {}) };
+        if (!window.SPBlockEditors) return;
+        SPBlockEditors.mount(el, def.propTypes[key], props[key], (v) => {
+          updateBlockProp(idx, key, v);
+          // Social Links' older per-site settings are folded into the list
+          // now; clear them so a removed link doesn't come back.
+          if (b.type === 'socialLinks' && key === 'links') {
+            for (const k of ['facebook', 'instagram', 'youtube']) if (currentBlocks[idx].props && currentBlocks[idx].props[k]) updateBlockProp(idx, k, '');
+          }
+        }, props);
+      });
     }
 
+    function prettifyKeyBase(k) { return prettifyKey(k); }
     function prettifyKey(k) {
       return k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
     }
@@ -10959,7 +12188,7 @@
       const el = document.getElementById('showPlayerUpdateBanner');
       if (!el) return;
       let dismissed = '';
-      try { dismissed = localStorage.getItem('sp_player_update_dismissed') || ''; } catch (e) {}
+      try { dismissed = SPPrefs.get('sp_player_update_dismissed') || ''; } catch (e) {}
       if (!u || (!u.belowRequired && dismissed === u.kind + ':' + u.latest)) { el.style.display = 'none'; el.innerHTML = ''; return; }
       const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const danger = !!u.belowRequired;
@@ -10994,14 +12223,16 @@
       const el = document.getElementById('showPilotUpdateBanner');
       if (!el) return;
       let dismissed = '';
-      try { dismissed = localStorage.getItem('sp_showpilot_update_dismissed') || ''; } catch (e) {}
+      try { dismissed = SPPrefs.get('sp_showpilot_update_dismissed') || ''; } catch (e) {}
       if (!n || dismissed === n.kind + ':' + n.latest) { el.style.display = 'none'; el.innerHTML = ''; return; }
       const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       let how;
-      if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">Open Updates</button>';
-      else if (n.isDocker) how = '<br>Pull the new image and recreate the container to update.';
+      if (n.canUpdateHere) how = '<button type="button" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new &amp; update</button>';
+      else if (n.isDocker) how = ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="openShowPilotUpdates()">What\'s new</button><br>Pull the new image and recreate the container to update.';
       else how = '';
-      el.innerHTML = '<b>⬆ ' + (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available') + '.</b> '
+      el.innerHTML = '<b>⬆ ' + (n.kind === 'master'
+          ? (n.behindBy > 0 ? esc(n.behindBy) + ' new ShowPilot update' + (n.behindBy === 1 ? '' : 's') : 'A new ShowPilot update') + ' on Master (latest v' + esc(n.latest) + ')'
+          : (n.kind === 'beta' ? 'A newer ShowPilot beta is available: v' : 'ShowPilot v') + esc(n.latest) + (n.kind === 'beta' ? '' : ' is available')) + '.</b> '
         + 'You have v' + esc(n.current) + '.' + how
         + ' <button type="button" class="secondary" style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.8rem;" onclick="dismissShowPilotUpdate(\'' + esc(n.kind + ':' + n.latest) + '\')">Dismiss</button>';
       el.style.display = '';
@@ -11011,12 +12242,12 @@
       switchTab('updates');
     }
     function dismissShowPilotUpdate(key) {
-      try { localStorage.setItem('sp_showpilot_update_dismissed', key); } catch (e) {}
+      try { SPPrefs.set('sp_showpilot_update_dismissed', key); } catch (e) {}
       const el = document.getElementById('showPilotUpdateBanner');
       if (el) el.style.display = 'none';
     }
     function dismissShowPlayerUpdate(key) {
-      try { localStorage.setItem('sp_player_update_dismissed', key); } catch (e) {}
+      try { SPPrefs.set('sp_player_update_dismissed', key); } catch (e) {}
       const el = document.getElementById('showPlayerUpdateBanner');
       if (el) el.style.display = 'none';
     }
@@ -11147,6 +12378,7 @@
       document.getElementById('statPlayed').textContent = d.totalPlays ?? 0;
 
       updateMessageBadge(d); // visitor messages (v0.33.250+)
+      if (window.SPFpp) window.SPFpp.dashboard(d.fpp); // FPP Monitor strip (v0.33.278-master.13+)
 
       // Header count
       document.getElementById('headerViewerCount').innerHTML = '<strong>' + (d.activeViewers ?? 0) + '</strong> viewers';
@@ -11243,6 +12475,7 @@
           const r = await fetch('/api/public/demo-status', { credentials: 'omit' });
           if (!r.ok) return;
           const data = await r.json();
+          if (data.hosted) document.documentElement.classList.add('sp-hosted');
           if (!data.demoMode) {
             banner.style.display = 'none';
             return;

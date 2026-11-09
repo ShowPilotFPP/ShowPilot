@@ -49,6 +49,31 @@ function getLivePosition() {
   return livePosition;
 }
 
+// Seconds left in the playing song, or null if unknown. Uses the live
+// position the plugin reports (~2x/sec) when it's fresh and for the same
+// song, else the song's start time; both need the synced song length.
+const RACE_SONG_END_WINDOW_S = 5;
+function secondsLeftInSong() {
+  try {
+    const np = db.prepare(`SELECT sequence_name, started_at FROM now_playing WHERE id = 1`).get();
+    if (!np || !np.sequence_name) return null;
+    const seq = db.prepare(`SELECT duration_seconds FROM sequences WHERE name = ? COLLATE NOCASE`).get(np.sequence_name);
+    if (!seq || !(seq.duration_seconds > 0)) return null;
+    const now = Date.now();
+    const lp = livePosition;
+    if (lp && lp.sequence.toLowerCase() === np.sequence_name.toLowerCase() && now - lp.updatedAt < 10000) {
+      return seq.duration_seconds - (lp.position + (now - lp.updatedAt) / 1000);
+    }
+    if (np.started_at) {
+      const startedMs = new Date(np.started_at + 'Z').getTime();
+      if (isFinite(startedMs)) return seq.duration_seconds - (now - startedMs) / 1000;
+    }
+  } catch (e) {
+    console.warn('[race] could not work out time left in the song:', e.message);
+  }
+  return null;
+}
+
 // Bearer token auth
 function requireBearerToken(req, res, next) {
   const auth = req.header('authorization') || '';
@@ -448,14 +473,37 @@ router.get('/state', (req, res) => {
     // Race mode: plugin v0.13.58+ handles RACE natively via the raceWinner
     // field. Returns the winner with an interrupt flag when decided; plugin
     // follows FPP schedule while race is running (no raceWinner field).
-    if (cfg.race_winner && !cfg.race_active) {
-      const winSeq = db.prepare(`SELECT sort_order FROM sequences WHERE name = ? LIMIT 1`).get(cfg.race_winner);
+    //
+    // A race that ends with the song ("End race when the current song ends",
+    // or a race timer of 0) has no timer to pick a winner. Before
+    // v0.33.278-master.10 nothing picked one: the next song change just
+    // cleared the taps, so the leader never played. Now, in the song's last
+    // few seconds, the leader wins here (same as the timer would), and plays
+    // right after the current song — never cutting it off.
+    let rc = cfg;
+    const raceEndsWithSong = !!cfg.race_end_on_sequence_end || !(cfg.race_duration_seconds > 0);
+    if (raceEndsWithSong && cfg.race_active && !cfg.race_winner) {
+      const left = secondsLeftInSong();
+      if (left !== null && left <= RACE_SONG_END_WINDOW_S) {
+        const { getRaceLeader } = require('../lib/db');
+        const leader = getRaceLeader();
+        if (leader) {
+          const seqRow = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+          require('./viewer').resolveRace(req.app.get('io'), leader.sequence_name, seqRow?.display_name || leader.sequence_name, seqRow?.artist || '', leader.count);
+          console.log(`[race] song ending — "${leader.sequence_name}" wins with ${leader.count} tap${leader.count === 1 ? '' : 's'}`);
+          rc = getConfig();
+        }
+      }
+    }
+    if (rc.race_winner && !rc.race_active) {
+      const winSeq = db.prepare(`SELECT sort_order FROM sequences WHERE name = ? LIMIT 1`).get(rc.race_winner);
       response.raceWinner = {
-        sequence:     cfg.race_winner,
+        sequence:     rc.race_winner,
         playlistIndex: winSeq ? winSeq.sort_order : 0,
-        interrupt:    cfg.race_interrupt_winner === 1,
+        // A race that ends with the song plays its winner next, never mid-song.
+        interrupt:    !raceEndsWithSong && cfg.race_interrupt_winner === 1,
       };
-      rememberHandoff(cfg.race_winner, 'vote');
+      rememberHandoff(rc.race_winner, 'vote');
     }
   }
 
@@ -476,28 +524,29 @@ router.get('/state', (req, res) => {
   // not all operators want ShowPilot reaching into their FPP playlist.
   // Requires plugin v0.13.40+.
   if (cfg.cooldown_suppress_fpp_playlist === 1) {
+    // v0.33.258: tiered cooldowns in songs or minutes (lib/cooldown.js).
+    // A songs-based cooldown has no end time, so reenableAt is a generous
+    // estimate (10 minutes per song still to play); the patch is resent on
+    // every poll and turns into enabled:true as soon as the cooldown ends.
+    const cdLib = require('../lib/cooldown');
     const cooldownCandidates = db.prepare(`
-      SELECT name, last_played_at, cooldown_minutes
+      SELECT name, category, last_played_at, plays_since_hidden, cooldown_minutes, cooldown
       FROM sequences
-      WHERE cooldown_minutes > 0 AND last_played_at IS NOT NULL
+      WHERE last_played_at IS NOT NULL
     `).all();
-
-    if (cooldownCandidates.length > 0) {
-      const now = Date.now();
-      const patches = [];
-      for (const s of cooldownCandidates) {
-        const playedAt = new Date(s.last_played_at + 'Z').getTime();
-        const cooldownMs = s.cooldown_minutes * 60 * 1000;
-        const reenableAt = new Date(playedAt + cooldownMs).toISOString();
-        const inCooldown = now < (playedAt + cooldownMs);
-        patches.push({
-          sequenceName: s.name,
-          enabled: !inCooldown,
-          reenableAt: inCooldown ? reenableAt : null,
-        });
-      }
-      response.playlistPatches = patches;
+    const catMap = cdLib.categoryMap(cfg);
+    const now = Date.now();
+    const patches = [];
+    for (const s of cooldownCandidates) {
+      if (!(cdLib.effective(s, cfg, catMap) > 0)) continue;
+      const st = cdLib.status(s, cfg, catMap, now);
+      patches.push({
+        sequenceName: s.name,
+        enabled: !st,
+        reenableAt: st ? (st.until || new Date(now + st.left * 10 * 60_000).toISOString()) : null,
+      });
     }
+    if (patches.length > 0) response.playlistPatches = patches;
   }
 
   res.json(response);
@@ -795,14 +844,17 @@ router.post('/playing', (req, res) => {
     // an in-flight entry is the one currently playing or about to start
     // and shouldn't be removed. The cooldown timer itself is implicit:
     // last_played_at + cooldown_minutes is checked at request/voting time.
-    const seq = db.prepare(`SELECT id, cooldown_minutes, is_psa FROM sequences WHERE name = ?`).get(name);
-    if (seq && seq.cooldown_minutes > 0) {
+    // v0.33.258: the song's cooldown may come from itself, its category or
+    // the show-wide setting (lib/cooldown.js).
+    const seq = db.prepare(`SELECT id, category, cooldown_minutes, cooldown, is_psa FROM sequences WHERE name = ?`).get(name);
+    const seqCooldown = seq ? require('../lib/cooldown').effective(seq, getConfig()) : 0;
+    if (seq && seqCooldown > 0) {
       const purged = db.prepare(`
         DELETE FROM jukebox_queue
         WHERE sequence_id = ? AND played = 0 AND handed_off_at IS NULL
       `).run(seq.id);
       if (purged.changes > 0) {
-        console.log(`[cooldown] Purged ${purged.changes} queued copies of "${name}" (cooldown ${seq.cooldown_minutes}m)`);
+        console.log(`[cooldown] Purged ${purged.changes} queued copies of "${name}" (cooldown ${seqCooldown})`);
       }
     }
 
@@ -1014,7 +1066,41 @@ router.post('/heartbeat', (req, res) => {
   // The FPP plugin (0.14.22+) shows a warning in FPP when a newer version is
   // out; tell it which. Other show players check for their own updates.
   const isFppPlugin = pluginStatus.version && !/^player-/i.test(String(pluginStatus.version));
-  res.json(isFppPlugin ? { ok: true, ...require('../lib/show-player-update').forPlugin() } : { ok: true });
+  // Show buttons (v0.33.278-master.12+): tells the plugin whether to ask for
+  // button presses (GET /show-buttons) about twice a second. Older plugins
+  // ignore it.
+  const showButtons = require('../lib/show-buttons').pluginWanted(getConfig());
+  // FPP monitor (v0.33.278-master.13+): ask for status snapshots
+  // (POST /fpp-status). Older plugins ignore it.
+  const fppMonitor = true;
+  res.json(isFppPlugin ? { ok: true, showButtons, fppMonitor, ...require('../lib/show-player-update').forPlugin() } : { ok: true, showButtons, fppMonitor });
+});
+
+// ============================================================
+// POST /api/plugin/fpp-status (v0.33.278-master.13+, lib/fpp-monitor.js)
+// The show player's status snapshot for the FPP page:
+//   { status: <FPP /api/system/status>, multisync: <FPP /api/fppd/multiSyncSystems>,
+//     disk: {freeBytes, totalBytes}, now: <epoch s>, playlists?: [..], presets?: [..],
+//     results?: [{id, ok, message}], source?: 'fpp'|'player', systemName?: 'FPP',
+//     remoteStatus?: { '<remote address>': <that remote's /api/system/status> } }  (plugin 0.14.27+)
+// Answer: { ok, commands: [{id, action, name?}], nextInSec }.
+// ============================================================
+router.post('/fpp-status', (req, res) => {
+  res.json(require('../lib/fpp-monitor').report(req.body || {}, { pluginVersion: pluginStatus.version }));
+});
+
+// ============================================================
+// GET /api/plugin/show-buttons (v0.33.278-master.12+, lib/show-buttons.js)
+// The plugin takes the button presses waiting for it, oldest first, and runs
+// each with FPP's POST /api/command:
+//   { presses: [ { id, command: 'Effect Start', args: ['Fog.eseq', '0', ...] } ],
+//     showButtons: true|false }
+// showButtons false = turned off since the last heartbeat; stop asking.
+// Presses not taken within 15 s are dropped, so nothing fires late.
+// ============================================================
+router.get('/show-buttons', (req, res) => {
+  const sb = require('../lib/show-buttons');
+  res.json({ presses: sb.take(), showButtons: sb.pluginWanted(getConfig()) });
 });
 
 // ============================================================

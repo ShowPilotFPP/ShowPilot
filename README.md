@@ -584,6 +584,15 @@ nssm start ShowPilot
 
 ## Updating
 
+### Update channels: Stable and Master
+
+**Settings → Updates → Update channel** picks how often you get updates:
+
+- **Stable** (default): only full releases. Fewer, bigger updates, each with release notes.
+- **Master**: every fix and feature as soon as it's ready, like FPP's master. Versions look like `0.33.277-master.3`.
+
+You can switch any time; going back to Stable offers the latest release. Docker: run `:latest` for Stable or `:master` for Master.
+
 ### From a release tarball
 
 ```bash
@@ -614,6 +623,13 @@ sudo systemctl restart showpilot
 ```
 
 ---
+
+## Anonymous install count
+
+Once a day ShowPilot sends an anonymous check-in so we know how many installs are running and which versions they use. It sends only a random ID made on your install, the product name (ShowPilot or ShowPilot-Lite) and the version. No show name, URL, IP address or settings, and nothing is sent back. You can see the exact message in **Settings → General → Install count**.
+
+- **Turn it off:** untick *Count this install* there, or set `installCount: false` in `config.js`, or set the environment variable `SHOWPILOT_NO_INSTALL_COUNT=1` (Docker: add it under `environment:`). `DO_NOT_TRACK=1` also works.
+- **Show map (optional, off by default):** pick *Country*, *State / region* or *Town* to put your show on the public map. ShowPilot still sends no location; the counter uses an approximate lookup of the connection and keeps only the level you chose.
 
 ## Backups
 

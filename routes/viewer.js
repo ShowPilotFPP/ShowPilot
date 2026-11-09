@@ -15,6 +15,7 @@ const categories = require('../lib/categories');
 const { progressBarConfig } = require('../lib/progress-bar');
 const { launcherColors } = require('../lib/launcher-style');
 const visitorMessages = require('../lib/visitor-messages');
+const showButtons = require('../lib/show-buttons');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -88,28 +89,21 @@ function isSequenceHidden(seq, cfg) {
   return seq.plays_since_hidden < cfg.hide_sequence_after_played;
 }
 
-// Per-sequence cooldown check (v0.29.2+). Returns null if the sequence
-// is NOT in cooldown (or has cooldown disabled), or an ISO timestamp
-// string indicating when the cooldown expires. The check is purely
-// query-time — there's no scheduled job to clear it; it just naturally
-// stops being true once enough time has passed.
-//
-// Used in three places: viewer state (so the UI can gray out), jukebox
-// add (defense in depth — UI hides it but reject the request server-side
-// too), and voting nomination (filter out cooled-down sequences).
-function sequenceCooldownUntil(seq) {
-  if (!seq.cooldown_minutes || seq.cooldown_minutes <= 0) return null;
-  if (!seq.last_played_at) return null;
-  // SQLite stores last_played_at as a UTC string ('YYYY-MM-DD HH:MM:SS').
-  // Treat it as UTC by appending 'Z' if no timezone is present, so Date
-  // parsing doesn't apply local-time interpretation.
-  const lpa = String(seq.last_played_at);
-  const utc = /[Z+\-]/.test(lpa.slice(-6)) ? lpa : lpa.replace(' ', 'T') + 'Z';
-  const lastMs = Date.parse(utc);
-  if (!Number.isFinite(lastMs)) return null;
-  const untilMs = lastMs + seq.cooldown_minutes * 60_000;
-  if (untilMs <= Date.now()) return null;
-  return new Date(untilMs).toISOString();
+// Cooldown check (v0.29.2+; tiered with songs or minutes since v0.33.258,
+// see lib/cooldown.js). Returns null when the song can be picked, otherwise
+// { unit, left, until? }. Purely query-time: it stops being true once
+// enough songs have played or enough time has passed.
+function sequenceCooldown(seq, cfg) {
+  return require('../lib/cooldown').status(seq, cfg || getConfig());
+}
+// Rejection for a vote / request on a cooling-down song.
+function cooldownRejection(st) {
+  const cd = require('../lib/cooldown');
+  return {
+    error: cd.message(st),
+    cooldown: { unit: st.unit, left: st.left, text: cd.describe(st) },
+    cooldown_until: st.until || null,
+  };
 }
 
 function viewerPresenceCheck(req, cfg) {
@@ -125,7 +119,7 @@ function viewerPresenceCheck(req, cfg) {
     }
     const dist = distanceMiles(cfg.show_latitude, cfg.show_longitude, lat, lng);
     if (dist > cfg.check_radius_miles) {
-      return { ok: false, error: `You must be within ${cfg.check_radius_miles} miles of the show to interact.` };
+      return { ok: false, error: `You must be within ${require('../lib/units').formatMiles(cfg.check_radius_miles, cfg)} of the show to interact.` };
     }
   }
   // Location code check (v0.33.24+)
@@ -185,6 +179,13 @@ router.get('/time', (req, res) => {
   res.json({ t: Date.now() });
 });
 
+// Numbers for the "Top Songs" and "Tonight's Stats" blocks (v0.33.265).
+// Song names and counts only — nothing about who picked what.
+router.get('/page-stats', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(require('../lib/page-stats').get());
+});
+
 router.get('/state', (req, res) => {
   const cfg = getConfig();
   const nowPlaying = getNowPlaying();
@@ -193,7 +194,7 @@ router.get('/state', (req, res) => {
   const allSequences = db.prepare(`
     SELECT id, name, display_name, artist, category, image_url, badge,
            duration_seconds, votable, jukeboxable,
-           last_played_at, plays_since_hidden, cooldown_minutes
+           last_played_at, plays_since_hidden, cooldown_minutes, cooldown
     FROM sequences
     WHERE visible = 1 AND active = 1 AND is_psa = 0
     ORDER BY display_order, display_name
@@ -217,11 +218,13 @@ router.get('/state', (req, res) => {
   // backward compat with custom templates.
   //   3. disabled categories — applyCategoryView drops them and
   //      groups the remainder into category order for header rendering.
+  //   4. cooldown (v0.33.258): with "keep cooling-down songs on the page"
+  //      they stay, carrying { cooldown: { unit, left, text } } so the page
+  //      can mark them; otherwise they drop out as before.
   const sequences = bustSequenceCovers(
-    categories.applyCategoryView(allSequences, cfg)
-      .filter(s => !isSequenceHidden(s, cfg))
-      .filter(s => !sequenceCooldownUntil(s))
-      .map(({ cooldown_minutes, ...rest }) => rest)
+    require('../lib/cooldown').applyToList(
+      categories.applyCategoryView(allSequences, cfg).filter(s => !isSequenceHidden(s, cfg)), cfg)
+      .map(({ cooldown_minutes, cooldown, ...rest }) => (cooldown && typeof cooldown === 'object' ? { ...rest, cooldown } : rest))
   );
 
   const voteCounts = db.prepare(`
@@ -293,6 +296,7 @@ router.get('/state', (req, res) => {
     progressBar: progressBarConfig(cfg),
     launcherColors: launcherColors(cfg), // v0.33.249: Listen-on-Phone button colors
     messages: visitorMessages.viewerState(cfg, nowPlaying), // v0.33.250: visitor message box
+    showButtons: showButtons.viewerState(cfg, nowPlaying), // v0.33.278-master.12: {SHOW_BUTTONS}
     nextScheduled: nextUp,
     activeViewers,
     sequences,
@@ -377,6 +381,31 @@ router.post('/message', (req, res) => {
   res.json({ ok: true, onWall: !!result.onWall, needsApproval: !!result.needsApproval });
 });
 
+// POST /api/show-button (v0.33.278-master.12+, lib/show-buttons.js)
+// A visitor pressed one of the show buttons. Body: { id, locationCode?,
+// viewerLat?, viewerLng? }. Same IP block list and access code / GPS checks
+// as voting and requests (when those are on); the module checks the button's
+// cooldown, the visitor's gap between presses and a show-wide cap, then
+// queues it for the plugin. Every open page gets the new cooldown at once.
+router.post('/show-button', (req, res) => {
+  const cfg = getConfig();
+  const ip = getClientIp(req);
+  if (ipIsBlocked(cfg, ip)) return res.status(403).json({ error: 'Your IP has been blocked' });
+  if (cfg.show_buttons_enabled !== 1) return res.status(400).json({ error: 'The show buttons are off right now.', closed: true });
+  const presence = viewerPresenceCheck(req, cfg);
+  if (!presence.ok) return res.status(403).json({ error: presence.error, invalidLocationCode: !!presence.invalidLocationCode });
+  const token = ensureViewerToken(req, res);
+  const np = getNowPlaying();
+  const r = showButtons.press((req.body || {}).id, cfg, np, { viewer: showButtons.viewerHash(token, '') });
+  if (!r.ok) {
+    if (r.waitMs) res.set('Retry-After', String(Math.ceil(r.waitMs / 1000)));
+    return res.status(r.status || 400).json({ error: r.error, waitMs: r.waitMs || 0, viewerWait: !!r.viewerWait, closed: !!r.closed });
+  }
+  const io = req.app.get('io');
+  if (io) io.emit('showButtonsUpdate', showButtons.viewerState(cfg, np));
+  res.json({ ok: true });
+});
+
 router.post('/heartbeat', (req, res) => {
   const token = ensureViewerToken(req, res);
   const ip = getClientIp(req);
@@ -416,13 +445,8 @@ router.post('/vote', (req, res) => {
   if (isSequenceHidden(seq, cfg)) {
     return res.status(400).json({ error: 'That sequence was recently played. Try another.' });
   }
-  const cooldownUntilV = sequenceCooldownUntil(seq);
-  if (cooldownUntilV) {
-    return res.status(400).json({
-      error: 'That sequence was recently played. It will be available again shortly.',
-      cooldown_until: cooldownUntilV,
-    });
-  }
+  const cooldownV = sequenceCooldown(seq, cfg);
+  if (cooldownV) return res.status(400).json(cooldownRejection(cooldownV));
 
   // Repeat blockers (v0.31.1+): block votes for the currently-playing song
   // or the one already winning the round (which would otherwise be next up).
@@ -727,13 +751,8 @@ router.post('/jukebox/add', (req, res) => {
   // Cooldown check (v0.29.2+). The viewer UI already hides cooled-down
   // sequences, but a stale page or a direct API caller could still try
   // to request one — reject server-side too.
-  const cooldownUntil = sequenceCooldownUntil(seq);
-  if (cooldownUntil) {
-    return res.status(400).json({
-      error: 'That sequence was recently played. It will be available again shortly.',
-      cooldown_until: cooldownUntil,
-    });
-  }
+  const cooldownJ = sequenceCooldown(seq, cfg);
+  if (cooldownJ) return res.status(400).json(cooldownRejection(cooldownJ));
 
   // Repeat blockers (v0.31.1+): don't let viewers queue the song that's
   // currently playing or the one already lined up next. "Next up" mirrors
@@ -781,6 +800,7 @@ router.post('/jukebox/add', (req, res) => {
     if (seqCount >= cfg.jukebox_sequence_request_limit) {
       return res.status(409).json({
         error: `That sequence has been requested the maximum number of times. Try another.`,
+        sequenceLimit: true,
       });
     }
   }
@@ -795,6 +815,7 @@ router.post('/jukebox/add', (req, res) => {
       const noun = limit === 1 ? 'request' : 'requests';
       return res.status(409).json({
         error: `You already have ${existing} ${noun} in the queue. This show limits each viewer to ${limit} ${noun} at a time — please wait until your current ${noun} ${limit === 1 ? 'plays' : 'play'} before requesting another.`,
+        viewerLimit: true,
       });
     }
   }
@@ -958,6 +979,26 @@ function audioVersionParam(sequenceName) {
   }
   return '';
 }
+
+// Debug sync report (?debug=1 on the viewer page): a device sends its sync
+// readout every few seconds and it's written to the show's log as one line,
+// so several devices can be compared side by side without their consoles.
+// One line per device every 2 s at most; numbers only, label trimmed.
+const lastSyncReport = new Map();
+router.post('/sync-report', (req, res) => {
+  res.status(204).end();
+  const tok = req.cookies[config.sessionCookieName + '_viewer'];
+  if (!tok) return;
+  const now = Date.now();
+  if (now - (lastSyncReport.get(tok) || 0) < 2000) return;
+  lastSyncReport.set(tok, now);
+  if (lastSyncReport.size > 500) for (const [k, t] of lastSyncReport) if (now - t > 60000) lastSyncReport.delete(k);
+  const b = req.body || {};
+  const n = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '?');
+  const label = String(b.device || 'device').replace(/[^\w #.-]/g, '').slice(0, 32);
+  const track = String(b.track || '').replace(/[\r\n]/g, ' ').slice(0, 60);
+  console.log(`[sync] ${label.padEnd(20)} drift ${n(b.drift)}ms  clock ${n(b.clock)}ms  rtt ${b.rtt == null ? 'n/a' : n(b.rtt) + 'ms'}  timing ${String(b.timing || '?').replace(/[^\w ()-]/g, '').slice(0, 20)}  stale ${n(b.stale)}ms  late-by ${n(b.propagation)}ms  speed ${n(b.speed, 2)}%  outDelay ${b.outDelay == null ? 'n/a' : n(b.outDelay) + 'ms'}  pos ${n(b.fppPos, 2)}/${n(b.audioPos, 2)}s  ${track}`);
+});
 
 // Lightweight metadata endpoint — viewer page polls this to know what to play
 router.get('/now-playing-audio', (req, res) => {

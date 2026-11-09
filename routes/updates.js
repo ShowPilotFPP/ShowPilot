@@ -23,19 +23,27 @@ router.use(express.json({ limit: '1mb' }));
 // difference being whether the GitHub fetch is forced).
 async function buildStatusResponse({ force }) {
   const current = updater.readPackageVersion();
-  const check = await updater.checkForUpdate({ force });
+  // On Master, releases aren't offered, so "Check now" doesn't re-ask
+  // GitHub for them (v0.33.277-master.2: fewer requests toward its limit).
+  const masterChannel = updater.getChannel() === 'master' && !updater.isBetaVersion(current);
+  const check = await updater.checkForUpdate({ force: force && !masterChannel });
   const updateState = db.getUpdateState();
   const snapshotMeta = updater.readSnapshotMeta();
 
   const latestTag = check.latest && check.latest.tag;
-  const updateAvailable = latestTag
+  // Update channel (v0.33.276+). Master installs follow main and aren't
+  // offered releases (a release is already on main when it's tagged).
+  const channel = updater.getChannel();
+  const onMaster = channel === 'master' && !updater.isBetaVersion(current);
+  const updateAvailable = (latestTag && !onMaster)
     ? updater.compareVersions(latestTag, current) > 0
     : false;
   // Beta channel (v0.33.219+). A beta build can be numerically newer than
   // the latest stable, so the normal check never offers stable again —
   // returnToStable does, whenever this install runs a prerelease.
   const betaCheck = await updater.checkBeta({ force });
-  const onBeta = updater.isPrerelease(current);
+  const onBeta = updater.isBetaVersion(current);
+  const masterCheck = onMaster || updater.isMasterVersion(current) ? await updater.checkMaster({ force }) : { master: null, error: null };
   // The beta channel is only offered when a beta NEWER than this install
   // exists (v0.33.222+). Betas are published only when there's something to
   // test, so most of the time there's none and the section stays hidden.
@@ -49,10 +57,38 @@ async function buildStatusResponse({ force }) {
     if (head && head !== betaCheck.beta.sha) betaAvailable = true;
   }
 
+  // The newest release's notes missing from the (cached) list: fetch them
+  // directly, once, and keep them with the cached check (v0.33.261).
+  const notes = check.latest && Array.isArray(check.latest.notes) ? check.latest.notes : null;
+  if (updateAvailable && notes && latestTag && !notes.some(n => updater.compareVersions(n.tag, latestTag) === 0) && !check.latest._noteTried) {
+    check.latest._noteTried = true;
+    try {
+      const n = await updater.fetchReleaseNote(latestTag);
+      if (n) notes.unshift(n);
+    } catch (_) { /* shown as "notes not on GitHub yet" */ }
+  }
+  // Master (v0.33.276+): what's new = the updates on main since this
+  // install, each commit message being that update's changelog.
+  const masterHead = onMaster ? await updater.readHeadSha() : null;
+  const masterAvailable = !!(onMaster && masterCheck.master && masterCheck.master.head === masterHead &&
+    (masterCheck.master.available || masterCheck.master.behindBy > 0));
+  const masterNotes = masterAvailable ? (masterCheck.master.changes || []).map((c) => {
+    const first = String(c.message).split('\n')[0];
+    const v = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\s*[—–-]/.exec(first);
+    return parseReleaseNote({ tag: v ? v[1] : c.shortSha, body: c.message, url: 'https://github.com/' + updater.repoSlug() + '/commit/' + c.sha, publishedAt: c.date });
+  }).filter(n => n.title || n.items.length).slice(0, 15) : null;
+  const newList = masterNotes || (updateAvailable ? whatsNew(notes, current, latestTag) : recentNotes(notes, current));
+
   return {
     currentVersion: current,
     latestVersion: latestTag,
-    latestRelease: check.latest,
+    latestRelease: check.latest ? { ...check.latest, notes: undefined, _noteTried: undefined } : null,
+    // With an update waiting: what it brings. Up to date: what's in the
+    // installed version, then a few earlier ones (v0.33.260).
+    whatsNew: newList,
+    // An update with no notes found anywhere yet (just shipped): the page says so.
+    whatsNewPending: !masterNotes && updateAvailable && !newList.some(n => latestTag && updater.compareVersions(n.version, latestTag) === 0),
+    whatsNewInstalled: !updateAvailable && !masterAvailable,
     updateAvailable,
     updaterAvailable: updater.isUpdaterAvailable(),
     supervisor: supervisor.detectSupervisor(),
@@ -61,10 +97,21 @@ async function buildStatusResponse({ force }) {
     lastCheckAt: check.at ? new Date(check.at).toISOString() : null,
     lastCheckError: check.error || null,
     onBeta,
-    returnToStable: (onBeta && latestTag && !updateAvailable) ? latestTag : null,
+    channel,
+    onMaster,
+    updateRepo: updater.repoSlug(),
+    updateRepoIsDefault: updater.repoSlug() === updater.DEFAULT_REPO,
+    master: masterCheck.master,
+    masterAvailable,
+    masterCheckError: masterCheck.error || null,
+    // A beta or Master build on the Stable channel: offer the latest
+    // release to go back to (it can be numerically older).
+    returnToStable: (!onMaster && updater.isPrerelease(current) && latestTag && !updateAvailable) ? latestTag : null,
     beta: betaCheck.beta,
     betaAvailable,
     betaCheckError: betaCheck.error || null,
+    // GitHub's hourly limit for this network is used up until then (ISO), or null.
+    githubLimitedUntil: updater.githubLimitedUntil() ? new Date(updater.githubLimitedUntil()).toISOString() : null,
     rollback: (updateState && updateState.previous_version_sha && snapshotMeta) ? {
       previousVersionTag: updateState.previous_version_tag,
       snapshotVersion: snapshotMeta.version,
@@ -84,6 +131,47 @@ async function buildStatusResponse({ force }) {
 // Dashboard banner (beta.19+): is a newer ShowPilot out? Answers at once
 // from the last check (see updater.notice()). Docker installs are told to
 // pull the new image; demo mode never shows it.
+// "What's new" (v0.33.259): the changelog of every release newer than this
+// install, up to the one it would update to, newest first. Each release body
+// is its changelog (title line, "- " bullets, then Source / credit lines);
+// only the title and the bullets are shown.
+const NOTE_SKIP = /^(source:|co-authored-by:|claude-session:|signed-off-by:|mirrored to |main only|🤖|https?:\/\/)/i;
+// Links on a line of their own, also when wrapped in _( )_ or similar
+// (v0.33.276: a session link was being glued onto the last bullet).
+const NOTE_LINK_ONLY = /^[\s_*(\[<]*https?:\/\/\S+[\s_*)\]>]*$/i;
+function parseReleaseNote(n) {
+  const lines = String(n.body || '').split(/\r?\n/).map(l => l.trim());
+  let title = '';
+  const items = [];
+  for (const l of lines) {
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(l)) break;   // footer below a rule (e.g. "Generated by …")
+    if (!l || NOTE_SKIP.test(l) || NOTE_LINK_ONLY.test(l) || /^_?generated (by|with) /i.test(l)) continue;
+    const bullet = /^[-*•]\s+(.*)$/.exec(l);
+    if (bullet) { items.push(bullet[1]); continue; }
+    if (!title) { title = l.replace(/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?\s*[—–-]\s*/, ''); continue; }
+    if (items.length) items[items.length - 1] += ' ' + l; // wrapped bullet
+  }
+  return { version: String(n.tag).replace(/^v/, ''), title: title.slice(0, 200), items: items.slice(0, 25).map(s => s.slice(0, 600)), url: n.url, publishedAt: n.publishedAt };
+}
+function whatsNew(notes, current, latest) {
+  if (!Array.isArray(notes) || !latest) return [];
+  return notes
+    .filter(n => updater.compareVersions(n.tag, current) > 0 && updater.compareVersions(n.tag, latest) <= 0)
+    .slice(0, 15)
+    .map(parseReleaseNote)
+    .filter(n => n.title || n.items.length);
+}
+
+// Up to date (v0.33.260): the installed version's notes and the 5 before it.
+function recentNotes(notes, current) {
+  if (!Array.isArray(notes) || !current) return [];
+  return notes
+    .filter(n => updater.compareVersions(n.tag, current) <= 0)
+    .slice(0, 6)
+    .map(parseReleaseNote)
+    .filter(n => n.title || n.items.length);
+}
+
 router.get('/notice', (req, res) => {
   if (config.demoMode) return res.json({ notice: null });
   const n = updater.notice();
@@ -175,6 +263,83 @@ router.post('/apply', async (req, res) => {
 // { sha: string, acknowledged: true, force?: boolean }. `acknowledged`
 // must be sent explicitly (the UI's "I understand" box), and the sha must
 // still be the tip of the beta branch.
+// ------------------------------------------------------------
+// Update channel (v0.33.276+): { channel: 'stable' | 'master' }
+// ------------------------------------------------------------
+// ------------------------------------------------------------
+// Update source (v0.33.277): { repo: 'owner/repo' | GitHub URL | '' }
+// ------------------------------------------------------------
+// '' (or ShowPilot's own) goes back to ShowPilot. Must be a public GitHub
+// repo with ShowPilot's history (a fork), checked here before saving.
+router.post('/repo', async (req, res) => {
+  const raw = String((req.body && req.body.repo) || '').trim();
+  let slug = '';
+  if (raw) {
+    slug = updater.normalizeRepo(raw);
+    if (!slug) return res.status(400).json({ error: 'Enter a GitHub repo as owner/repo or its github.com address.' });
+    if (slug.toLowerCase() === updater.DEFAULT_REPO.toLowerCase()) slug = '';
+  }
+  if (slug) {
+    // Must exist and be readable, and look like ShowPilot.
+    const https = require('https');
+    const get = (u) => new Promise((resolve) => {
+      https.get(u, { headers: { 'User-Agent': 'ShowPilot-Updater', Accept: 'application/vnd.github+json' }, timeout: 10000 }, (r) => {
+        let b = ''; r.on('data', (c) => { b += c; }); r.on('end', () => { let j = null; try { j = JSON.parse(b); } catch (_) {} resolve({ status: r.statusCode, body: j }); });
+      }).on('error', () => resolve({ status: 0, body: null })).on('timeout', function () { this.destroy(); });
+    });
+    const repo = await get('https://api.github.com/repos/' + slug);
+    if (repo.status === 404) return res.status(400).json({ error: 'GitHub has no public repo called ' + slug + '.' });
+    if (repo.status !== 200) return res.status(502).json({ error: 'Could not reach GitHub to check ' + slug + ' (HTTP ' + repo.status + '). Try again.' });
+    const pkg = await get('https://raw.githubusercontent.com/' + slug + '/' + ((repo.body && repo.body.default_branch) || 'main') + '/package.json');
+    if (!(pkg.status === 200 && pkg.body && pkg.body.name === 'showpilot')) {
+      return res.status(400).json({ error: slug + " doesn't look like a copy of ShowPilot (its package.json isn't ShowPilot's)." });
+    }
+  }
+  db.updateConfig({ update_repo: slug });
+  updater.resetChecks();
+  res.json(await buildStatusResponse({ force: true }));
+});
+
+router.post('/channel', async (req, res) => {
+  const ch = req.body && req.body.channel;
+  if (ch !== 'stable' && ch !== 'master') return res.status(400).json({ error: 'channel must be stable or master' });
+  db.updateConfig({ update_channel: ch });
+  res.json(await buildStatusResponse({ force: true }));
+});
+
+// ------------------------------------------------------------
+// POST /api/admin/updates/apply-master  (v0.33.276+)
+// ------------------------------------------------------------
+// Installs the tip of main on a Master-channel install. Body:
+// { sha: string, force?: boolean }; the sha must still be the tip of main.
+router.post('/apply-master', async (req, res) => {
+  if (!updater.isUpdaterAvailable()) {
+    return res.status(503).json({
+      error: supervisor.detectSupervisor() === 'docker'
+        ? 'In-app updates are disabled in Docker. For the Master channel, run the :master image instead.'
+        : 'In-app updates are disabled.'
+    });
+  }
+  if (updater.getChannel() !== 'master') return res.status(409).json({ error: 'Switch to the Master channel first.' });
+  const { sha, force } = req.body || {};
+  if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/.test(sha)) return res.status(400).json({ error: 'sha is required' });
+  const check = await updater.checkMaster({ force: true });
+  if (!check.master || check.master.sha !== sha) {
+    return res.status(409).json({ error: 'Master changed since this page loaded; please refresh.', latestSha: check.master && check.master.sha });
+  }
+  const head = await updater.readHeadSha();
+  if (head && head === sha) return res.status(409).json({ error: 'This server is already on the latest Master update.' });
+  try {
+    const result = await updater.applyMasterUpdate(sha, { force: force === true });
+    res.json({ ok: true, message: 'Master update installed. Restarting now…', previousVersion: result.previousVersion, target: result.target });
+    updater.scheduleCleanExit('apply master ' + result.target);
+  } catch (err) {
+    console.error('[updates/apply-master] failed:', err);
+    if (err.preflightErrors) return res.status(409).json({ error: 'Pre-flight checks failed', preflightErrors: err.preflightErrors });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/apply-beta', async (req, res) => {
   if (!updater.isUpdaterAvailable()) {
     return res.status(503).json({

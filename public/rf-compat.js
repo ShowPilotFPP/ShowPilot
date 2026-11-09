@@ -93,10 +93,22 @@
     invalidLocationCode: 'invalidLocationCode',
     failed: 'requestFailed',
     alreadyQueued: 'requestPlaying',
+    // v0.33.264: the viewer already has as many requests waiting as the show
+    // allows. Remote Falcon's templates call this #alreadyRequested; without
+    // one, #requestFailed shows the server's sentence.
+    alreadyRequested: 'alreadyRequested',
+    // Remote Falcon's "song not available right now" box, used for
+    // cooldowns when a page has no #songCooldown (v0.33.264).
+    sequenceUnavailable: 'sequenceUnavailable',
     queueFull: 'queueFull',
     alreadyVoted: 'alreadyVoted',
     songPlaying: 'songPlaying',
     songNextUp:  'songNextUp',
+    // v0.33.258: a song that's cooling down. Templates can add their own
+    // <div id="songCooldown">; an element inside it with
+    // data-showpilot-cooldown-text gets "after 3 more songs". Without one,
+    // #requestFailed shows the server's sentence.
+    songCooldown: 'songCooldown',
   };
 
   function showMessage(id, durationMs, textOverride, fallbackText) {
@@ -158,11 +170,24 @@
     }, durationMs || 3000);
   }
 
+  // #songCooldown when the page has one, else Remote Falcon's
+  // #sequenceUnavailable; showMessage falls back to #requestFailed after that.
+  function cooldownMsgId() {
+    if (document.getElementById(MSG_IDS.songCooldown)) return MSG_IDS.songCooldown;
+    if (document.getElementById(MSG_IDS.sequenceUnavailable)) return MSG_IDS.sequenceUnavailable;
+    return MSG_IDS.songCooldown;
+  }
+
   function mapErrorToId(error, data) {
     // Server explicitly flags code failures (v0.33.24+) — use the dedicated toast.
     if (data && data.invalidLocationCode) return MSG_IDS.invalidLocationCode;
+    if (data && data.cooldown) return cooldownMsgId();
+    if (data && data.viewerLimit) return MSG_IDS.alreadyRequested;
+    if (data && data.sequenceLimit) return MSG_IDS.alreadyQueued;
     const msg = (error || '').toLowerCase();
-    if (msg.includes('miles of the show')) return MSG_IDS.invalidLocation;
+    if (msg.startsWith('you already have')) return MSG_IDS.alreadyRequested;
+    if (msg.includes('requested the maximum number')) return MSG_IDS.alreadyQueued;
+    if (/(miles?|km) of the show/.test(msg)) return MSG_IDS.invalidLocation;
     if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
     if (msg.includes('location')) return MSG_IDS.invalidLocation;
     if (msg.includes('already voted')) return MSG_IDS.alreadyVoted;
@@ -550,6 +575,139 @@
     if (form) updateMessageCount(form);
   });
 
+  // ---- Show buttons (v0.33.278-master.12+) ----
+  // {SHOW_BUTTONS} renders section[data-showpilot-show-buttons]; the optional
+  // {show-buttons-dynamic-container} marks [data-showpilot-container="showbuttons"].
+  // State ({enabled, open, heading, layout, buttons:[{id,label,icon,color,
+  // textColor,waitMs}]}) comes from the bootstrap, every /api/state poll and
+  // the 'showButtonsUpdate' socket event (sent to every page when anyone
+  // presses one). Same markup as lib/show-buttons.js buttonsHtml().
+  // Pressing goes through buildBody(), so the access code / GPS checks match
+  // voting and requests.
+  const sbReadyAt = new Map(); // button id -> local ms when it can be pressed again
+  let sbMyWaitUntil = 0;       // this visitor's own gap between presses
+  let sbTimer = null;
+  let sbKey = '';
+  let sbGapMs = 0;             // the show's gap between one visitor's presses
+  function sbButton(b) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sp-sb-btn';
+    btn.setAttribute('data-sp-button-id', String(Number(b.id) || 0));
+    if (b.color && /^#[0-9a-f]{6}$/i.test(b.color)) {
+      btn.style.setProperty('--sp-sb-bg', b.color);
+      if (/^#[0-9a-f]{6}$/i.test(b.textColor || '')) btn.style.setProperty('--sp-sb-fg', b.textColor);
+    }
+    if (b.icon) {
+      const ic = document.createElement('span');
+      ic.className = 'sp-sb-icon';
+      ic.setAttribute('aria-hidden', 'true');
+      ic.textContent = b.icon;
+      btn.appendChild(ic);
+    }
+    const lb = document.createElement('span');
+    lb.className = 'sp-sb-label';
+    lb.textContent = b.label || '';
+    btn.appendChild(lb);
+    const w = document.createElement('span');
+    w.className = 'sp-sb-wait';
+    w.setAttribute('aria-hidden', 'true');
+    btn.appendChild(w);
+    return btn;
+  }
+  function applyShowButtonsState(st) {
+    if (!st || typeof st !== 'object') return;
+    const open = !!(st.enabled && st.open);
+    const list = Array.isArray(st.buttons) ? st.buttons : [];
+    const now = Date.now();
+    sbGapMs = Math.max(0, Number(st.viewerGapSeconds) || 0) * 1000;
+    list.forEach(b => sbReadyAt.set(String(b.id), now + Math.max(0, Number(b.waitMs) || 0)));
+    document.querySelectorAll('[data-showpilot-container="showbuttons"], [data-showpilot-show-buttons]').forEach(el => {
+      if (open) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
+    });
+    // Rebuild the buttons only when the set changed (added, removed, renamed,
+    // recolored); cooldown changes just repaint.
+    const key = JSON.stringify([st.layout, st.heading, list.map(b => [b.id, b.label, b.icon, b.color, b.textColor])]);
+    document.querySelectorAll('[data-showpilot-show-buttons]').forEach(sec => {
+      sec.setAttribute('data-layout', st.layout === 'grid' ? 'grid' : 'row');
+      const h = sec.querySelector('.sp-sb-heading');
+      if (h) { h.textContent = st.heading || ''; h.hidden = !st.heading; }
+      const box = sec.querySelector('.sp-sb-list');
+      if (box && (key !== sbKey || box.children.length !== list.length)) {
+        box.textContent = '';
+        list.forEach(b => box.appendChild(sbButton(b)));
+      }
+    });
+    sbKey = key;
+    paintShowButtons();
+  }
+  function paintShowButtons() {
+    const now = Date.now();
+    let waiting = false;
+    document.querySelectorAll('[data-showpilot-show-buttons] .sp-sb-btn').forEach(btn => {
+      const ready = sbReadyAt.get(btn.getAttribute('data-sp-button-id')) || 0;
+      const left = Math.max(ready, sbMyWaitUntil) - now;
+      const cooling = left > 0;
+      if (cooling) waiting = true;
+      btn.disabled = cooling || !!btn.__spSending;
+      btn.classList.toggle('sp-sb-cooling', cooling);
+      const w = btn.querySelector('.sp-sb-wait');
+      if (w) w.textContent = cooling ? Math.ceil(left / 1000) + 's' : '';
+    });
+    if (waiting && sbTimer === null) sbTimer = setInterval(paintShowButtons, 250);
+    else if (!waiting && sbTimer !== null) { clearInterval(sbTimer); sbTimer = null; }
+  }
+  function setShowButtonsStatus(sec, text) {
+    const s = sec && sec.querySelector('.sp-sb-status');
+    if (!s) return;
+    s.textContent = text || '';
+    clearTimeout(s.__spClear);
+    if (text) s.__spClear = setTimeout(() => { s.textContent = ''; }, 4000);
+  }
+  async function pressShowButton(btn) {
+    if (btn.disabled || btn.__spSending) return;
+    const sec = btn.closest('[data-showpilot-show-buttons]');
+    const id = Number(btn.getAttribute('data-sp-button-id'));
+    btn.__spSending = true;
+    btn.disabled = true;
+    try {
+      let body;
+      try { body = await buildBody({ id }); } catch (e) {
+        setShowButtonsStatus(sec, (e && e.help) || 'Location is needed to use the buttons.');
+        return;
+      }
+      const r = await postJson('/api/show-button', body);
+      if (r.ok) {
+        btn.classList.remove('sp-sb-fired');
+        void btn.offsetWidth; // restart the animation
+        btn.classList.add('sp-sb-fired');
+        if (navigator.vibrate) { try { navigator.vibrate(30); } catch (_) {} }
+        if (sbGapMs) sbMyWaitUntil = Date.now() + sbGapMs;
+        setShowButtonsStatus(sec, 'Watch the show!');
+        return; // the socket update (or next poll) starts the cooldown
+      }
+      const d = r.data || {};
+      if (d.waitMs > 0) {
+        if (d.viewerWait) sbMyWaitUntil = Date.now() + d.waitMs;
+        else sbReadyAt.set(String(id), Date.now() + d.waitMs);
+      }
+      setShowButtonsStatus(sec, d.error || 'That didn’t work. Please try again.');
+      if (d.invalidLocationCode) showMessage(mapErrorToId(d.error, d), 6000, null, d.error);
+      if (d.closed || r.status === 404) refreshState();
+    } catch (_) {
+      setShowButtonsStatus(sec, 'That didn’t work. Please try again.');
+    } finally {
+      btn.__spSending = false;
+      paintShowButtons();
+    }
+  }
+  document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-showpilot-show-buttons] .sp-sb-btn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    pressShowButton(btn);
+  });
+
   function applyProgressBarConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     const key = JSON.stringify(cfg);
@@ -616,6 +774,10 @@
   if (boot.messages) {
     if (document.body) applyMessagesState(boot.messages);
     else document.addEventListener('DOMContentLoaded', () => applyMessagesState(boot.messages));
+  }
+  if (boot.showButtons) {
+    if (document.body) applyShowButtonsState(boot.showButtons);
+    else document.addEventListener('DOMContentLoaded', () => applyShowButtonsState(boot.showButtons));
   }
   if (boot.progressBar) {
     if (document.body) applyProgressBarConfig(boot.progressBar);
@@ -778,6 +940,7 @@
   // Globals exposed to template onclick handlers
   window.ShowPilotVote = async function (sequenceName) {
     if (listenOnlyBlocked()) return;
+    if (cooldownTapBlocked(sequenceName)) return;
     // If a tiebreak is in progress, route through the tiebreak path
     // instead. Voting for a candidate goes via /api/tiebreak-vote;
     // voting for a non-candidate is rejected with a clear message.
@@ -846,12 +1009,37 @@
   function showFailure(data) {
     const err = data && data.error;
     const id = mapErrorToId(err, data);
-    if (id === MSG_IDS.invalidLocation && /miles of the show/i.test(err || '')) {
+    if (id === MSG_IDS.invalidLocation && /(miles?|km) of the show/i.test(err || '')) {
       const hint = roughLocationHint();
       showMessage(id, hint ? 9000 : undefined, hint ? err + hint : undefined, err + hint);
       return;
     }
+    if (id === MSG_IDS.songCooldown || id === MSG_IDS.sequenceUnavailable) {
+      fillCooldownText(id, data.cooldown && data.cooldown.text);
+      showMessage(id, 4500, undefined, err);
+      return;
+    }
     showMessage(id, undefined, undefined, err);
+  }
+  function fillCooldownText(id, text) {
+    const box = document.getElementById(id);
+    if (!box || !text) return;
+    box.querySelectorAll('[data-showpilot-cooldown-text]').forEach(el => { el.textContent = text; });
+  }
+  // A tap on a song marked as cooling down (kept on the page by the show's
+  // setting) answers right away from its data-cooldown, without a request.
+  function cooldownTapBlocked(sequenceName) {
+    let row = null;
+    document.querySelectorAll('.showpilot-cooldown[data-seq]').forEach(el => {
+      if (!row && el.getAttribute('data-seq') === sequenceName) row = el;
+    });
+    if (!row) return false;
+    const text = row.getAttribute('data-cooldown') || 'a little later';
+    const msg = 'That song was just played. You can pick it again ' + text + '.';
+    const id = cooldownMsgId();
+    fillCooldownText(id, text);
+    showMessage(id, 4500, undefined, msg);
+    return true;
   }
   // Listen Only (v0.33.249+): picking is closed, the page and audio stay up.
   const LISTEN_MSG = 'Requests and voting are closed for now. You can still listen along!';
@@ -864,6 +1052,7 @@
 
   window.ShowPilotRequest = async function (sequenceName) {
     if (listenOnlyBlocked()) return;
+    if (cooldownTapBlocked(sequenceName)) return;
     let body;
     try { body = await buildBody({ sequenceName }); }
     catch { return; }
@@ -893,6 +1082,160 @@
   window.vote = window.ShowPilotVote;
   window.request = window.ShowPilotRequest;
 
+  // ======= Block helpers (v0.33.265) =======
+  // Countdown, date-limited elements and the page-stats blocks. Each part
+  // only does anything when the page has the matching data-showpilot-* hook.
+  (function initBlockHelpers() {
+    // --- Date ranges: data-showpilot-from / data-showpilot-until ---
+    // Values are YYYY-MM-DD (one date) or MM-DD (every year; 12-20 to 01-05
+    // wraps over New Year). Both ends are included. Either may be blank.
+    function md(d) { return (d.getMonth() + 1) * 100 + d.getDate(); }
+    function inRange(from, until, now) {
+      const full = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+      const short = (v) => /^\d{2}-\d{2}$/.test(v);
+      const today = now.getFullYear() * 10000 + md(now);
+      const asNum = (v) => full(v) ? parseInt(v.replace(/-/g, ''), 10) : null;
+      const asMd = (v) => short(v) ? parseInt(v.replace('-', ''), 10) : null;
+      if ((from && short(from)) || (until && short(until))) {
+        const f = asMd(from), u = asMd(until), t = md(now);
+        if (f !== null && u !== null) return f <= u ? (t >= f && t <= u) : (t >= f || t <= u);
+        if (f !== null) return t >= f;
+        if (u !== null) return t <= u;
+        return true;
+      }
+      const f = asNum(from), u = asNum(until);
+      if (f !== null && today < f) return false;
+      if (u !== null && today > u) return false;
+      return true;
+    }
+    function applyRanges() {
+      const now = new Date();
+      document.querySelectorAll('[data-showpilot-from], [data-showpilot-until]').forEach(el => {
+        const show = inRange((el.getAttribute('data-showpilot-from') || '').trim(), (el.getAttribute('data-showpilot-until') || '').trim(), now);
+        if (el.hidden === show) el.hidden = !show;
+      });
+    }
+
+    // --- Countdown ---
+    function hm(v) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '').trim());
+      return m ? { h: Math.min(23, +m[1]), m: Math.min(59, +m[2]) } : null;
+    }
+    function at(base, t, addDays) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + (addDays || 0));
+      d.setHours(t.h, t.m, 0, 0);
+      return d;
+    }
+    // { live: bool, target: Date|null }
+    function countdownState(el, now) {
+      if (el.getAttribute('data-showpilot-countdown') === 'date') {
+        const raw = el.getAttribute('data-date') || '';
+        const target = raw ? new Date(raw.length === 10 ? raw + 'T00:00' : raw) : null;
+        if (!target || isNaN(target)) return { live: false, target: null };
+        return { live: target <= now, target };
+      }
+      const start = hm(el.getAttribute('data-start')) || { h: 18, m: 0 };
+      const end = hm(el.getAttribute('data-end'));
+      const startToday = at(now, start, 0);
+      if (end) {
+        let endToday = at(now, end, 0);
+        // A show that runs past midnight (start 18:00, end 01:00).
+        if (endToday <= startToday) {
+          const startYesterday = at(now, start, -1);
+          if (now >= startYesterday && now < endToday) return { live: true, target: null };
+          endToday = at(now, end, 1);
+        }
+        if (now >= startToday && now < endToday) return { live: true, target: null };
+      }
+      return { live: false, target: now < startToday ? startToday : at(now, start, 1) };
+    }
+    function fmt(ms) {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+      const p2 = (n) => String(n).padStart(2, '0');
+      if (d > 0) return d + 'd ' + h + 'h ' + p2(m) + 'm';
+      if (h > 0) return h + ':' + p2(m) + ':' + p2(sec);
+      return m + ':' + p2(sec);
+    }
+    // "Now" as the show's wall clock (v0.33.268+). Countdown times are the
+    // show's local times, so a visitor in another time zone sees the right
+    // countdown. Falls back to the phone's own clock.
+    function showNow() {
+      const now = new Date();
+      const tz = window.__SHOWPILOT__ && window.__SHOWPILOT__.showTimezone;
+      if (!tz) return now;
+      try {
+        const parts = {};
+        for (const x of new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(now)) parts[x.type] = x.value;
+        return new Date(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second, now.getMilliseconds());
+      } catch (e) { return now; }
+    }
+    function tickCountdowns() {
+      const now = showNow();
+      document.querySelectorAll('[data-showpilot-countdown]').forEach(el => {
+        const st = countdownState(el, now);
+        const time = el.querySelector('[data-showpilot-countdown-time]');
+        const live = el.querySelector('[data-showpilot-countdown-live]');
+        const title = el.querySelector('.sp-countdown-title');
+        el.classList.toggle('sp-countdown--live', st.live);
+        if (live) live.hidden = !st.live;
+        if (title) title.hidden = st.live;
+        if (time) {
+          time.hidden = st.live || !st.target;
+          const txt = st.target ? fmt(st.target - now) : '';
+          if (time.textContent !== txt) time.textContent = txt;
+        }
+      });
+    }
+
+    // --- Top Songs / Tonight's Stats (GET /api/page-stats) ---
+    function paintStats(data) {
+      if (!data) return;
+      const t = data.tonight || {};
+      document.querySelectorAll('[data-showpilot-stat]').forEach(el => {
+        const v = t[el.getAttribute('data-showpilot-stat')];
+        const txt = typeof v === 'number' ? v.toLocaleString() : '–';
+        if (el.textContent !== txt) el.textContent = txt;
+      });
+      document.querySelectorAll('[data-showpilot-top-songs]').forEach(box => {
+        const period = box.getAttribute('data-showpilot-top-songs');
+        const n = Math.max(1, Math.min(10, parseInt(box.getAttribute('data-count'), 10) || 5));
+        const rows = ((data.top || {})[period] || []).slice(0, n);
+        const list = box.querySelector('[data-showpilot-top-songs-list]');
+        const empty = box.querySelector('[data-showpilot-top-songs-empty]');
+        if (list) {
+          list.hidden = !rows.length;
+          list.innerHTML = rows.map(r =>
+            '<li class="sp-top-song"><span class="sp-top-song-name">' + escapeHtml(r.name) + '</span>' +
+            (r.artist ? ' <span class="sp-top-song-artist" style="opacity:.7;font-size:.85em;">' + escapeHtml(r.artist) + '</span>' : '') +
+            '</li>').join('');
+        }
+        if (empty) empty.hidden = !!rows.length;
+      });
+    }
+    let statsBusy = false;
+    async function loadStats() {
+      if (statsBusy || !document.querySelector('[data-showpilot-stat], [data-showpilot-top-songs]')) return;
+      statsBusy = true;
+      try {
+        const r = await fetch('/api/page-stats', { cache: 'no-store' });
+        if (r.ok) paintStats(await r.json());
+      } catch (_) {} finally { statsBusy = false; }
+    }
+
+    function start() {
+      applyRanges();
+      tickCountdowns();
+      loadStats();
+      setInterval(tickCountdowns, 1000);
+      setInterval(applyRanges, 60_000);
+      setInterval(loadStats, 60_000);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+  })();
+
   // ======= Live state refresh =======
   // ---- Live mode switching into/out of Race mode (v0.33.231+) ----
   // The server builds the page differently in Race mode: it blanks every
@@ -915,7 +1258,7 @@
     // 1) The song lists: each mode container's contents, in page order.
     //    (The access-code and after-hours blocks are left alone.)
     const pick = d => Array.from(d.querySelectorAll('[data-showpilot-container]'))
-      .filter(el => !/^(locationcode|afterhours|messages)$/.test(el.getAttribute('data-showpilot-container')));
+      .filter(el => !/^(locationcode|afterhours|messages|showbuttons)$/.test(el.getAttribute('data-showpilot-container')));
     const cur = pick(document), next = pick(doc);
     if (cur.length === next.length) cur.forEach((el, i) => { el.innerHTML = next[i].innerHTML; });
     // 2) The race grid: remove, replace or insert where the server puts it.
@@ -1047,6 +1390,7 @@
     if (data.progressBar) applyProgressBarConfig(data.progressBar);
     if (data.launcherColors) applyLauncherColors(data.launcherColors);
     if (data.messages) applyMessagesState(data.messages);
+    if (data.showButtons) applyShowButtonsState(data.showButtons);
 
     if (typeof data.currentVotingRound === 'number') {
       if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {
@@ -1208,7 +1552,7 @@
         : data.queue.map(e => {
             const seq = byName[e.sequence_name];
             const name = seq ? seq.display_name : e.sequence_name;
-            return `<div class="queue-item" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}</div>`;
+            return `<div class="queue-item jukebox-queue" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}</div>`;
           }).join('');
       queueListEls.forEach(el => { el.innerHTML = queueHtml; });
     }
@@ -1782,7 +2126,8 @@
         (s.artist || '') + '|' +
         (s.image_url || '') + '|' +
         (s.category || '') + '|' +
-        (s.badge || '')
+        (s.badge || '') + '|' +
+        (s.cooldown ? s.cooldown.text : '')
         // vote counts excluded — managed by the direct DOM update in applyStateUpdate
       );
     }
@@ -1812,7 +2157,7 @@
       const label = (seq.category && String(seq.category).trim()) || other;
       const key = label.toLowerCase();
       if (key !== prevKey) {
-        out.push(`<div class="sequence-category-header" data-showpilot-category="${escapeHtml(label)}">${escapeHtml(label)}</div>`);
+        out.push(`<div class="sequence-category-header category-label" data-showpilot-category="${escapeHtml(label)}">${escapeHtml(label)}</div>`);
         prevKey = key;
       }
       out.push(rowFn(seq));
@@ -1886,13 +2231,20 @@
         : '';
       // Badge: same markup as the server (queued state is applied after by markQueued).
       const badge = seq.badge ? String(seq.badge).trim() : '';
-      const extraCls = badge ? ` showpilot-badge showpilot-badge-${badgeSlug(badge)}` : '';
-      const extraAttr = badge ? ` data-badge="${escapeHtml(badge)}"` : '';
+      // Cooldown marks (v0.33.258), same as the server's cooldownMarkup.
+      const cd = seq.cooldown && typeof seq.cooldown === 'object' ? seq.cooldown : null;
+      const cdText = cd ? String(cd.text || '') : '';
+      const cdCls = cd ? ' showpilot-cooldown' : '';
+      const extraCls = (badge ? ` showpilot-badge showpilot-badge-${badgeSlug(badge)}` : '') + cdCls;
+      const extraAttr = (badge ? ` data-badge="${escapeHtml(badge)}"` : '') +
+        (cd ? ` data-cooldown="${escapeHtml(cdText)}" data-cooldown-left="${Number(cd.left) || 0}" data-cooldown-unit="${cd.unit === 'songs' ? 'songs' : 'minutes'}" aria-disabled="true"` : '');
       const badgeEl = badge ? `<span class="sequence-badge">${escapeHtml(badge)}</span>` : '';
+      // Inside the artist line, like the server render.
+      const artistHtml = safeArtist + (cd ? `<span class="sequence-cooldown">Available again ${escapeHtml(cdText)}</span>` : '');
       if (mode === 'VOTING') {
-        return `<div class="cell-vote-playlist sequence-item${extraCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="cell-vote-playlist-artist sequence-artist">${safeArtist}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
+        return `<div class="cell-vote-playlist sequence-item${extraCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="cell-vote-playlist-artist sequence-artist">${artistHtml}</div><span class="sequence-votes" data-seq-votes="${safeNameAttr}">${count}</span></div></div><div class="cell-vote${cdCls}" onclick="ShowPilotVote('${safeNameJs}')" data-seq-count="${safeNameAttr}">${count}</div>`;
       } else {
-        return `<div class="jukebox-list sequence-item${extraCls}" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="jukebox-list-artist sequence-artist">${safeArtist}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
+        return `<div class="jukebox-list sequence-item${extraCls}" onclick="ShowPilotRequest('${safeNameJs}')" data-seq="${safeNameAttr}"${extraAttr}><div>${artImg}<span class="sequence-name">${safeDisplay}</span>${badgeEl}<div class="jukebox-list-artist sequence-artist">${artistHtml}</div><span class="sequence-requests" data-seq-requests="${safeNameAttr}"></span></div></div>`;
       }
     }).join('');
   }
@@ -2005,6 +2357,7 @@
       socket.on('connect', () => refreshState());
 
       // ---- Race mode socket events (v0.33.155+) ----
+      socket.on('showButtonsUpdate', (data) => applyShowButtonsState(data));
       socket.on('raceStarted', (data) => {
         initRaceUI(data);
         refreshState();
@@ -2622,6 +2975,11 @@
   // periodic fallback) all want the sticky latch. Only the watcher's
   // direct out-of-range path passes 'proximity'.
   function applyAudioGateState(blocked, reason, category) {
+    // Inside the ShowPilot app (app bridge, master.17) the app checks the
+    // distance gate with the phone's location and shows the result in the
+    // player bar; this page's own polls carry no location, so they must not
+    // hide the bar or the Listen button there.
+    if (window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function') return;
     _audioGateBlocked = blocked;
     _audioGateReason = reason;
     if (blocked) {
@@ -3138,6 +3496,11 @@
         --of-glow: rgba(168,85,247,0.5);
       }
 
+      /* v0.33.278-master.19: keep the song text readable when snow, leaves or
+         confetti drift behind it on a themed bar. */
+      #of-listen-panel[class*="of-theme-"] .of-listen-text {
+        text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45);
+      }
       /* Player button polish — hover feedback that works regardless of theme */
       #of-listen-panel button {
         outline: none;
@@ -3492,7 +3855,11 @@
     // play/pause. Pure CSS on the existing elements (same buttons, handlers and
     // ids); tablets/desktop keep the single row. Same query as isTallPlayer().
     const TALL_QUERY = '(max-width: 600px)';
-    const playerTallEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerTallLayout);
+    // Always on inside the ShowPilot phone app (app bridge, master.18): every
+    // viewer there is on a phone, and the one-row bar leaves the song title
+    // too little room next to the controls.
+    const playerTallEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerTallLayout)
+      || !!(window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function');
     function isTallPlayer() {
       if (!playerTallEnabled) return false;
       try { return window.matchMedia(TALL_QUERY).matches; } catch (_) { return false; }
@@ -4175,7 +4542,17 @@
     const prefetchRetryAt = new Map();    // stream URL → ms timestamp; backoff after a failed prefetch
     let currentStreamKey = null;  // stream URL of the song playing now
     let nextStreamKey = null;     // stream URL of the song the server says is next
-    let clockOffset = 0;          // serverNow - clientNow at last sync
+    let clockOffset = 0;          // serverNow - spNow() (see clock lock below)
+    // Clock used for everything timed against the show (cloud-link): the
+    // page's monotonic clock, not Date.now(). Date.now() follows the phone's
+    // wall clock, which the OS can step or slew at any moment (network time
+    // updates), and that moved every phone's idea of the show position by the
+    // same amount. Sub-millisecond and never jumps. The offset to the server
+    // is re-measured every second, so a monotonic clock that pauses during
+    // sleep is re-learned on wake (we re-lock on visibilitychange too).
+    const spNow = (typeof performance !== 'undefined' && performance.timeOrigin > 0 && typeof performance.now === 'function')
+      ? () => performance.timeOrigin + performance.now()
+      : () => Date.now();
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
     let audioSyncOffsetMs = 0;    // per-show offset to compensate for FPP audio output latency vs cache delivery speed. Server sends this; positive = audio plays LATER (compensates for too-early arrival)
@@ -4471,9 +4848,39 @@
     let currentTrackMediaName = null; // raw FPP media filename for the current track
     const FPP_SAMPLE_WINDOW_MS = 5000;
 
-    function recordFppSample(msg) {
+    // ---- Detailed log (cloud-link; ?debug=1 only) ----
+    // One line per event, written as plain "name=value" text so a copied
+    // console log keeps the numbers (objects paste as just "Object"). Normal
+    // listeners never get any of it.
+    const spVerbose = (() => {
+      try {
+        return new URLSearchParams(window.location.search).get('debug') === '1'
+          || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.debugOverlayEnabled);
+      } catch (_) { return false; }
+    })();
+    function vfmt(v) {
+      if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(3);
+      if (v === null || v === undefined) return '-';
+      return JSON.stringify(String(v));
+    }
+    function vlog(label, fields) {
+      if (!spVerbose) return;
+      const parts = Object.entries(fields || {}).map(([k, v]) => k + '=' + vfmt(v));
+      console.log('[ShowPilot] ' + label + (parts.length ? ' ' + parts.join(' ') : ''));
+    }
+    // Song-change timeline: when FPP's change reached this phone.
+    let vChangeSeenAt = 0;
+    let vChangeFile = null;
+
+    function recordFppSample(msg, kind) {
       if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
       if (typeof msg.positionSec !== 'number' || msg.positionSec < 0) return;
+      if (spVerbose) {
+        vlog(kind === 'syncPoint' ? 'syncPoint' : 'pos', {
+          file: msg.filename, p: msg.positionSec, ts: msg.serverTimestamp,
+          ageMs: Math.round(spNow() + clockOffset - msg.serverTimestamp),
+        });
+      }
       // New song (or a different file than we hold): start fresh.
       if (fppSamples.length && fppSamples[fppSamples.length - 1].file !== msg.filename) {
         fppSamples = [];
@@ -4521,7 +4928,7 @@
           let ws;
           try { ws = new WebSocket(probeUrl); } catch (e) { probe.state = 'cannot connect: ' + e.message; return; }
           let pingTimer = null, pings = 0;
-          const ping = () => { if (ws.readyState === 1) { ws.send(JSON.stringify({ type: 'timeReq', t0: Date.now() })); pings++; } };
+          const ping = () => { if (ws.readyState === 1) { ws.send(JSON.stringify({ type: 'timeReq', t0: spNow() })); pings++; } };
           ws.onopen = () => {
             probe.state = 'connected to ' + probeUrl;
             ws.send(JSON.stringify({ type: 'probeHello' }));
@@ -4529,7 +4936,7 @@
             pingTimer = setInterval(() => ping(), 1000); // 1/s: plenty for a debug tool
           };
           ws.onmessage = (ev) => {
-            const t1 = Date.now();
+            const t1 = spNow();
             let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
             if (m.type === 'timeResp' && typeof m.t0 === 'number') {
               const rtt = t1 - m.t0;
@@ -4551,7 +4958,7 @@
         // Compare once a second.
         setInterval(() => {
           if (probe.offsetMs === null || !probe.pos || !probe.pos.playing) return;
-          const daemonNow = Date.now() + probe.offsetMs;
+          const daemonNow = spNow() + probe.offsetMs;
           const directPos = probe.pos.positionSec + (daemonNow - probe.pos.serverTimestamp) / 1000;
           if (daemonNow - probe.pos.serverTimestamp > 3000) return; // stale
           const est = estimateFppPosNow();
@@ -4584,7 +4991,7 @@
 
     function estimateFppPosNow() {
       if (!fppSamples.length) return null;
-      const serverNow = Date.now() + clockOffset;
+      const serverNow = spNow() + clockOffset;
       let best = -Infinity;
       let n = 0;
       let newestTs = 0;
@@ -4668,43 +5075,101 @@
       }
       if (changed && msg.filename && msg.filename !== currentTrackMediaName) {
         console.log('[ShowPilot] Show player switched to', msg.filename, '— syncing now');
+        vChangeSeenAt = performance.now(); vChangeFile = msg.filename;
+        vlog('song change seen', { file: msg.filename, p: msg.positionSec, ageMs: Math.round(spNow() + clockOffset - (msg.serverTimestamp || 0)) });
         startFastSync();
       }
     }
 
-    // ---- Hidden output delay (v0.33.223-beta) ----
-    // Some browsers (notably Chrome on Android) report outputLatency as 0 and
-    // can quietly grow the output buffer mid-playback, so sound comes out later
-    // than the audio clock says. getOutputTimestamp() tells us which point on
-    // the audio clock is reaching the speaker right now; the distance to
-    // currentTime (both expressed "now") is the real output delay. Sampled
-    // 5x/s, median of the last 25. Shown in the debug overlay (outDelay:);
-    // with Settings → Debug → "Compensate hidden output delay"
-    // (boot.outputDelayComp) the measured delay is used whenever it's larger
-    // than the reported one (max 800 ms).
-    const outDelaySamples = [];
-    let outDelayMs = null;
-    const outDelayCompOn = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.outputDelayComp);
+    // ---- Output timing (cloud-link; was the opt-in "hidden output delay") ----
+    // When does a sample scheduled on the audio clock actually come out of
+    // the speaker? getOutputTimestamp() answers it directly: "audio-clock
+    // time contextTime is being heard at performance time performanceTime".
+    // We keep k = contextTime - performanceTime/1000 (the audio clock read
+    // against the page clock, at the speaker), median of recent readings.
+    // Then at any moment:
+    //   heard audio-clock time now = performance.now()/1000 + k
+    //   output delay now           = currentTime - that
+    // Reading currentTime at the moment of use cancels its block-sized steps
+    // (Android advances it 10-20 ms at a time), and the delay includes the
+    // buffering Chrome on Android doesn't report (outputLatency 0). This is
+    // what PulseMesh-style players use as their output latency.
+    // Guarded: readings must be consistent (spread <= 30 ms) and the delay
+    // 0-800 ms, else we fall back to the reported outputLatency (an older
+    // build saw a 2000 ms+ reading). ?timing=reported forces the old way.
+    const outDelaySamples = [];   // k values (seconds)
+    let outDelayMs = null;        // current measured delay, for the overlay
+    let outDelayLoggedMs = null;  // last value written to the console
+    let outTimingCtx = null;      // the context the samples belong to
+    const outTimingForcedReported = new URLSearchParams(window.location.search).get('timing') === 'reported';
     function sampleOutputDelay() {
       if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.getOutputTimestamp !== 'function') return;
+      if (outTimingCtx !== audioCtx) { outDelaySamples.length = 0; outTimingCtx = audioCtx; }
+      // A new context's first readings drift by ~100 ms while its output
+      // warms up (seen in Chrome): skip its first 0.8 s.
+      if (audioCtx.currentTime < 0.8) return;
       let ts;
       try { ts = audioCtx.getOutputTimestamp(); } catch (_) { return; }
       if (!ts || !(ts.contextTime > 0) || !(ts.performanceTime > 0)) return;
-      const d = (audioCtx.currentTime - ts.contextTime) - (performance.now() - ts.performanceTime) / 1000;
-      if (!isFinite(d) || d < -0.05 || d > 1.5) return;
-      outDelaySamples.push(d);
+      const k = ts.contextTime - ts.performanceTime / 1000;
+      const d = audioCtx.currentTime - (performance.now() / 1000 + k);
+      if (!isFinite(d) || d < -0.01 || d > 1.0) return;
+      outDelaySamples.push(k);
       if (outDelaySamples.length > 25) outDelaySamples.shift();
-      const s = outDelaySamples.slice().sort((a, b) => a - b);
-      outDelayMs = Math.round(s[Math.floor(s.length / 2)] * 1000);
+      const m = measuredOutputDelaySec();
+      outDelayMs = m === null ? null : Math.round(m * 1000);
+      // Log real changes, so a jump in the speaker delay can be told apart
+      // from other causes when a correction fires.
+      if ((outDelayMs === null) !== (outDelayLoggedMs === null) ||
+          (outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) > 25)) {
+        console.log('[ShowPilot] speaker delay now', outDelayMs === null ? 'unknown (using reported)' : outDelayMs + ' ms',
+          '(was ' + (outDelayLoggedMs === null ? 'unknown' : outDelayLoggedMs + ' ms') + ')');
+        outDelayLoggedMs = outDelayMs;
+      }
     }
-    setInterval(sampleOutputDelay, 200);
+    // Faster while there are few readings (right after the context starts),
+    // so the first song can already use them.
+    (function outTimingLoop() {
+      sampleOutputDelay();
+      setTimeout(outTimingLoop, outDelaySamples.length < 10 ? 50 : 200);
+    })();
+    function outTimingK() {
+      if (outTimingCtx !== audioCtx || outDelaySamples.length < 8) return null;
+      const s = outDelaySamples.slice().sort((a, b) => a - b);
+      const q1 = s[Math.floor(s.length * 0.25)], q3 = s[Math.floor(s.length * 0.75)];
+      if (q3 - q1 > 0.03) return null; // readings disagree: don't trust them
+      return s[Math.floor(s.length / 2)];
+    }
+    function measuredOutputDelaySec() {
+      if (!audioCtx) return null;
+      const k = outTimingK();
+      if (k === null) return null;
+      const d = audioCtx.currentTime - (performance.now() / 1000 + k);
+      return (d >= 0 && d <= 0.8) ? d : null;
+    }
+    function outputTimingSource() {
+      if (outTimingForcedReported) return 'reported (forced)';
+      return measuredOutputDelaySec() !== null ? 'measured' : 'reported';
+    }
+    // Before a song starts: wait (at most maxMs) until the clock is locked
+    // and the output readings have settled. Only the first start after the
+    // player opens ever waits; both are ready long before later songs.
+    async function waitForTimingReady(maxMs) {
+      const until = performance.now() + maxMs;
+      const outputReady = () => outTimingForcedReported || !audioCtx ||
+        typeof audioCtx.getOutputTimestamp !== 'function' || audioCtx.state !== 'running' || outTimingK() !== null;
+      const clockReady = () => clockLocked || !audioSock || !audioSock.connected;
+      while (!(outputReady() && clockReady()) && performance.now() < until) {
+        await new Promise(r => setTimeout(r, 25));
+      }
+    }
 
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
       let base = (l > 0 && l < 0.4) ? l : 0;
-      if (outDelayCompOn && outDelayMs !== null && outDelaySamples.length >= 10) {
-        const measured = Math.min(0.8, Math.max(0, outDelayMs / 1000));
-        if (measured > base) base = measured;
+      if (!outTimingForcedReported) {
+        const m = measuredOutputDelaySec();
+        if (m !== null) base = m;
       }
       // + the listener's own timing offset (v0.33.213+), which covers the
       // Bluetooth / car delay the browser can't see.
@@ -4725,6 +5190,27 @@
     const RATE_GAIN = 0.1;           // speed offset per second of drift (50ms → 0.5%)
     const RATE_DEADBAND_MS = 8;      // closer than this: play at normal speed
     const JUMP_THRESHOLD_MS = 150;   // farther than this: crossfade jump instead
+    // Settle (cloud-link): in the checks right after a start, 30 ms or more
+    // is fixed with a quick crossfade at once instead of 15-20 s of
+    // speed nudging (an 84 ms start error at 0.5%). Needs at
+    // least two fresh readings so one odd reading can't trigger it. After
+    // the start checks, the normal rules apply again.
+    const SETTLE_THRESHOLD_MS = 30;
+    // Late settle (beta): for the first 10 s after a start, the running check
+    // also fixes >= 30 ms at once (crossfade). A player that just opened has a
+    // fresh audio output whose delay reading keeps settling for a few
+    // seconds after the start; the start and the first checks use the early
+    // reading, so they report 0 ms while the listener hears an echo, and the
+    // speed nudge then needs ~20 s per 100 ms. Song changes on a long-running
+    // output didn't have this. Max 3 per start, 2 s apart, >= 3 readings.
+    const LATE_SETTLE_WINDOW_SEC = 10;
+    const LATE_SETTLE_GAP_MS = 2000;
+    const LATE_SETTLE_MAX = 3;
+    let lateSettleUntilCtx = 0;
+    let lateSettleCount = 0;
+    function startCheckThreshold(est) {
+      return (est && est.n >= 2 && est.newestAgeMs < 1500) ? SETTLE_THRESHOLD_MS : JUMP_THRESHOLD_MS;
+    }
 
     function renderedPosAt(ctxTime) {
       return trackScheduledAtPositionSec
@@ -4767,8 +5253,10 @@
       if (targetPos < 0 || targetPos >= currentBuffer.duration - 0.1) return false;
       const FADE = 0.08;
       const now = audioCtx.currentTime;
-      const t0 = now + 0.01;            // lead so the whole fade is scheduled ahead
-      const startPos = targetPos + 0.01;
+      const LEAD = 0.04;                // lead so the whole fade is scheduled ahead (cloud-link: was 10 ms, too short for 20-40 ms render blocks)
+      const t0 = now + LEAD;
+      const startPos = targetPos + LEAD;
+      vlog('crossfade', { from: renderedPosAt(now), to: targetPos, jumpMs: Math.round((targetPos - renderedPosAt(now)) * 1000), leadMs: Math.round(LEAD * 1000) });
       const { up, down } = equalPowerCurves();
       const oldNode = currentSource;
       const oldGain = currentSourceGain;
@@ -4801,7 +5289,7 @@
       setTimeout(() => {
         try { oldNode.stop(); oldNode.disconnect(); } catch (_) {}
         try { oldGain.disconnect(); } catch (_) {}
-      }, (0.01 + FADE) * 1000 + 50);
+      }, (LEAD + FADE) * 1000 + 50);
 
       trackScheduledAtAudioCtx = t0;
       trackScheduledAtPositionSec = startPos;
@@ -4895,6 +5383,30 @@
     minBtn.onclick = () => setMode('minimized');
     closeBtn.onclick = () => setMode('closed');
     minimizedPill.onclick = () => setMode('open');
+
+    // {LISTEN_BUTTON} / any [data-showpilot-listen] (v0.33.265): a button in
+    // the template's own text that does what the corner button does. It runs
+    // the corner button's click handler inside the visitor's tap, which iOS
+    // needs to start audio. Hidden (.sp-listen-unavailable) whenever the
+    // corner button is: phone audio off, or waiting on the location check.
+    document.addEventListener('click', (e) => {
+      const t = e.target && e.target.closest ? e.target.closest('[data-showpilot-listen]') : null;
+      if (!t) return;
+      e.preventDefault();
+      if (panelMode === 'minimized') { setMode('open'); return; }
+      if (panelMode === 'open') return;
+      if (btn.onclick) btn.onclick();
+    });
+
+    function syncInlineListen() {
+      const off = !boot.audioEnabled || btn.classList.contains('of-audio-gate-pending');
+      document.querySelectorAll('[data-showpilot-listen]').forEach(el => {
+        if (el.classList.contains('sp-listen-unavailable') !== off) el.classList.toggle('sp-listen-unavailable', off);
+      });
+    }
+    try { new MutationObserver(syncInlineListen).observe(btn, { attributes: true, attributeFilter: ['class'] }); } catch (_) {}
+    syncInlineListen();
+    setInterval(syncInlineListen, 3000);
     playBtn.onclick = () => {
       // v0.33.246 (issue #33): a real Pause/Play toggle.
       // Pause: stop audio and stay stopped — userPaused blocks every
@@ -4932,12 +5444,102 @@
       setMuteIcon(isMuted);
     };
 
+    // ---- ShowPilot app bridge (v0.33.278-master.17) ----
+    // Inside the ShowPilot phone app, the app defines window.ShowPilotApp
+    // before this page loads and plays the synced audio itself. The page
+    // keeps drawing its own player bar (decoration theme, custom color,
+    // animations, two-row layout, minimize pill), so it looks exactly as the
+    // show runner set it up, but nothing here makes sound: no AudioContext,
+    // no song downloads, no sync loop, no mic, no location prompt. The bar
+    // shows the app's status and its buttons send messages to the app.
+    // Contract: docs/APP-BRIDGE.md in the ShowPilot-Mobile-Apps repo.
+    function isAppMode() {
+      return !!(window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function');
+    }
+    const spApp = isAppMode() ? window.ShowPilotApp : null;
+    // master.21: the app's music is audible (playing, not muted); gates the
+    // live decorations, which the app feeds with levels (see liveFrame).
+    let appLivePlaying = false;
+    if (spApp) {
+      let appStatus = null;
+      let appTitle = null;
+      let appArtist = null;
+      const appSend = (msg) => { try { spApp.send(msg); } catch (_) {} };
+      const appRender = (st) => {
+        if (!st || typeof st !== 'object') return;
+        appStatus = st;
+        appLivePlaying = !!(st.active && st.playing && st.state === 'playing' && !st.muted);
+        if (!st.active) {
+          if (panelMode !== 'closed') setMode('closed');
+          return;
+        }
+        if (panelMode === 'closed') setMode('open');
+        applyDecoration(st.playerDecoration, st.playerDecorationAnimated !== false, st.playerCustomColor || '');
+        const title = st.title || st.statusText || '';
+        if (title !== appTitle) {
+          appTitle = title;
+          titleEl.textContent = title;
+          setupMarquee(titleEl, titleWrap);
+        }
+        const artist = st.title ? (st.artist || '') : '';
+        if (artist !== appArtist) {
+          appArtist = artist;
+          artistEl.textContent = artist;
+          setupMarquee(artistEl, artistWrap);
+        }
+        setCover(st.imageUrl || '');
+        statusEl.textContent = st.title ? (st.statusText || '') : '';
+        if (driftEl) driftEl.textContent = st.driftText || '';
+        setPlayIcon(!!st.playing);
+        isMuted = !!st.muted;
+        setMuteIcon(isMuted);
+        muteBtn.style.color = isMuted ? '#ef4444' : 'rgba(255,255,255,0.75)';
+        minimizedPill.querySelector('#of-listen-pill-text').textContent = st.title || 'Playing';
+      };
+      // Corner button and {LISTEN_BUTTON}: ask the app to (re)start. The
+      // app runs the distance gate, so the button isn't held back waiting
+      // for this page's own location check.
+      btn.classList.remove('of-audio-gate-pending');
+      btn.onclick = () => appSend({ type: 'listen' });
+      playBtn.onclick = () => appSend({ type: (appStatus && appStatus.playing) ? 'pause' : 'resume' });
+      muteBtn.onclick = () => appSend({ type: 'mute', muted: !isMuted });
+      closeBtn.onclick = () => appSend({ type: 'stop' });
+      // The app's own full player has car timing and delay measuring.
+      const openAppPlayer = (e) => { if (e) e.stopPropagation(); appSend({ type: 'openPlayer' }); };
+      if (ltBtn) {
+        ltBtn.removeEventListener('click', ltOpen);
+        ltBtn.addEventListener('click', openAppPlayer);
+      }
+      coverEl.style.cursor = 'pointer';
+      coverEl.addEventListener('click', openAppPlayer);
+      if (textCol) { textCol.style.cursor = 'pointer'; textCol.addEventListener('click', openAppPlayer); }
+      window.addEventListener('showpilot-app:status', (e) => appRender(e.detail));
+      // Live decorations: band levels of what the listener hears, each frame
+      // due d ms from now (the app has already allowed for output delay and
+      // the car's timing). Queued for liveFrame like analyser frames.
+      window.addEventListener('showpilot-app:levels', (e) => {
+        const frames = e.detail && e.detail.frames;
+        if (!liveOn || !appLivePlaying || !Array.isArray(frames)) return;
+        const now = performance.now();
+        for (const f of frames) {
+          if (f && Array.isArray(f.v) && f.v.length === liveEls.length) liveQueue.push([now + Math.max(0, +f.d || 0), f.v.map(Number)]);
+        }
+        if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);
+      });
+      // After the rest of this player code has run: rendering uses state
+      // (decorations, padding) declared further down.
+      setTimeout(() => {
+        if (spApp.status) appRender(spApp.status);
+        appSend({ type: 'ready', bridge: 1 });
+      }, 0);
+    }
+
     function setMode(mode) {
       panelMode = mode;
       // Sticky panel takes ~75px height — push body content up so sticky doesn't
       // cover footer content the user scrolls to. Restored when panel closes/minimizes.
       // v0.33.215: the optional two-row phone player is taller.
-      document.body.style.paddingBottom = (mode === 'open') ? (isTallPlayer() ? '150px' : '88px') : '';
+      document.body.style.paddingBottom = (mode === 'open') ? playerBodyPad() : '';
       if (mode === 'closed') {
         panel.style.display = 'none';
         panel.style.transform = 'translateY(100%)';
@@ -4977,6 +5579,15 @@
     const debugMode = new URLSearchParams(window.location.search).get('debug') === '1'
       || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.debugOverlayEnabled);
     let debugEl = null;
+    let lastSyncReportAt = 0;
+    // A short label so devices can be told apart in the show's log.
+    const syncReportDevice = (() => {
+      const ua = navigator.userAgent || '';
+      const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+        : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /CrOS/.test(ua) ? 'Chromebook' : 'Other';
+      const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+      return `${os} ${br} #${Math.random().toString(36).slice(2, 6)}`;
+    })();
     if (debugMode) {
       debugEl = document.createElement('div');
       debugEl.style.cssText = `
@@ -4989,6 +5600,7 @@
     }
 
     async function startup() {
+      if (isAppMode()) return; // the ShowPilot app plays the audio (app bridge)
       try {
         // Consume the AudioContext created synchronously in btn.onclick's
         // user-gesture window (iOS requires this — see comment there).
@@ -5061,12 +5673,11 @@
 
             // Re-sync clock via Socket.io now that connection is established.
             // Socket.io ping bypasses Cloudflare HTTP overhead for much better accuracy.
-            syncClockBurst(5).then(() => {
-              console.log('[ShowPilot] Socket.io timesync complete, clockOffset:', Math.round(clockOffset), 'ms');
-            });
-
-            // Re-sync every 30s continuously
-            setInterval(() => syncClockBurst(3), 30000);
+            // Clock lock + one ping a second while the player is open
+            // (cloud-link; replaces a 5-ping burst and a 3-ping burst every
+            // 30 s, which also piled up a new timer every time the player
+            // was reopened).
+            startClockMaintenance();
 
             // Persistent fppSyncPoint handler — resolves pending syncPoint
             // promises from handleTrackChange. Keyed by filename so concurrent
@@ -5074,7 +5685,7 @@
             // clobber each other.
             audioSock.on('fppSyncPoint', (msg) => {
               if (!msg || !msg.playing) return;
-              recordFppSample(msg);
+              recordFppSample(msg, 'syncPoint');
               // Do NOT update clockOffset here — msg.serverTimestamp is a one-way
               // timestamp with no RTT correction. Updating clockOffset from it
               // corrupts the accurate NTP burst estimate from syncClockBurst().
@@ -5150,12 +5761,16 @@
           // client-side. If they're missing (older server, gate enabled
           // without coords configured), fall back to the periodic check
           // alone — better than nothing.
-          if (
+          // App listing with a rounded location (audioGateServerWatch): the
+          // page carries no show coordinates, so the watcher asks the server
+          // whether this position is in range (at most every 30 seconds).
+          const gateHasCoords =
             typeof boot.audioGateLatitude === 'number' &&
             typeof boot.audioGateLongitude === 'number' &&
-            typeof boot.audioGateRadiusMiles === 'number' &&
-            'geolocation' in navigator
-          ) {
+            typeof boot.audioGateRadiusMiles === 'number';
+          let serverWatchLastMs = 0;
+          let serverWatchBusy = false;
+          if ((gateHasCoords || boot.audioGateServerWatch === true) && 'geolocation' in navigator) {
             try {
               watchPositionId = navigator.geolocation.watchPosition(
                 (pos) => {
@@ -5175,6 +5790,32 @@
                     return;
                   }
 
+                  if (!gateHasCoords) {
+                    if (serverWatchBusy || Date.now() - serverWatchLastMs < 30 * 1000) return;
+                    serverWatchBusy = true;
+                    serverWatchLastMs = Date.now();
+                    fetch('/api/visual-config?lat=' + encodeURIComponent(pos.coords.latitude) +
+                          '&lng=' + encodeURIComponent(pos.coords.longitude), { credentials: 'include' })
+                      .then((r) => (r.ok ? r.json() : null))
+                      .then((data) => {
+                        if (!data) return; // server hiccup: the periodic check still runs
+                        if (data.audioGateBlocked) {
+                          stopAudio();
+                          applyAudioGateState(
+                            true,
+                            data.audioGateReason || 'Audio is only available to listeners present at the show.',
+                            'proximity'
+                          );
+                          statusEl.textContent = 'Audio stopped — you have moved away from the show.';
+                        } else {
+                          lastWatcherInRangeMs = Date.now();
+                          liftProximityLatch();
+                        }
+                      })
+                      .catch(() => {})
+                      .then(() => { serverWatchBusy = false; });
+                    return;
+                  }
                   const dist = haversineMiles(
                     pos.coords.latitude,
                     pos.coords.longitude,
@@ -5299,6 +5940,7 @@
     function teardown() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
+      stopClockMaintenance();
       if (locationVerifyTimer) { clearInterval(locationVerifyTimer); locationVerifyTimer = null; }
       // Release the GPS subscription so the device can put the GPS chip
       // back to sleep. clearWatch is a no-op for null IDs but the guard
@@ -5350,114 +5992,158 @@
       currentTrackMediaName = null;
     }
 
-    // ---- NTP-style clock sync (burst pings) ----
-    //
-    // Establishes accurate clock offset between this client and the server.
-    // Without accurate sync, two phones aligning to "FPP position + elapsed
-    // since update" will drift apart because each computes elapsed using
-    // its own (skewed) Date.now(). The single-sample offset embedded in
-    // now-playing-audio polls has 50-200ms of jitter from network variance;
-    // burst sync improves this to ~10-20ms by:
-    //   1. Firing N parallel pings to /api/time
-    //   2. Recording (t_send_local, t_recv_local, t_server) for each
-    //   3. Computing offset = t_server + rtt/2 - t_recv_local
-    //   4. Discarding outlier RTTs (sort by rtt, keep best half)
-    //   5. Averaging the offsets from the kept samples
-    //
-    // The "discard outliers" step is key — a single bad ping (network
-    // hiccup, GC pause, etc.) would skew an unfiltered average by tens
-    // of ms. PulseMesh's implementation does similar burst+filter logic
-    // on a dedicated WebSocket; we use HTTP since we're not building a
-    // separate connection just for this.
-    let lastClockSyncAt = 0;
-    let bestRttEverMs = Infinity; // best RTT seen across all bursts — guards against high-jitter overwrites
+    // ---- Clock lock (cloud-link, modelled on PulseMesh's time sync) ----
+    // Offset between this page's clock (spNow) and the server's clock, which
+    // FPP positions are stamped in. Each sample: t1 sent, server stamps
+    // t2/t3, t4 received; offset = ((t2-t1)+(t3-t4))/2, error <= rtt/2 and
+    // usually far less on the quickest round trips.
+    //  - LOCK: 25 pings spaced 30 ms apart (~0.8 s) when the player connects,
+    //    reconnects or the page wakes. Spaced, not all at once: pings fired
+    //    together queue behind each other and all see the same moment of the
+    //    network, so the "best" of them is no better than the rest.
+    //  - KEEP: then one ping per second, forever.
+    //  - ESTIMATE: from the last 60 s of samples, the quickest 20% (at least
+    //    5) by round trip; their median offset. A slow or lopsided round trip
+    //    never wins, so a busy moment on the connection can't move the clock.
+    // Replaces bursts of 3-5 simultaneous pings every 30 s on Date.now().
+    const CLOCK_LOCK_PINGS = 25;
+    const CLOCK_LOCK_SPACING_MS = 30;
+    const CLOCK_KEEP_EVERY_MS = 1000;
+    const CLOCK_WINDOW_MS = 60000;
+    let clockSamples = [];          // { rtt, offset, at } — at = spNow()
+    let clockBestRttMs = null;      // round trip of the best sample in use
+    let clockSampleCount = 0;       // samples used for the current estimate
+    let lastClockSyncAt = 0;        // spNow() of the last estimate (0 = none yet)
+    let clockLocked = false;
+    let clockKeepTimer = null;
+    let clockLockRun = 0;
+    let clockSockBound = null;
+    const clockPending = new Map(); // t1 → { resolve, timer }
+
+    // Wall clock minus page clock at the last sample. If it has moved a lot
+    // since, the page clock paused (device asleep) and the old samples no
+    // longer describe it. Otherwise they're still good and are kept.
+    let clockGapRef = null;
+    function clockPagePaused() {
+      return clockGapRef !== null && Math.abs((Date.now() - spNow()) - clockGapRef) > 50;
+    }
+    function clockAddSample(rtt, offset) {
+      if (!(rtt >= 0) || rtt > 5000 || !Number.isFinite(offset)) return;
+      const now = spNow();
+      clockGapRef = Date.now() - now;
+      clockSamples.push({ rtt, offset, at: now });
+      clockSamples = clockSamples.filter(s => now - s.at <= CLOCK_WINDOW_MS);
+      if (clockSamples.length > 200) clockSamples.splice(0, clockSamples.length - 200);
+      clockEstimate();
+    }
+    function clockEstimate() {
+      if (!clockSamples.length) return;
+      const byRtt = clockSamples.slice().sort((a, b) => a.rtt - b.rtt);
+      const keep = byRtt.slice(0, Math.max(Math.min(5, byRtt.length), Math.ceil(byRtt.length * 0.2)));
+      const offs = keep.map(s => s.offset).sort((a, b) => a - b);
+      const mid = Math.floor(offs.length / 2);
+      const est = offs.length % 2 ? offs[mid] : (offs[mid - 1] + offs[mid]) / 2;
+      const prev = clockOffset;
+      clockOffset = est;
+      clockBestRttMs = byRtt[0].rtt;
+      clockSampleCount = keep.length;
+      lastClockSyncAt = spNow();
+      if (clockLocked && Math.abs(est - prev) > 5) {
+        console.log('[ShowPilot] clock moved', Math.round(est - prev), 'ms → offset', Math.round(est), 'ms (best rtt', Math.round(clockBestRttMs), 'ms)');
+      }
+    }
+    function onClockReply(msg) {
+      if (!msg || msg.t1 == null) return;
+      const p = clockPending.get(String(msg.t1));
+      if (!p) return;
+      clockPending.delete(String(msg.t1));
+      clearTimeout(p.timer);
+      const t4 = spNow();
+      p.resolve({ rtt: t4 - msg.t1, offset: ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2 });
+    }
+    function bindClockSocket() {
+      if (!audioSock || clockSockBound === audioSock) return;
+      clockSockBound = audioSock;
+      audioSock.on('timesync', onClockReply);
+      // A new connection may take a different path: start over.
+      // A reconnect doesn't change the clocks: keep the samples (quick ones
+      // still win) unless the page clock paused while disconnected.
+      audioSock.on('connect', () => { if (clockPagePaused()) clockSamples = []; lockClock(); });
+    }
+    function clockPing() {
+      return new Promise((resolve) => {
+        if (!audioSock || !audioSock.connected) return resolve(null);
+        const t1 = spNow();
+        const timer = setTimeout(() => { clockPending.delete(String(t1)); resolve(null); }, 2000);
+        clockPending.set(String(t1), { resolve, timer });
+        try { audioSock.emit('timesync', { t1 }); } catch (_) { clearTimeout(timer); clockPending.delete(String(t1)); resolve(null); }
+      }).then((s) => { if (s) clockAddSample(s.rtt, s.offset); return s; });
+    }
+    async function lockClock() {
+      const run = ++clockLockRun;
+      clockLocked = false;
+      for (let i = 0; i < CLOCK_LOCK_PINGS; i++) {
+        if (run !== clockLockRun) return;
+        clockPing();
+        await new Promise(r => setTimeout(r, CLOCK_LOCK_SPACING_MS));
+      }
+      await new Promise(r => setTimeout(r, 400)); // let the last replies land
+      if (run !== clockLockRun) return;
+      clockLocked = true;
+      if (spVerbose && clockSamples.length) {
+        const r = clockSamples.map(x => x.rtt).sort((a, b) => a - b);
+        const o = clockSamples.map(x => x.offset).sort((a, b) => a - b);
+        vlog('clock samples', { n: r.length, rttMin: Math.round(r[0]), rttMedian: Math.round(r[r.length >> 1]), rttMax: Math.round(r[r.length - 1]),
+          offsetMin: Math.round(o[0]), offsetMax: Math.round(o[o.length - 1]) });
+      }
+      console.log('[ShowPilot] clock locked: offset', Math.round(clockOffset), 'ms, best rtt',
+        clockBestRttMs === null ? 'n/a' : Math.round(clockBestRttMs) + ' ms', '(' + clockSampleCount + ' of ' + clockSamples.length + ' samples)');
+    }
+    function onClockWake() {
+      if (document.hidden || !clockKeepTimer) return;
+      // Only start over if the page clock actually paused while asleep.
+      // Throwing away good samples left the estimate on the first few slow
+      // replies and made it wander 20-40 ms until the lock finished.
+      if (clockPagePaused()) clockSamples = [];
+      lockClock();
+    }
+    function startClockMaintenance() {
+      bindClockSocket();
+      if (clockKeepTimer) return;
+      lockClock();
+      clockKeepTimer = setInterval(() => { if (clockLocked) clockPing(); }, CLOCK_KEEP_EVERY_MS);
+      document.addEventListener('visibilitychange', onClockWake);
+      window.addEventListener('online', onClockWake);
+    }
+    function stopClockMaintenance() {
+      if (clockKeepTimer) { clearInterval(clockKeepTimer); clockKeepTimer = null; }
+      clockLockRun++;
+      document.removeEventListener('visibilitychange', onClockWake);
+      window.removeEventListener('online', onClockWake);
+    }
+
+    // Kept for callers: before the socket is up (cold start) this measures
+    // over HTTP into the same sample pool; once the socket is up it locks.
+    // HTTP samples have long round trips and drop out of the estimate as
+    // soon as quicker socket samples arrive.
     async function syncClockBurst(burstSize = 5) {
-      // Use Socket.io timesync for accurate clock offset measurement.
-      // Socket.io bypasses Cloudflare HTTP overhead giving 5-20ms accuracy
-      // vs 50-200ms for HTTP. We fire parallel queries and take the best.
       if (audioSock && audioSock.connected) {
-        return new Promise((resolve) => {
-          const samples = [];
-          let pending = burstSize;
-
-          const handler = (msg) => {
-            const t4 = Date.now();
-            const rtt = t4 - msg.t1;
-            const offset = ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2;
-            samples.push({ rtt, offset });
-            pending--;
-            if (pending === 0) {
-              audioSock.off('timesync', handler);
-              // Pick lowest-RTT sample — most accurate
-              samples.sort((a, b) => a.rtt - b.rtt);
-              const bestRtt = samples[0].rtt;
-              const best = samples.slice(0, Math.ceil(samples.length / 2));
-              const offsets = best.map(s => s.offset).sort((a, b) => a - b);
-              const mid = Math.floor(offsets.length / 2);
-              const newOffset = offsets.length % 2 === 1
-                ? offsets[mid]
-                : (offsets[mid - 1] + offsets[mid]) / 2;
-
-              // Only update clockOffset if this burst's RTT is within 3x of
-              // the best RTT we've ever seen. High-jitter bursts (e.g. 200ms RTT
-              // when we've previously seen 5ms) produce inaccurate offsets and
-              // cause the drift display to jump, triggering spurious crossfades.
-              if (bestRtt < bestRttEverMs) bestRttEverMs = bestRtt;
-              if (bestRtt <= bestRttEverMs * 3) {
-                clockOffset = newOffset;
-                lastClockSyncAt = Date.now();
-              }
-              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (best RTT:', bestRtt, 'ms' + (bestRtt > bestRttEverMs * 3 ? ' — REJECTED high jitter' : '') + ')');
-              resolve();
-            }
-          };
-          audioSock.on('timesync', handler);
-
-          // Fire all queries in parallel
-          for (let i = 0; i < burstSize; i++) {
-            audioSock.emit('timesync', { t1: Date.now() });
-          }
-
-          // Fallback timeout
-          setTimeout(() => {
-            audioSock.off('timesync', handler);
-            resolve();
-          }, 3000);
-        });
+        bindClockSocket();
+        return lockClock();
       }
-
-      // Fallback: HTTP-based sync when Socket.io not ready yet
-      const samples = [];
-      const promises = [];
       for (let i = 0; i < burstSize; i++) {
-        promises.push((async () => {
-          const t0 = Date.now();
-          try {
-            const r = await fetch('/api/time', { credentials: 'include', cache: 'no-store' });
-            const t1 = Date.now();
-            const data = await r.json();
-            if (typeof data.t === 'number') {
-              const rtt = t1 - t0;
-              const oneWay = rtt / 2;
-              const offset = data.t + oneWay - t1;
-              samples.push({ rtt, offset });
-            }
-          } catch (e) {}
-        })());
+        const t0 = spNow();
+        try {
+          const r = await fetch('/api/time', { credentials: 'include', cache: 'no-store' });
+          const t1 = spNow(); // headers in, before parsing
+          const data = await r.json();
+          if (typeof data.t === 'number') clockAddSample(t1 - t0, data.t + (t1 - t0) / 2 - t1);
+        } catch (e) {}
       }
-      await Promise.all(promises);
-      if (samples.length === 0) return;
-      samples.sort((a, b) => a.rtt - b.rtt);
-      const keep = samples.length >= 4 ? samples.slice(0, Math.ceil(samples.length / 2)) : samples;
-      const offsets = keep.map(s => s.offset).sort((a, b) => a - b);
-      const mid = Math.floor(offsets.length / 2);
-      clockOffset = offsets.length % 2 === 1
-        ? offsets[mid]
-        : (offsets[mid - 1] + offsets[mid]) / 2;
-      lastClockSyncAt = Date.now();
     }
 
     async function syncOnce() {
+      if (isAppMode()) return; // the ShowPilot app plays the audio (app bridge)
       try {
         // Master audio kill-switch — admin disabled audio for this show.
         // No point polling /api/now-playing-audio: the server returns
@@ -5474,11 +6160,11 @@
         // polling resumes naturally on the next interval.
         if (_gateLatchedBlocked !== null) return;
 
-        const reqStart = Date.now();
+        const reqStart = spNow();
         const r = await fetch('/api/now-playing-audio' + locationQuery(), { credentials: 'include' });
         if (!r.ok) return;
         const data = await r.json();
-        const reqEnd = Date.now();
+        const reqEnd = spNow();
 
         // Server says viewer is outside the audio gate radius — stop audio
         // and signal the launcher to hide. /api/visual-config polling will
@@ -5641,7 +6327,7 @@
       }
       currentMediaName = data.sequenceName;
       currentTrackMediaName = data.mediaName || null;
-      trackStartedAtMs = data.trackStartedAtMs || (Date.now() + clockOffset - (data.elapsedSec * 1000));
+      trackStartedAtMs = data.trackStartedAtMs || (spNow() + clockOffset - (data.elapsedSec * 1000));
       trackDuration = data.durationSec || 0;
       if (typeof data.audioSyncOffsetMs === 'number') audioSyncOffsetMs = data.audioSyncOffsetMs;
       livePosition = (data.livePosition && data.livePosition.sequence === data.sequenceName)
@@ -5714,7 +6400,11 @@
         if (streamKey === nextStreamKey) nextStreamKey = null; // the "next" song is now playing
         pruneBufferCache();
         let audioBuffer = streamKey ? (decodedBufferCache.get(streamKey) || null) : null;
+        const vLoadT0 = performance.now();
+        let vSource = audioBuffer ? 'predecoded' : 'download';
+        let vDownloadMs = null, vDecodeMs = null;
         if (!audioBuffer && streamKey && prefetchInFlight.has(streamKey)) {
+          vSource = 'prefetch-wait';
           console.info('[ShowPilot] waiting for in-progress prefetch of', currentSequence);
           audioBuffer = await prefetchInFlight.get(streamKey);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
@@ -5723,10 +6413,13 @@
           console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
           const arrayBuf = await fetchAudioWithTimeout(chosenUrl, 20000);
+          vDownloadMs = Math.round(performance.now() - vLoadT0);
           if (myTrackToken !== trackChangeToken) return; // a newer track change took over
+          const vDecT0 = performance.now();
           audioBuffer = await new Promise((resolve, reject) => {
             audioCtx.decodeAudioData(arrayBuf, resolve, reject);
           });
+          vDecodeMs = Math.round(performance.now() - vDecT0);
           if (streamKey && streamKey === currentStreamKey) decodedBufferCache.set(streamKey, audioBuffer);
         }
         if (myTrackToken !== trackChangeToken) return; // a newer track change took over
@@ -5749,6 +6442,11 @@
 
         currentBuffer = audioBuffer;
         console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
+        vlog('audio ready', {
+          source: vSource, readyMs: Math.round(performance.now() - vLoadT0), downloadMs: vDownloadMs, decodeMs: vDecodeMs,
+          sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
+          ctxRate: audioCtx ? audioCtx.sampleRate : null,
+        });
 
         // ---- Coordinated play start (v0.33.129) ----
         // Fast-start immediately, one-time grid snap ~2s later to lock all phones
@@ -5783,8 +6481,14 @@
           }
         }
 
+        // cloud-link: first start after opening the player waits for the
+        // clock lock and settled output readings (max 1.5 s, PulseMesh does
+        // the same); later songs find both ready and don't wait.
+        await waitForTimingReady(1500);
+        if (playGeneration !== myGeneration || myTrackToken !== trackChangeToken) return;
+
         const outputLatencySec = getOutputLatencySec();
-        const serverNow = Date.now() + clockOffset;
+        const serverNow = spNow() + clockOffset;
 
         // ---- Fast-start: play immediately from current position ----
         let fastStartPos;
@@ -5810,8 +6514,12 @@
         // this sample is actually HEARD (lead + output latency ahead). Older
         // versions delayed the start by the output latency instead of
         // advancing the position, landing 50ms + 2x latency behind.
-        const fastStartCtxTime = audioCtx.currentTime + 0.05;
-        fastStartPos += 0.05 + outputLatencySec;
+        // cloud-link: 120 ms lead (was 50). A start time the audio thread has
+        // already passed starts late by however much, and nothing measures
+        // that afterwards; phones with 20-40 ms render blocks could miss 50.
+        const FAST_START_LEAD = 0.12;
+        const fastStartCtxTime = audioCtx.currentTime + FAST_START_LEAD;
+        fastStartPos += FAST_START_LEAD + outputLatencySec;
         // A negative listener offset ("music is early") can push this below
         // the start of the song at song start; clamp (v0.33.213+).
         if (fastStartPos < 0) fastStartPos = 0;
@@ -5820,11 +6528,23 @@
           return;
         }
         console.log('[ShowPilot] fast-start: pos', fastStartPos.toFixed(3) + 's');
+        vlog('start detail', {
+          ctxNow: audioCtx.currentTime, startAtCtx: fastStartCtxTime, leadMs: Math.round(FAST_START_LEAD * 1000),
+          fppPos: fastStartEst ? fastStartEst.pos : null, readings: fastStartEst ? fastStartEst.n : 0,
+          newestAgeMs: fastStartEst ? Math.round(fastStartEst.newestAgeMs) : null,
+          speakerDelayMs: Math.round((outputLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
+          reportedLatencyMs: audioCtx ? Math.round(((audioCtx.outputLatency || 0) || (audioCtx.baseLatency || 0)) * 1000) : null,
+          listenerOffsetMs: Math.round(listenerOffsetSec * 1000), showOffsetMs: audioSyncOffsetMs,
+          clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
+          sinceChangeMs: vChangeSeenAt && vChangeFile === data.mediaName ? Math.round(performance.now() - vChangeSeenAt) : null,
+        });
 
         if (playGeneration !== myGeneration) return;
 
         // Schedule fast-start source
         trackScheduledAtAudioCtx = fastStartCtxTime;
+        lateSettleUntilCtx = fastStartCtxTime + LATE_SETTLE_WINDOW_SEC;
+        lateSettleCount = 0;
         trackScheduledAtPositionSec = fastStartPos;
         currentRate = 1.0;
         trackScheduledOutputLatency = outputLatencySec;
@@ -5832,7 +6552,14 @@
         const srcNode = audioCtx.createBufferSource();
         srcNode.buffer = audioBuffer;
         const srcGain = audioCtx.createGain();
-        srcGain.gain.value = 1;
+        // cloud-link: fade in over 60 ms from the scheduled start (equal
+        // power), so a start mid-song never clicks.
+        try {
+          srcGain.gain.setValueAtTime(0, audioCtx.currentTime);
+          srcGain.gain.setValueCurveAtTime(equalPowerCurves().up, fastStartCtxTime, 0.06);
+        } catch (_) {
+          srcGain.gain.value = 1;
+        }
         srcNode.connect(srcGain);
         srcGain.connect(gainNode);
         srcNode.start(fastStartCtxTime, fastStartPos);
@@ -5868,6 +6595,18 @@
 
           if (playGeneration !== generationAtSchedule) return;
 
+          // cloud-link: startup grace. A listener joining mid-song already
+          // has a sync point, so this check can run before the source has
+          // even started (it's scheduled FAST_START_LEAD ahead), when the
+          // player's position still reads the start position — a false
+          // "ahead by the lead" that could trigger a needless crossfade.
+          // Wait until it has been playing for 100 ms.
+          if (audioCtx) {
+            const graceMs = (trackScheduledAtAudioCtx + 0.1 - audioCtx.currentTime) * 1000;
+            if (graceMs > 0) await new Promise(r => setTimeout(r, Math.min(graceMs, 1000)));
+            if (playGeneration !== generationAtSchedule) return;
+          }
+
           if (!snapAnchor) {
             snapPendingUntilMs = 0;
             console.log('[ShowPilot] snap: no syncPoint within 8s, skipping');
@@ -5875,7 +6614,7 @@
           }
 
           // Compute position from syncPoint
-          const snapServerNow = Date.now() + clockOffset;
+          const snapServerNow = spNow() + clockOffset;
           const ageMs = Math.max(0, snapServerNow - snapAnchor.serverTimestamp);
           // v0.33.202: best estimate of FPP's position now = the most advanced
           // of this syncPoint and recent position readings (see
@@ -5894,11 +6633,12 @@
           const currentPos = htmlAudio ? htmlAudio.currentTime : fastStartPos;
           const snapErrorMs = Math.round((snapPos - currentPos) * 1000);
 
-          if (Math.abs(snapErrorMs) < JUMP_THRESHOLD_MS) {
+          const snapLimit = startCheckThreshold(snapEst);
+          if (Math.abs(snapErrorMs) < snapLimit) {
             // v0.33.204: small error — no cut; the speed loop closes it.
             console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms — smoothing by speed');
           } else {
-            console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms → crossfade to', snapPos.toFixed(3) + 's');
+            console.log('[ShowPilot] snap: ' + snapErrorMs + 'ms → ' + (snapLimit < JUMP_THRESHOLD_MS ? 'settle ' : '') + 'crossfade to', snapPos.toFixed(3) + 's');
             if (crossfadeTo(snapPos)) {
               trackScheduledOutputLatency = outputLatencySec;
               if (htmlAudio) htmlAudio._seekedTo = snapPos;
@@ -5919,7 +6659,7 @@
           if (!followFppStatus || followFppStatus.positionSec <= 0) return;
 
           const followClientTs = followFppStatus.serverTimestamp - clockOffset;
-          const followAge = Math.min(Math.max(Date.now() - followClientTs, 0), 2000);
+          const followAge = Math.min(Math.max(spNow() - followClientTs, 0), 2000);
           const followEst = estimateFppPosNow();
           const followFppPos = followEst
             ? followEst.pos
@@ -5932,13 +6672,14 @@
           if (followTarget < 0 || followTarget >= audioBuffer.duration - 0.1) return;
 
           const followError = Math.round((followTarget - htmlAudio.currentTime) * 1000);
-          if (Math.abs(followError) < JUMP_THRESHOLD_MS) {
+          const followLimit = startCheckThreshold(followEst);
+          if (Math.abs(followError) < followLimit) {
             // v0.33.204: small error — the speed loop closes it smoothly.
             console.log('[ShowPilot] follow-up: ' + followError + 'ms — smoothing by speed');
             return;
           }
 
-          console.log('[ShowPilot] follow-up: ' + followError + 'ms → crossfade to', followTarget.toFixed(3) + 's');
+          console.log('[ShowPilot] follow-up: ' + followError + 'ms → ' + (followLimit < JUMP_THRESHOLD_MS ? 'settle ' : '') + 'crossfade to', followTarget.toFixed(3) + 's');
           if (crossfadeTo(followTarget)) {
             audioStartedAtMs = Date.now();
             snapAnchorCtxTime = trackScheduledAtAudioCtx;
@@ -6058,12 +6799,12 @@
         // producing exactly the constant phone-to-phone offset we're
         // trying to eliminate. clockOffset is computed by burst NTP-lite
         // on connect; adding it shifts client time onto server time.
-        const serverNow = Date.now() + clockOffset;
+        const serverNow = spNow() + clockOffset;
         const elapsedSinceUpdate = (serverNow - livePosition.updatedAt) / 1000;
         return livePosition.position + elapsedSinceUpdate - offsetSec;
       }
       // Fallback: extrapolate from track-start anchor
-      const serverNow = Date.now() + clockOffset;
+      const serverNow = spNow() + clockOffset;
       return (serverNow - trackStartedAtMs) / 1000 - offsetSec;
     }
 
@@ -6212,6 +6953,7 @@
     //   - Speaker physical placement delay (sound takes ~3ms per meter
     //     to travel — usually negligible, but two devices on opposite
     //     sides of a room can be 30-40ms apart just from physics)
+    let vLastDriftLogAt = 0;
     function updateDriftDisplay() {
       // HTML5 audio path: compare element's currentTime to expected.
       if (!htmlAudio || htmlAudio.paused || !currentSequence) {
@@ -6231,8 +6973,8 @@
         // Elapsed since then: Date.now() - clientEquivalent
         // Cap at 2s — don't extrapolate beyond that on very stale readings.
         const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
-        const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
-        const fppStatusAgeMs = Math.max(0, Date.now() - clientTimeOfUpdate); // uncapped, for freshness checks
+        const msSinceFppUpdate = Math.min(Math.max(spNow() - clientTimeOfUpdate, 0), 2000);
+        const fppStatusAgeMs = Math.max(0, spNow() - clientTimeOfUpdate); // uncapped, for freshness checks
         const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000) - (deviceOffset / 1000);
 
         // ---- Drift measurement ----
@@ -6302,6 +7044,18 @@
         // correction after estimates return.
         if (loopEst) smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
         const correctionDriftMs = Math.round(smoothedDriftMs);
+        if (spVerbose && performance.now() - vLastDriftLogAt >= 5000) {
+          vLastDriftLogAt = performance.now();
+          vlog('drift check', {
+            heard: htmlAudio.currentTime - loopLatencySec,
+            target: loopEst ? loopEst.pos - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000) : null,
+            driftMs, smoothedMs: correctionDriftMs, speedPct: +((currentRate - 1) * 100).toFixed(2),
+            readings: loopEst ? loopEst.n : 0, newestAgeMs: loopEst ? Math.round(loopEst.newestAgeMs) : null,
+            speakerDelayMs: Math.round((loopLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
+            clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
+            track: currentTrackMediaName,
+          });
+        }
 
         if (driftEl) {
           const absMs = Math.abs(driftMs);
@@ -6313,7 +7067,7 @@
         }
 
         if (debugEl) {
-          const propagationMs = Math.round(Date.now() - clientTimeOfUpdate);
+          const propagationMs = Math.round(spNow() - clientTimeOfUpdate);
           debugEl.textContent = [
             `drift:       ${driftMs >= 0 ? '+' : ''}${driftMs}ms`,
             `engine:      ${htmlAudio._isWebAudio ? 'WebAudio' : 'HTML5'}`,
@@ -6321,16 +7075,34 @@
             `audioPos:    ${htmlAudio.currentTime.toFixed(3)}s`,
             `staleness:   ${msSinceFppUpdate}ms`,
             `propagation: ${propagationMs}ms`,
-            `clockOffset: ${Math.round(clockOffset)}ms`,
+            `clockOffset: ${Math.round(clockOffset)}ms (rtt ${clockBestRttMs === null ? 'n/a' : Math.round(clockBestRttMs) + 'ms'}, ${clockSampleCount}/${clockSamples.length}${clockLocked ? '' : ', locking'})`,
             `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
             `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
-            `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured${outDelayCompOn ? ' (compensating)' : ''}`,
+            `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured, using ${outputTimingSource()} (${Math.round(getOutputLatencySec() * 1000 - listenerOffsetSec * 1000)}ms)`,
             `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
             ...probeLines(),
           ].join('\n');
+          // Debug sync report: every 3 s, send this readout to the show so
+          // every device can be compared side by side in the show's log
+          // (no phone console needed). Debug mode only.
+          if (Date.now() - lastSyncReportAt > 3000) {
+            lastSyncReportAt = Date.now();
+            try {
+              fetch('/api/sync-report', {
+                method: 'POST', credentials: 'include', keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  device: syncReportDevice, drift: driftMs, fppPos: +fppPositionNow.toFixed(3),
+                  audioPos: +htmlAudio.currentTime.toFixed(3), stale: msSinceFppUpdate, propagation: propagationMs,
+                  clock: Math.round(clockOffset), rtt: clockBestRttMs === null ? null : Math.round(clockBestRttMs), timing: outputTimingSource(), outDelay: outDelayMs, speed: +((currentRate - 1) * 100).toFixed(2),
+                  track: currentSequence || '',
+                }),
+              }).catch(() => {});
+            } catch (_) {}
+          }
         }
 
         // ---- PLL: correct drift via playbackRate ----
@@ -6361,13 +7133,28 @@
         if (!canCorrect) {
           // No trustworthy reference right now: don't keep nudging blindly.
           if (currentRate !== 1.0 && currentSource) setSourceRate(1.0);
+        } else if (audioCtx.currentTime < lateSettleUntilCtx && lateSettleCount < LATE_SETTLE_MAX &&
+                   Math.abs(correctionDriftMs) >= SETTLE_THRESHOLD_MS && Math.abs(correctionDriftMs) <= JUMP_THRESHOLD_MS &&
+                   msSinceLastCrossfade > LATE_SETTLE_GAP_MS) {
+          const targetPos = loopEst.pos
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+            + loopLatencySec;
+          console.log('[ShowPilot] late settle: drift', correctionDriftMs + 'ms → crossfade to', targetPos.toFixed(3) + 's (' +
+            Math.round(audioCtx.currentTime - (lateSettleUntilCtx - LATE_SETTLE_WINDOW_SEC)) + 's after start; speaker delay ' +
+            Math.round((loopLatencySec - listenerOffsetSec) * 1000) + 'ms ' + outputTimingSource() + ')');
+          if (crossfadeTo(targetPos)) {
+            lateSettleCount++;
+            smoothedDriftMs = 0;
+            lastAppliedRate = 1.0;
+          }
         } else if (Math.abs(correctionDriftMs) > JUMP_THRESHOLD_MS) {
           if (msSinceLastCrossfade > CROSSFADE_COOLDOWN_MS) {
             const targetPos = loopEst.pos
               - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
               + loopLatencySec;
             console.log('[ShowPilot] crossfade correction: drift', correctionDriftMs + 'ms →',
-              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old)');
+              targetPos.toFixed(3) + 's (' + loopEst.n + ' readings, newest ' + Math.round(loopEst.newestAgeMs) + 'ms old; speaker delay ' +
+              Math.round((loopLatencySec - listenerOffsetSec) * 1000) + 'ms ' + outputTimingSource() + ', clock ' + Math.round(clockOffset) + 'ms)');
             if (crossfadeTo(targetPos)) {
               smoothedDriftMs = 0;
               lastAppliedRate = 1.0;
@@ -6523,6 +7310,18 @@
     }
 
     // ---- Player decoration ----
+    // How far (px) a theme's decoration hangs down into the player bar from
+    // its top edge. Measured from each theme's CSS below (bulb/lantern/picado
+    // top + height). Not listed = drawn above the bar or falling through it.
+    const DECO_TOP_CLEARANCE = {
+      'christmas': 36, 'christmas-live': 36,
+      'dayofthedead': 30, 'lunarnewyear': 33, 'mardigras': 26,
+    };
+    let currentDecoClearance = 0;
+    // Room the page keeps free at the bottom while the player is open.
+    function playerBodyPad() {
+      return ((isTallPlayer() ? 150 : 88) + currentDecoClearance) + 'px';
+    }
     let currentDecoration = null;
     let currentDecorationAnimated = null;
     let currentCustomColor = null;
@@ -6555,6 +7354,11 @@
       liveMeans = liveEls.map(() => -1);
       liveQueue = []; liveBands = null;
       if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      // In the ShowPilot app (master.21), ask the app for the levels of
+      // these ranges; it plays the audio, so it has the analyser's job.
+      if (isAppMode()) {
+        try { window.ShowPilotApp.send({ type: 'live', ranges: (liveOn && liveEls.length) ? liveRangesHz(liveEls.length) : null }); } catch (_) {}
+      }
       if (liveOn && !liveRaf) liveRaf = requestAnimationFrame(liveFrame);
     }
     function liveEnsureAnalyser() {
@@ -6577,11 +7381,16 @@
         return [b0, Math.min(bins, Math.max(b0 + 1, Math.ceil((f1 / nyq) * bins)))];
       });
     }
-    function liveComputeBands(n) {
-      if (liveMode === 'party') return liveBins([[45, 180], [180, 2000], [4000, 11000]]);
+    // Frequency ranges (Hz) for the current live mode: one per bulb, or
+    // bass/mid/treble for the party mode.
+    function liveRangesHz(n) {
+      if (liveMode === 'party') return [[45, 180], [180, 2000], [4000, 11000]];
       const lo = 45, hi = 9000, ranges = [];
       for (let i = 0; i < n; i++) ranges.push([lo * Math.pow(hi / lo, i / n), lo * Math.pow(hi / lo, (i + 1) / n)]);
-      return liveBins(ranges);
+      return ranges;
+    }
+    function liveComputeBands(n) {
+      return liveBins(liveRangesHz(n));
     }
     // One-shot confetti burst for New Year's Live (removed when done).
     function liveConfettiBurst() {
@@ -6599,17 +7408,24 @@
       liveRaf = requestAnimationFrame(liveFrame);
       if (t - liveLastT < 30) return;
       liveLastT = t;
-      const playing = !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
-      if (!playing || !liveEls.length || !liveEnsureAnalyser()) {
+      // In the ShowPilot app the frames arrive from the app (already timed for
+      // when they're heard) instead of from an analyser.
+      const app = isAppMode();
+      const playing = app
+        ? (appLivePlaying && !isMuted && document.visibilityState === 'visible')
+        : !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
+      if (!playing || !liveEls.length || (!app && !liveEnsureAnalyser())) {
         if (decoLayer) decoLayer.classList.remove('ofd-live-on');
         liveQueue = [];
         return;
       }
-      if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
-      liveAnalyser.getByteFrequencyData(liveBuf);
-      const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
       const now = performance.now();
-      liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      if (!app) {
+        if (!liveBands || liveBands.length !== liveEls.length) liveBands = liveComputeBands(liveEls.length);
+        liveAnalyser.getByteFrequencyData(liveBuf);
+        const raw = liveBands.map(([a, b]) => { let sum = 0; for (let k = a; k < b; k++) sum += liveBuf[k]; return sum / ((b - a) * 255); });
+        liveQueue.push([now + Math.max(0, getOutputLatencySec()) * 1000, raw]);
+      }
       let frame = null;
       while (liveQueue.length && liveQueue[0][0] <= now) frame = liveQueue.shift()[1];
       if (liveQueue.length > 90) liveQueue.splice(0, liveQueue.length - 90);
@@ -6716,7 +7532,17 @@
       decoLayer.innerHTML = renderDecoration(theme, animate);
       liveDecoUpdate(theme, animate);
       // Reset panel padding-top in case previous decoration needed extra room
-      panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
+      // v0.33.278-master.19: themes whose border hangs down INTO the bar
+      // (bulbs, papel picado, lanterns, beads) push the player content below
+      // it, so the song title isn't drawn on top of the decoration. !important
+      // so it also beats the two-row layout's padding. Themes drawn above the
+      // bar or falling through it keep the usual padding.
+      const clearPx = DECO_TOP_CLEARANCE[theme] || 0;
+      currentDecoClearance = clearPx;
+      panel.style.removeProperty('padding-top');
+      if (clearPx) panel.style.setProperty('padding-top', (clearPx + 8) + 'px', 'important');
+      else panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
+      if (panelMode === 'open') document.body.style.paddingBottom = playerBodyPad();
 
       // ---- Toast/banner theme inheritance (v0.24.4+) ----
       // Make the winner toast match the player's color palette by mapping

@@ -110,7 +110,7 @@ async function openAdmin(ctx, section) {
     page.on('pageerror', e => ctx.pageErrors.push(`admin: ${e.message}`));
     ctx.pages.set('admin', page);
   }
-  const map = { dashboard: 'dashboard', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools', users: 'users' };
+  const map = { dashboard: 'dashboard', 'fpp monitor': 'fpp', sequences: 'sequences', 'viewer page': 'viewer', queue: 'queue', stats: 'stats', settings: 'settings', tools: 'tools', users: 'users' };
   const key = map[section.toLowerCase()];
   assert(key, `unknown admin page "${section}"`);
   await page.goto(ctx.sp.base + '/admin/?section=' + key);
@@ -233,6 +233,9 @@ const STEPS = [
       const n = ctx.sp.db.prepare('SELECT COUNT(*) AS n FROM jukebox_queue WHERE handed_off_at IS NOT NULL').get().n;
       assert(n === 0, `${n} request(s) were handed to the show player`);
     } },
+  { doc: '"A" is N seconds long   (its length, as the show player syncs it)',
+    re: new RegExp(`^${q} is (\\d+) seconds long$`, 'i'),
+    fn: async (ctx, name, n) => { ctx.sp.db.prepare('UPDATE sequences SET duration_seconds = ? WHERE name = ?').run(Number(n), name); } },
   { doc: '"A" has been playing for N seconds   (moves its start time back)',
     re: new RegExp(`^${q} has been playing for (\\d+) seconds$`, 'i'),
     fn: async (ctx, name, n) => {
@@ -305,6 +308,14 @@ const STEPS = [
         assert(r.status < 400, `vote ${i + 1} refused: ${JSON.stringify(r.body)}`);
       }
     } },
+  { doc: 'N phones tap "A" in the race',
+    re: new RegExp(`^(\\d+) phones? taps? ${q} in the race$`, 'i'),
+    fn: async (ctx, n, name) => {
+      for (let i = 0; i < Number(n); i++) {
+        const r = await http(ctx, 'POST', '/api/race/tap', { cookie: ctx.sp.viewerCookie(`race-${name}-${ctx.bulk++}`), body: { sequenceName: name } });
+        assert(r.status < 400, `tap ${i + 1} refused: ${JSON.stringify(r.body)}`);
+      }
+    } },
   { doc: 'phone 1 requests "A"',
     re: new RegExp(`^phone (\\w+) requests ${q}$`, 'i'),
     fn: async (ctx, phone, name) => { ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/add', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { sequenceName: name }) }); } },
@@ -312,6 +323,145 @@ const STEPS = [
     re: /^(\d+) phones? (?:are|is) listening$/i,
     fn: async (ctx, n) => {
       for (let i = 0; i < Number(n); i++) await http(ctx, 'GET', '/api/now-playing-audio', { cookie: ctx.sp.viewerCookie('listener-' + i) });
+    } },
+
+  // ===== Show buttons =====
+  { doc: 'the show has a button "Fog" that runs the effect | command preset | script "Fog.eseq" [with a wait of N seconds]',
+    re: new RegExp(`^the show has a button ${q} that runs the (effect|command preset|script) ${q}(?: with a wait of (\\d+) seconds?)?$`, 'i'),
+    fn: async (ctx, label, kind, target, wait) => {
+      const action = { effect: 'effect', 'command preset': 'preset', script: 'script' }[kind.toLowerCase()];
+      await adminOk(ctx, 'POST', '/show-buttons', { label, action, target, cooldownSeconds: wait === undefined ? 30 : Number(wait) });
+    } },
+  { doc: 'show buttons are on [any time]   (Settings → Show Buttons)',
+    re: /^show buttons are on( any time)?$/i,
+    fn: async (ctx, any) => { await adminOk(ctx, 'PUT', '/config', { show_buttons_enabled: 1, show_buttons_when: any ? 'always' : 'show' }); } },
+  { doc: 'show buttons are off',
+    re: /^show buttons are off$/i,
+    fn: async (ctx) => { await adminOk(ctx, 'PUT', '/config', { show_buttons_enabled: 0 }); } },
+  { doc: 'phone 1 presses the "Fog" button   (no browser)',
+    re: new RegExp(`^phone (\\w+) presses the ${q} button$`, 'i'),
+    fn: async (ctx, phone, label) => {
+      const row = ctx.sp.db.prepare('SELECT id FROM show_buttons WHERE label = ?').get(label);
+      assert(row, `no button "${label}"`);
+      ctx.last.answer = await http(ctx, 'POST', '/api/show-button', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { id: row.id }) });
+    } },
+  { doc: 'the admin tests the "Fog" button   (Settings → Show Buttons → Test)',
+    re: new RegExp(`^the admin tests the ${q} button$`, 'i'),
+    fn: async (ctx, label) => {
+      const row = ctx.sp.db.prepare('SELECT id FROM show_buttons WHERE label = ?').get(label);
+      assert(row, `no button "${label}"`);
+      await adminOk(ctx, 'POST', '/show-buttons/test', { id: row.id });
+    } },
+  { doc: 'the heartbeat tells the show player to check for button presses | not to check',
+    re: /^the heartbeat tells the show player (to|not to) check for button presses$/i,
+    fn: async (ctx, to) => {
+      const r = await ctx.player.heartbeat({ pluginVersion: '0.14.30' });
+      const want = to.toLowerCase() === 'to';
+      assert(r && r.showButtons === want, `heartbeat said showButtons: ${JSON.stringify(r && r.showButtons)}`);
+    } },
+  { doc: 'the show player checks for button presses',
+    re: /^the show player checks for button presses$/i,
+    fn: async (ctx) => {
+      const r = await ctx.player.call('GET', '/show-buttons');
+      assert(r && Array.isArray(r.presses), `no presses list: ${JSON.stringify(r)}`);
+      ctx.last.presses = r.presses;
+    } },
+  { doc: 'the show player runs "Effect Start" with "Fog.eseq"   (from the last check)',
+    re: new RegExp(`^the show player runs ${q} with ${q}$`, 'i'),
+    fn: async (ctx, command, arg) => {
+      const p = ctx.last.presses || [];
+      assert(p.some(x => x.command === command && x.args[0] === arg), `presses were ${JSON.stringify(p)}`);
+    } },
+  { doc: 'the show player is given N button presses | no button presses   (from the last check)',
+    re: /^the show player is given (no|\d+) button press(?:es)?$/i,
+    fn: async (ctx, n) => {
+      const want = n.toLowerCase() === 'no' ? 0 : Number(n);
+      const got = (ctx.last.presses || []).length;
+      assert(got === want, `got ${got}: ${JSON.stringify(ctx.last.presses)}`);
+    } },
+
+  // ===== FPP monitor =====
+  { doc: 'the show player reports FPP playing "A.fseq" from "Christmas" | idle [, the CPU at N°C] [, N% disk free] [, with the remote "Name" online | offline] [, with MultiSync packets on | off]',
+    re: new RegExp(`^the show player reports FPP (playing ${q} from ${q}|idle)(?:, the CPU at (\\d+)°C)?(?:, (\\d+)% disk free)?(?:, with the remote ${q} (online|offline))?(?:, with MultiSync packets (on|off))?$`, 'i'),
+    fn: async (ctx, _w, seq, pl, temp, disk, remote, online, msync) => {
+      const now = Math.floor(Date.now() / 1000);
+      const playing = !!seq;
+      const body = {
+        source: 'fpp', now,
+        status: {
+          status_name: playing ? 'playing' : 'idle', mode_name: 'player', host_name: 'ShowFPP',
+          ...(msync ? { multisync: msync.toLowerCase() === 'on' } : {}),
+          current_playlist: playing ? { playlist: pl, index: '2', count: '12' } : { playlist: '', index: '0', count: '0' },
+          current_sequence: playing ? seq : '', seconds_played: playing ? '30' : '0', seconds_remaining: playing ? '150' : '0',
+          scheduler: { enabled: 1, nextPlaylist: { playlistName: 'Halloween', scheduledStartTimeStr: 'Sat @ 18:00' } },
+          sensors: temp ? [{ label: 'CPU: ', formatted: temp + '.0°C', value: Number(temp), valueType: 'Temperature' }] : [],
+          uptimeStr: '3 days, 2 hours',
+          advancedView: { HostName: 'ShowFPP', Platform: 'Raspberry Pi', Variant: 'Pi 4', Version: '10.1', Branch: 'master', IPs: ['10.0.0.20'], Utilization: { CPU: 12.5, Memory: 40.2, Uptime: '3 days' } },
+        },
+        multisync: { systems: [{ local: 1, hostname: 'ShowFPP', address: '10.0.0.20', fppModeString: 'player', lastSeen: now }].concat(remote
+          ? [{ local: 0, hostname: remote, address: '10.0.0.21', fppModeString: 'remote', version: '10.1', lastSeen: online.toLowerCase() === 'online' ? now - 5 : now - 600 }] : []) },
+        disk: disk ? { freeBytes: Number(disk) * 1e9, totalBytes: 100e9 } : { freeBytes: 40e9, totalBytes: 100e9 },
+        playlists: ['Christmas', 'Halloween'], presets: ['Flood On', 'Fog'],
+        results: (ctx.last.fppCommands || []).map(c => ({ id: c.id, ok: true, message: '' })),
+      };
+      const r = await ctx.player.call('POST', '/fpp-status', body);
+      assert(r && Array.isArray(r.commands), `bad answer: ${JSON.stringify(r)}`);
+      ctx.last.fppCommands = r.commands;
+      ctx.last.fppAnswer = r;
+    } },
+  { doc: 'the heartbeat asks the show player for FPP status',
+    re: /^the heartbeat asks the show player for FPP status$/i,
+    fn: async (ctx) => {
+      const r = await ctx.player.heartbeat({ pluginVersion: '0.14.30' });
+      assert(r && r.fppMonitor === true, `heartbeat said fppMonitor: ${JSON.stringify(r && r.fppMonitor)}`);
+    } },
+  { doc: 'the admin asks FPP to start the playlist "A" | run the preset "A" | stop gracefully | stop now | restart FPPD',
+    re: new RegExp(`^the admin asks FPP to (start the playlist ${q}|run the preset ${q}|stop gracefully|stop now|restart fppd)$`, 'i'),
+    fn: async (ctx, what, pl, preset) => {
+      const w = what.toLowerCase();
+      const action = pl !== undefined ? 'startPlaylist' : preset !== undefined ? 'preset' : w === 'stop gracefully' ? 'stopGracefully' : w === 'stop now' ? 'stopNow' : 'restartFppd';
+      ctx.last.answer = await admin(ctx, 'POST', '/fpp/command', { action, name: pl || preset || '' });
+    } },
+  { doc: 'the show player is told to startPlaylist "A" | preset "A" | stopNow | stopGracefully | restartFppd   (from its last report)',
+    re: new RegExp(`^the show player is told to (\\w+)(?: ${q})?$`, 'i'),
+    fn: async (ctx, action, name) => {
+      const c = ctx.last.fppCommands || [];
+      assert(c.some(x => x.action === action && (name === undefined || x.name === name)), `commands were ${JSON.stringify(c)}`);
+    } },
+  { doc: 'the show player is told nothing   (from its last report)',
+    re: /^the show player is told nothing$/i,
+    fn: async (ctx) => { assert(!(ctx.last.fppCommands || []).length, `commands were ${JSON.stringify(ctx.last.fppCommands)}`); } },
+  { doc: 'the show player is asked to report every N seconds',
+    re: /^the show player is asked to report every (\d+) seconds?$/i,
+    fn: async (ctx, n) => { assert(ctx.last.fppAnswer && ctx.last.fppAnswer.nextInSec === Number(n), `nextInSec ${ctx.last.fppAnswer && ctx.last.fppAnswer.nextInSec}`); } },
+  { doc: 'the FPP page shows "text"   (from /api/admin/fpp, any field)',
+    re: new RegExp(`^the FPP page (shows|does not show) ${q}$`, 'i'),
+    fn: async (ctx, how, text) => {
+      await eventually(async () => {
+        const r = await adminOk(ctx, 'GET', '/fpp');
+        const has = JSON.stringify(r).toLowerCase().includes(text.toLowerCase());
+        assert(how.toLowerCase() === 'shows' ? has : !has, `FPP page: ${JSON.stringify(r).slice(0, 400)}`);
+      });
+    } },
+  { doc: 'the last FPP control worked | is waiting   (Recent controls on the FPP page)',
+    re: /^the last FPP control (worked|is waiting)$/i,
+    fn: async (ctx, how) => {
+      await eventually(async () => {
+        const r = await adminOk(ctx, 'GET', '/fpp');
+        const a = r.activity[0];
+        assert(a, 'no controls yet');
+        if (how.toLowerCase() === 'worked') assert(a.result && a.result.ok, `last control: ${JSON.stringify(a)}`);
+        else assert(!a.result, `last control: ${JSON.stringify(a)}`);
+      });
+    } },
+  { doc: 'phone audio is turned off in Settings',
+    re: /^phone audio is turned off in Settings$/i,
+    fn: async (ctx) => { ctx.sp.db.prepare('UPDATE config SET audio_enabled = 0 WHERE id = 1').run(); } },
+  { doc: 'the FPP health is ok | warn | bad',
+    re: /^the FPP health is (ok|warn|bad)$/i,
+    fn: async (ctx, level) => {
+      const r = await adminOk(ctx, 'GET', '/fpp');
+      assert(r.health.level === level.toLowerCase(), `health ${JSON.stringify(r.health)}`);
     } },
 
   // ===== Phones in a browser =====
@@ -359,8 +509,34 @@ const STEPS = [
       await page.click(tileSel(name));
       await page.waitForTimeout(1200);
     } },
+  { doc: 'phone 1 taps the "Fog" button   (a show button on the page)',
+    re: new RegExp(`^phone (\\w+) taps the ${q} button$`, 'i'),
+    browser: true,
+    fn: async (ctx, phone, label) => {
+      const page = pageOf(ctx, 'phone ' + phone);
+      await page.locator('[data-showpilot-show-buttons]:not([hidden]) .sp-sb-btn', { hasText: label }).click({ timeout: 8000 });
+      await page.waitForTimeout(800);
+    } },
+  { doc: 'on phone 1, the "Fog" button can be pressed | is greyed out | is not shown',
+    re: new RegExp(`^on phone (\\w+), the ${q} button (can be pressed|is greyed out|is not shown)$`, 'i'),
+    browser: true,
+    fn: async (ctx, phone, label, how) => {
+      const page = pageOf(ctx, 'phone ' + phone);
+      const h = how.toLowerCase();
+      await eventually(async () => {
+        const st = await page.evaluate((label) => {
+          const sec = document.querySelector('[data-showpilot-show-buttons]');
+          if (!sec || sec.hidden || getComputedStyle(sec).display === 'none') return 'hidden';
+          const b = [...sec.querySelectorAll('.sp-sb-btn')].find(x => x.querySelector('.sp-sb-label').textContent === label);
+          if (!b) return 'hidden';
+          return b.disabled ? 'grey' : 'ready';
+        }, label);
+        const want = h.startsWith('can') ? 'ready' : h.includes('grey') ? 'grey' : 'hidden';
+        assert(st === want, `the button is ${st}`);
+      });
+    } },
   { doc: 'the admin opens the Dashboard | Sequences | Viewer Page | Queue | Stats | Users page',
-    re: /^the admin opens the (dashboard|sequences|viewer page|queue|stats|settings|tools|users) page$/i,
+    re: /^the admin opens the (dashboard|fpp monitor|sequences|viewer page|queue|stats|settings|tools|users) page$/i,
     browser: true,
     fn: async (ctx, section) => { await openAdmin(ctx, section); } },
   { doc: 'the admin logs out [in the classic layout]',
@@ -425,13 +601,22 @@ const STEPS = [
       const want = /^empty$/i.test(what) ? [] : names(what);
       assert(JSON.stringify(got) === JSON.stringify(want), `queue is [${got.join(', ')}], expected [${want.join(', ')}]`);
     }) },
-  { doc: '"A" plays next | "A" plays next as a vote | request | PSA',
-    re: new RegExp(`^${q} plays next(?: as an? (vote|request|psa))?$`, 'i'),
+  { doc: '"A" plays next | "A" plays next as a vote | request | PSA | race winner',
+    re: new RegExp(`^${q} plays next(?: as an? (vote|request|psa|race winner))?$`, 'i'),
     fn: async (ctx, name, why) => {
       const r = await ctx.player.playNext();
       ctx.last.played = r;
       assert(r.name === name, `"${r.name}" played next (${r.why}), expected "${name}"`);
-      if (why) assert(r.why === why.toLowerCase(), `"${name}" played as ${r.why}, expected ${why.toLowerCase()}`);
+      const want = why && why.toLowerCase() === 'race winner' ? 'race' : why && why.toLowerCase();
+      if (why) assert(r.why === want, `"${name}" played as ${r.why}, expected ${want}`);
+    } },
+  { doc: 'the race winner waits for the song to end | cuts the song off   (the interrupt flag the show player was given)',
+    re: /^the race winner (waits for the song to end|cuts the song off)$/i,
+    fn: async (ctx, how) => {
+      const rw = ctx.player.lastAnswer && ctx.player.lastAnswer.raceWinner;
+      assert(rw, 'the show player was not given a race winner');
+      const cuts = /cuts/i.test(how);
+      assert(!!rw.interrupt === cuts, `interrupt was ${!!rw.interrupt}, expected ${cuts}`);
     } },
   { doc: 'the show player is not given a song   (it follows its own schedule)',
     re: /^the show player is not given a song$/i,

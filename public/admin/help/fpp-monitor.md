@@ -4,6 +4,8 @@ A live view of your show's main FPP, right in ShowPilot: what's playing, what's 
 
 ShowPilot doesn't connect to FPP itself. Your show player sends its status to ShowPilot, so this page works wherever ShowPilot runs, including away from your show's network. On FPP that needs the ShowPilot plugin (**ShowPilot Blackbox**) 0.14.26 or newer. The page fills in a few seconds after the plugin checks in.
 
+If your show player isn't FPP and reports its own short name, the page uses that name instead of "FPP" (in the menu, the Dashboard strip and the controls).
+
 While the page is open it updates about every second. When it's closed, your show player reports every few seconds, which keeps the Dashboard strip current.
 
 ## At the top

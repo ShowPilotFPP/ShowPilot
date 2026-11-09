@@ -19,6 +19,24 @@
   let timer = null;
   let tick = null;
   let last = null;        // last /api/admin/fpp answer
+  // What the show player calls itself ('FPP' unless it says otherwise in its
+  // status reports); used everywhere the page would say "FPP".
+  let sysName = 'FPP';
+  function setName(n) {
+    const name = (typeof n === 'string' && n.trim()) || 'FPP';
+    const changed = name !== sysName;
+    sysName = name;
+    const title = name + ' Monitor';
+    const tab = document.querySelector('.tab-btn[data-tab="fpp"]');
+    if (tab && tab.textContent !== title) tab.textContent = title;
+    document.querySelectorAll('.spn-item[data-tab="fpp"] .spn-label').forEach((e) => { if (e.textContent !== title) e.textContent = title; });
+    const t = document.getElementById('spnTitle');
+    if (t && /^\S+ Monitor$/.test(t.textContent) && t.textContent !== title) t.textContent = title;
+    const open = $('fppmOpen');
+    if (open && changed) { open.textContent = 'Open ' + name + ' \u2197'; open.title = 'Opens ' + name + ' in a new tab. Works when you are on the same network as ' + name + '.'; }
+    const rst = $('fppmRestart');
+    if (rst && changed) rst.textContent = name === 'FPP' ? 'Restart FPPD' : 'Restart ' + name;
+  }
   let lastAt = 0;         // Date.now() when it arrived
   let busy = false;
   let built = false;
@@ -117,7 +135,7 @@
         h('div', { style: 'flex:1;min-width:200px;' },
           h('div', { class: 'fppm-title', id: 'fppmState' }, 'Waiting for your show player…'),
           h('div', { class: 'fppm-sub', id: 'fppmHost' })),
-        h('a', { class: 'secondary', id: 'fppmOpen', target: '_blank', rel: 'noopener', style: 'display:none;padding:0.45rem 0.9rem;border:1px solid var(--border);border-radius:6px;text-decoration:none;color:inherit;font-size:0.9rem;', title: 'Opens FPP in a new tab. Works when you are on the same network as FPP.' }, 'Open FPP ↗')),
+        h('a', { class: 'secondary', id: 'fppmOpen', target: '_blank', rel: 'noopener', style: 'display:none;padding:0.45rem 0.9rem;border:1px solid var(--border);border-radius:6px;text-decoration:none;color:inherit;font-size:0.9rem;', title: 'Opens ' + sysName + ' in a new tab. Works when you are on the same network as ' + sysName + '.' }, 'Open ' + sysName + ' ↗')),
       h('ul', { class: 'fppm-issues', id: 'fppmIssues' }),
       h('p', { class: 'fppm-sub', id: 'fppmHint', style: 'margin:0.75rem 0 0;display:none;' })));
 
@@ -154,7 +172,7 @@
       h('div', { class: 'fppm-ctl' },
         h('button', { type: 'button', class: 'secondary', 'data-fppm-ctl': '', onclick: () => send('stopGracefully') }, 'Stop gracefully'),
         h('button', { type: 'button', class: 'danger', 'data-fppm-ctl': '', onclick: () => { if (confirm('Stop the show right now? Lights and music stop mid-song.')) send('stopNow'); } }, 'Stop now'),
-        h('button', { type: 'button', class: 'secondary', 'data-fppm-ctl': '', onclick: () => { if (confirm('Restart FPPD? The show stops for a few seconds while it restarts.')) send('restartFppd'); } }, 'Restart FPPD')),
+        h('button', { type: 'button', class: 'secondary', id: 'fppmRestart', 'data-fppm-ctl': '', onclick: () => { if (confirm('Restart ' + (sysName === 'FPP' ? 'FPPD' : sysName) + '? The show stops for a few seconds while it restarts.')) send('restartFppd'); } }, sysName === 'FPP' ? 'Restart FPPD' : 'Restart ' + sysName)),
       h('div', { class: 'fppm-sub', id: 'fppmCtlMsg', role: 'status', 'aria-live': 'polite' })));
     root.appendChild(grid);
     root.appendChild(h('div', { class: 'card', id: 'fppmRemotesCard' },
@@ -194,6 +212,7 @@
     build();
     const d = last;
     if (!d) return;
+    setName(d.systemName);
     const v = d.view;
     const age = (d.ageMs || 0) + (Date.now() - lastAt);
     const level = d.health ? d.health.level : 'unknown';
@@ -270,7 +289,7 @@
     const rem = $('fppmRemotes');
     rem.textContent = '';
     if (!v.remotes.length) {
-      rem.appendChild(h('p', { class: 'fppm-sub', style: 'margin:0;' }, 'FPP doesn’t see any other systems.'));
+      rem.appendChild(h('p', { class: 'fppm-sub', style: 'margin:0;' }, sysName + ' doesn’t see any other systems.'));
     } else {
       const tb = h('tbody');
       v.remotes.forEach((r) => tb.appendChild(h('tr', {},
@@ -353,6 +372,7 @@
   function dashboard(s) {
     const el = $('fppDashCard');
     if (!el) return;
+    if (s) setName(s.systemName);
     if (!s || !s.reporting) { el.style.display = 'none'; return; }
     ensureStyle();
     const level = s.connected ? (s.health && s.health.level) || 'ok' : 'bad';
@@ -366,8 +386,8 @@
     const first = s.health && s.health.items && s.health.items[0];
     el.textContent = '';
     el.appendChild(h('span', { class: 'fppm-dot', style: 'color:' + LEVEL_COLOR[level] }));
-    el.appendChild(h('span', { style: 'flex:1;' }, h('b', {}, (s.hostName || 'FPP') + ': '), parts.join(' · '), level !== 'ok' && first ? ' — ' + first.text : ''));
-    el.appendChild(h('span', { style: 'text-decoration:underline;font-weight:600;' }, 'FPP Monitor'));
+    el.appendChild(h('span', { style: 'flex:1;' }, h('b', {}, (s.hostName || sysName) + ': '), parts.join(' · '), level !== 'ok' && first ? ' — ' + first.text : ''));
+    el.appendChild(h('span', { style: 'text-decoration:underline;font-weight:600;' }, sysName + ' Monitor'));
     el.style.borderColor = LEVEL_COLOR[level];
     el.style.display = '';
     const dash = $('spnDash');

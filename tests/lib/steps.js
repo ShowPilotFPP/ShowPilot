@@ -381,15 +381,16 @@ const STEPS = [
     } },
 
   // ===== FPP monitor =====
-  { doc: 'the show player reports FPP playing "A.fseq" from "Christmas" | idle [, the CPU at N°C] [, N% disk free] [, with the remote "Name" online | offline]',
-    re: new RegExp(`^the show player reports FPP (playing ${q} from ${q}|idle)(?:, the CPU at (\\d+)°C)?(?:, (\\d+)% disk free)?(?:, with the remote ${q} (online|offline))?$`, 'i'),
-    fn: async (ctx, _w, seq, pl, temp, disk, remote, online) => {
+  { doc: 'the show player reports FPP playing "A.fseq" from "Christmas" | idle [, the CPU at N°C] [, N% disk free] [, with the remote "Name" online | offline] [, with MultiSync packets on | off]',
+    re: new RegExp(`^the show player reports FPP (playing ${q} from ${q}|idle)(?:, the CPU at (\\d+)°C)?(?:, (\\d+)% disk free)?(?:, with the remote ${q} (online|offline))?(?:, with MultiSync packets (on|off))?$`, 'i'),
+    fn: async (ctx, _w, seq, pl, temp, disk, remote, online, msync) => {
       const now = Math.floor(Date.now() / 1000);
       const playing = !!seq;
       const body = {
         source: 'fpp', now,
         status: {
           status_name: playing ? 'playing' : 'idle', mode_name: 'player', host_name: 'ShowFPP',
+          ...(msync ? { multisync: msync.toLowerCase() === 'on' } : {}),
           current_playlist: playing ? { playlist: pl, index: '2', count: '12' } : { playlist: '', index: '0', count: '0' },
           current_sequence: playing ? seq : '', seconds_played: playing ? '30' : '0', seconds_remaining: playing ? '150' : '0',
           scheduler: { enabled: 1, nextPlaylist: { playlistName: 'Halloween', scheduledStartTimeStr: 'Sat @ 18:00' } },
@@ -453,6 +454,9 @@ const STEPS = [
         else assert(!a.result, `last control: ${JSON.stringify(a)}`);
       });
     } },
+  { doc: 'phone audio is turned off in Settings',
+    re: /^phone audio is turned off in Settings$/i,
+    fn: async (ctx) => { ctx.sp.db.prepare('UPDATE config SET audio_enabled = 0 WHERE id = 1').run(); } },
   { doc: 'the FPP health is ok | warn | bad',
     re: /^the FPP health is (ok|warn|bad)$/i,
     fn: async (ctx, level) => {

@@ -63,31 +63,37 @@ function ask(prompt) {
   return new Promise(r => { waiter = r; });
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const step = (msg) => console.log('· ' + msg);
+function withTimeout(p, ms, what) {
+  let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(what + ' timed out after ' + Math.round(ms / 1000) + ' s')), ms); })]).finally(() => clearTimeout(t));
+}
 
 if (typeof WebSocket === 'undefined') { console.error('Needs Node 22 or newer (built-in WebSocket).'); process.exit(1); }
 
 async function adb(...a) {
   const full = SERIAL ? ['-s', SERIAL, ...a] : a;
-  const { stdout } = await run('adb', full, { maxBuffer: 64 * 1024 * 1024 });
+  const { stdout } = await run('adb', full, { maxBuffer: 64 * 1024 * 1024, timeout: 30000 });
   return stdout;
 }
 
 // ---- Minimal Chrome DevTools Protocol client ----
 async function cdpConnect(port, label) {
   let targets;
-  try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); }
-  catch (e) { throw new Error(`${label}: no Chrome remote debugging on port ${port} (${e.message})`); }
+  try { targets = await withTimeout(fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(8000) }).then(r => r.json()), 9000, `${label}: asking Chrome for its pages`); }
+  catch (e) { throw new Error(`${label}: no answer from Chrome debugging on port ${port} (${e.message}). On the phone: Chrome must be open (not just in the background), and Settings → Developer options → USB/wireless debugging on.`); }
+  step(`${label}: Chrome lists ${targets.length} tab(s)`);
   const page = targets.find(t => t.type === 'page' && /[?&]debug=1/.test(t.url))
     || targets.find(t => t.type === 'page' && /^https?:/.test(t.url));
   if (!page) throw new Error(`${label}: no open viewer page found (open it with ?debug=1)`);
   const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error(`${label}: could not attach to ${page.url}`)); });
+  await withTimeout(new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error(`${label}: could not attach to ${page.url}`)); }), 10000, `${label}: attaching to the page`);
+  step(`${label}: attached to ${page.url}`);
   let id = 0; const pending = new Map();
   ws.onmessage = (ev) => {
     const m = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString());
     if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); }
   };
-  const send = (method, params = {}) => new Promise((res, rej) => { const i = ++id; pending.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })); });
+  const send = (method, params = {}) => withTimeout(new Promise((res, rej) => { const i = ++id; pending.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })); }), method === 'Runtime.evaluate' && params.awaitPromise ? 60000 : 15000, `${label}: ${method}`);
   const evaluate = async (expression, { awaitPromise = false, userGesture = false } = {}) => {
     const r = await send('Runtime.evaluate', { expression, awaitPromise, userGesture, returnByValue: true });
     if (r.exceptionDetails) throw new Error(`${label}: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
@@ -200,12 +206,18 @@ async function round(n, phone, ref, uids, csv) {
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
+  step('checking adb…');
   const devices = await adb('devices').catch(e => { console.error('adb not found:', e.message); process.exit(1); });
   if (!/\tdevice\b/.test(devices)) { console.error('No phone in `adb devices` — pair wireless debugging first.'); process.exit(1); }
+  const listed = devices.split('\n').filter(l => /\tdevice\b/.test(l)).map(l => l.split('\t')[0]);
+  step(`phone(s): ${listed.join(', ')}`);
+  if (listed.length > 1 && !SERIAL) { console.error('More than one device in `adb devices` — pick one with --serial <name>.'); process.exit(1); }
+  step(`linking port ${PHONE_PORT} to Chrome on the phone…`);
   await adb('forward', `tcp:${PHONE_PORT}`, 'localabstract:chrome_devtools_remote');
   const phone = await cdpConnect(PHONE_PORT, 'phone');
   const ref = USE_MIC ? await cdpConnect(REF_PORT, 'reference') : null;
   await phone.send('Page.enable');
+  step('reading Chrome\'s app id on the phone…');
   const uids = await chromeUids();
   console.log(`phone page:     ${phone.url}\nreference page: ${ref ? ref.url : '(by ear)'}\nChrome uid on phone: ${uids.join(',') || 'unknown'}\nwriting to ${OUT}\n`);
   const csv = path.join(OUT, 'rounds.csv');

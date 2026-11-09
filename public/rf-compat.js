@@ -5371,7 +5371,21 @@
     let currentRate = 1.0;
     const RATE_MAX_DEV = 0.005;      // max ±0.5% speed change
     const RATE_GAIN = 0.1;           // speed offset per second of drift (50ms → 0.5%)
-    const RATE_DEADBAND_MS = 8;      // closer than this: play at normal speed
+    const RATE_DEADBAND_MS = 2;      // closer than this: no proportional push (was 8)
+    // Rate trim (beta.7): FPP's clock and each device's audio clock run at
+    // slightly different speeds (measured ~0.017%), so with only a
+    // proportional push every device drifted to the edge of the deadband and
+    // sat there, and two devices could sit at opposite edges. The trim is a
+    // slow integral term that learns that speed difference and plays at it
+    // all the time, so the drift stays near 0. It's kept for the whole
+    // session (reset in teardown, not between songs), only learns from
+    // trustworthy readings under 40 ms, and is capped at ±0.1%.
+    const RATE_TRIM_GAIN = 0.001;    // trim change per second, per second of drift
+    const RATE_TRIM_MAX = 0.001;     // ±0.1%
+    const RATE_TRIM_LEARN_MS = 40;
+    const RATE_MIN_STEP = 0.00005;   // smallest speed change worth applying (0.005%)
+    let rateTrim = 0;
+    let rateTrimLastCtx = 0;
     const JUMP_THRESHOLD_MS = 150;   // farther than this: crossfade jump instead
     // Settle (cloud-link): in the checks right after a start, 30 ms or more
     // is fixed with a quick crossfade at once instead of 15-20 s of
@@ -6177,6 +6191,7 @@
 
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
+      rateTrim = 0; rateTrimLastCtx = 0;
       currentBuffer = null;
       // Buffers were decoded for the context just closed; free the memory.
       decodedBufferCache.clear();
@@ -7252,7 +7267,7 @@
           vlog('drift check', {
             heard: htmlAudio.currentTime - loopLatencySec,
             target: loopEst ? loopEst.pos - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000) : null,
-            driftMs, smoothedMs: correctionDriftMs, speedPct: +((currentRate - 1) * 100).toFixed(2),
+            driftMs, smoothedMs: correctionDriftMs, speedPct: +((currentRate - 1) * 100).toFixed(3), trimPct: +(rateTrim * 100).toFixed(4),
             readings: loopEst ? loopEst.n : 0, newestAgeMs: loopEst ? Math.round(loopEst.newestAgeMs) : null,
             speakerDelayMs: Math.round((loopLatencySec - listenerOffsetSec) * 1000), timing: outputTimingSource(),
             clockMs: Math.round(clockOffset), rttMs: clockBestRttMs === null ? null : Math.round(clockBestRttMs),
@@ -7285,7 +7300,7 @@
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
             `outDelay:    ${outDelayMs === null ? 'n/a' : outDelayMs + 'ms'} measured, using ${outputTimingSource()} (${Math.round(getOutputLatencySec() * 1000 - listenerOffsetSec * 1000)}ms)`,
-            `speed:       ${((currentRate - 1) * 100).toFixed(2)}%`,
+            `speed:       ${((currentRate - 1) * 100).toFixed(3)}% (trim ${(rateTrim * 100).toFixed(4)}%)`,
             ...probeLines(),
           ].join('\n');
           // Debug sync report: every 3 s, send this readout to the show so
@@ -7334,8 +7349,11 @@
           currentBuffer && currentSource && currentSourceGain;
 
         if (!canCorrect) {
-          // No trustworthy reference right now: don't keep nudging blindly.
-          if (currentRate !== 1.0 && currentSource) setSourceRate(1.0);
+          // No trustworthy reference right now: don't keep nudging blindly,
+          // but keep playing at the learned clock-speed difference.
+          rateTrimLastCtx = 0;
+          const holdRate = 1.0 + rateTrim;
+          if (currentSource && Math.abs(currentRate - holdRate) >= RATE_MIN_STEP) setSourceRate(holdRate);
         } else if (audioCtx.currentTime < lateSettleUntilCtx && lateSettleCount < LATE_SETTLE_MAX &&
                    Math.abs(correctionDriftMs) >= SETTLE_THRESHOLD_MS && Math.abs(correctionDriftMs) <= JUMP_THRESHOLD_MS &&
                    msSinceLastCrossfade > LATE_SETTLE_GAP_MS) {
@@ -7364,16 +7382,23 @@
             }
           }
         } else {
-          let targetRate = 1.0;
-          if (Math.abs(correctionDriftMs) > RATE_DEADBAND_MS) {
-            // Ahead (positive drift) → slow down; behind → speed up.
-            const dev = Math.max(-RATE_MAX_DEV, Math.min(RATE_MAX_DEV,
-              -(correctionDriftMs / 1000) * RATE_GAIN));
-            targetRate = 1.0 + dev;
+          // Learn the clock-speed difference (integral term).
+          const nowCtx = audioCtx.currentTime;
+          if (rateTrimLastCtx > 0 && Math.abs(correctionDriftMs) < RATE_TRIM_LEARN_MS) {
+            const dt = Math.min(2, Math.max(0, nowCtx - rateTrimLastCtx));
+            rateTrim = Math.max(-RATE_TRIM_MAX, Math.min(RATE_TRIM_MAX,
+              rateTrim - (correctionDriftMs / 1000) * RATE_TRIM_GAIN * dt));
           }
+          rateTrimLastCtx = nowCtx;
+          // Proportional push on top. Ahead (positive drift) → slow down;
+          // behind → speed up.
+          let push = 0;
+          if (Math.abs(correctionDriftMs) > RATE_DEADBAND_MS) {
+            push = -(correctionDriftMs / 1000) * RATE_GAIN;
+          }
+          const targetRate = 1.0 + Math.max(-RATE_MAX_DEV, Math.min(RATE_MAX_DEV, push + rateTrim));
           // Only touch the AudioParam when the change is meaningful.
-          if (Math.abs(targetRate - currentRate) >= 0.0005 ||
-              (targetRate === 1.0 && currentRate !== 1.0)) {
+          if (Math.abs(targetRate - currentRate) >= RATE_MIN_STEP) {
             setSourceRate(targetRate);
             lastAppliedRate = targetRate;
           }

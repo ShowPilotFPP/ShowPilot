@@ -82,9 +82,12 @@ async function cdpConnect(port, label) {
   try { targets = await withTimeout(fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(8000) }).then(r => r.json()), 9000, `${label}: asking Chrome for its pages`); }
   catch (e) { throw new Error(`${label}: no answer from Chrome debugging on port ${port} (${e.message}). On the phone: Chrome must be open (not just in the background), and Settings → Developer options → USB/wireless debugging on.`); }
   step(`${label}: Chrome lists ${targets.length} tab(s)`);
-  const page = targets.find(t => t.type === 'page' && /[?&]debug=1/.test(t.url))
-    || targets.find(t => t.type === 'page' && /^https?:/.test(t.url));
-  if (!page) throw new Error(`${label}: no open viewer page found (open it with ?debug=1)`);
+  // Only a viewer page opened with ?debug=1 (not /admin or other tabs).
+  const page = targets.find(t => t.type === 'page' && /[?&]debug=1/.test(t.url) && !/\/admin\b/.test(t.url));
+  if (!page) {
+    const tabs = targets.filter(t => t.type === 'page').map(t => '    ' + t.url).join('\n') || '    (none)';
+    throw new Error(`${label}: no viewer page with ?debug=1 is open in Chrome. Open your show's viewer page with ?debug=1 at the end (not /admin). Tabs found:\n${tabs}`);
+  }
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await withTimeout(new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error(`${label}: could not attach to ${page.url}`)); }), 10000, `${label}: attaching to the page`);
   step(`${label}: attached to ${page.url}`);

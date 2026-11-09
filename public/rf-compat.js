@@ -3850,7 +3850,11 @@
     // play/pause. Pure CSS on the existing elements (same buttons, handlers and
     // ids); tablets/desktop keep the single row. Same query as isTallPlayer().
     const TALL_QUERY = '(max-width: 600px)';
-    const playerTallEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerTallLayout);
+    // Always on inside the ShowPilot phone app (app bridge, master.18): every
+    // viewer there is on a phone, and the one-row bar leaves the song title
+    // too little room next to the controls.
+    const playerTallEnabled = !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.playerTallLayout)
+      || !!(window.ShowPilotApp && typeof window.ShowPilotApp.send === 'function');
     function isTallPlayer() {
       if (!playerTallEnabled) return false;
       try { return window.matchMedia(TALL_QUERY).matches; } catch (_) { return false; }

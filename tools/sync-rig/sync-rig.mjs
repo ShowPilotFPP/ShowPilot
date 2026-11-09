@@ -81,8 +81,20 @@ async function adb(...a) {
 // ---- Minimal Chrome DevTools Protocol client ----
 async function cdpConnect(port, label) {
   let targets;
-  try { targets = await withTimeout(fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(8000) }).then(r => r.json()), 9000, `${label}: asking Chrome for its pages`); }
-  catch (e) { throw new Error(`${label}: no answer from Chrome debugging on port ${port} (${e.message}). On the phone: Chrome must be open (not just in the background), and Settings → Developer options → USB/wireless debugging on.`); }
+  // The list can come back empty for a moment (phone waking, tab loading):
+  // ask a few times, via /json/list and /json.
+  targets = [];
+  let lastErr = null;
+  for (let i = 0; i < 4 && !targets.some(t => t.type === 'page'); i++) {
+    if (i) await sleep(1000);
+    for (const p of ['/json/list', '/json']) {
+      try {
+        const got = await withTimeout(fetch(`http://127.0.0.1:${port}${p}`, { signal: AbortSignal.timeout(8000) }).then(r => r.json()), 9000, `${label}: asking for its pages`);
+        if (Array.isArray(got) && got.length) { targets = got; break; }
+      } catch (e) { lastErr = e; }
+    }
+  }
+  if (!targets.length && lastErr) throw new Error(`${label}: no answer from browser debugging on port ${port} (${lastErr.message}). On the phone: keep the browser on screen and the phone unlocked.`);
   step(`${label}: Chrome lists ${targets.length} tab(s)`);
   // Only a viewer page opened with ?debug=1 (not /admin or other tabs).
   const page = targets.find(t => t.type === 'page' && /[?&]debug=1/.test(t.url) && !/\/admin\b/.test(t.url));

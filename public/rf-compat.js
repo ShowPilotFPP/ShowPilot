@@ -3848,6 +3848,113 @@
       document.body.appendChild(mb);
     }
 
+    // ---- Compare devices (beta, ?debug=1) ----
+    // Is this device in sync with another one playing the same show nearby?
+    // Same method as Measure sync: listen 4 s with this device playing (the
+    // mic hears it and the other device), then 4 s with it muted (only the
+    // other device), and find each copy against the decoded song. Result:
+    // how far the OTHER device is behind (+) or ahead (-) of this one.
+    // Needs mic permission and the https page. Repeat mode measures every
+    // 20 s so a phone can be refreshed and checked again and again.
+    // window.__spCompare = { run(), results } is for the sync-rig script.
+    const spCompareOn = (() => {
+      try { return new URLSearchParams(window.location.search).get('debug') === '1'; } catch (_) { return false; }
+    })();
+    const compareResults = [];
+    let compareRepeatTimer = null;
+    function comparePanel(latest) {
+      const ok = compareResults.filter(r => r.ok);
+      const avg = ok.length ? Math.round(ok.reduce((a, r) => a + r.otherBehindMs, 0) / ok.length) : null;
+      const say = (r) => !r.ok ? 'no result (' + r.reason + ')'
+        : r.otherBehindMs === 0 ? 'in sync'
+        : r.otherBehindMs > 0 ? '<b>' + r.otherBehindMs + ' ms behind</b>' : '<b>' + (-r.otherBehindMs) + ' ms ahead</b>';
+      const hist = compareResults.slice(-8).reverse().map(r =>
+        '<div>' + r.at.slice(11, 19) + ' · ' + say(r) + '</div>').join('');
+      micPanel('<div>Other device: ' + say(latest) + '</div>' +
+        '<div style="margin-top:6px;color:#aab0c0;font-size:13px">' + hist +
+        (avg !== null ? '<div style="margin-top:4px">Average of ' + ok.length + ': ' + (avg >= 0 ? '+' : '') + avg + ' ms (+ = other device behind)</div>' : '') +
+        '</div>' +
+        '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button" data-sp-cmp="again" style="padding:6px 10px;border-radius:8px">Measure again</button>' +
+        '<button type="button" data-sp-cmp="repeat" style="padding:6px 10px;border-radius:8px">' + (compareRepeatTimer ? 'Stop repeating' : 'Repeat every 20 s') + '</button>' +
+        '<button type="button" data-sp-cmp="close" style="padding:6px 10px;border-radius:8px">Close</button></div>', true);
+      const p = document.getElementById('sp-mic-panel');
+      if (p) p.querySelectorAll('[data-sp-cmp]').forEach(b => b.addEventListener('click', () => {
+        const a = b.getAttribute('data-sp-cmp');
+        if (a === 'again') compareRun();
+        else if (a === 'repeat') {
+          if (compareRepeatTimer) { clearInterval(compareRepeatTimer); compareRepeatTimer = null; comparePanel(latest); }
+          else { compareRepeatTimer = setInterval(() => { if (!micBusy) compareRun(); }, 20000); comparePanel(latest); }
+        } else { if (compareRepeatTimer) { clearInterval(compareRepeatTimer); compareRepeatTimer = null; } p.remove(); }
+      }));
+    }
+    async function compareRun() {
+      const fail = (reason) => {
+        const res = { ok: false, at: new Date().toISOString(), otherBehindMs: null, reason };
+        compareResults.push(res);
+        console.log('[ShowPilot] compare failed reason=' + JSON.stringify(reason));
+        comparePanel(res);
+        return res;
+      };
+      if (micBusy) return { ok: false, reason: 'a measurement is already running' };
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return fail('the microphone needs the https:// page');
+      try { await ltLoadMicCore(); } catch (e) { return fail(e.message || 'measurement code missing'); }
+      if (!audioCtx || !currentBuffer || !currentSource || !htmlAudio) return fail('start listening first, then compare while a song plays');
+      micBusy = true;
+      const buf = currentBuffer;
+      const wasMuted = isMuted;
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+        if (gainNode) gainNode.gain.value = 1;
+        micPanel('Comparing — step 1 of 2: listening with this device playing (4 s)…');
+        const a = await micCapture(stream, 4);
+        if (gainNode) gainNode.gain.value = 0;
+        micPanel('Comparing — step 2 of 2: this device muted, listening to the other device (4 s)…');
+        const b = await micCapture(stream, 4);
+        if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
+        stream.getTracks().forEach(tr => tr.stop()); stream = null;
+        if (currentBuffer !== buf) { micBusy = false; return fail('the song changed during the measurement'); }
+        const A = micRef(a), B = micRef(b);
+        if (!A || !B) { micBusy = false; return fail('could not read the player position'); }
+        micPanel('Comparing — analyzing…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.analyze(A, B, buf.sampleRate);
+        const reason = r.ok ? null : String(r.reason || 'no clear result').replace('the show speakers', 'the other device');
+        const res = {
+          ok: !!r.ok, at: new Date().toISOString(),
+          otherBehindMs: r.ok ? (r.merged ? 0 : r.deltaMs) : null, merged: !!r.merged, reason,
+          thisSpeakerDelayMs: Math.round((getOutputLatencySec() - (listenerOffsetSec || 0)) * 1000),
+          track: currentTrackMediaName, posSec: +htmlAudio.currentTime.toFixed(2),
+          otherStrength: r.ok && r.speakerStrength ? Math.round(r.speakerStrength) : null,
+        };
+        compareResults.push(res);
+        if (compareResults.length > 200) compareResults.shift();
+        console.log('[ShowPilot] compare ' + (res.ok ? 'otherBehindMs=' + res.otherBehindMs : 'failed reason=' + JSON.stringify(res.reason)) +
+          ' thisSpeakerDelayMs=' + res.thisSpeakerDelayMs + ' pos=' + res.posSec + ' track=' + JSON.stringify(res.track || ''));
+        comparePanel(res);
+        return res;
+      } catch (e) {
+        if (gainNode) gainNode.gain.value = wasMuted ? 0 : 1;
+        micBusy = false;
+        return fail(e && e.name === 'NotAllowedError' ? 'microphone permission was denied' : (e && e.message ? e.message : String(e)));
+      } finally {
+        if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micBusy = false;
+      }
+    }
+    if (spCompareOn) {
+      window.__spCompare = { run: compareRun, results: compareResults };
+      const cb = document.createElement('button');
+      cb.type = 'button';
+      cb.id = 'sp-compare-btn';
+      cb.textContent = '🎤 Compare devices';
+      cb.style.cssText = 'position:fixed;left:12px;bottom:' + (micEnabled ? 220 : 170) + 'px;z-index:10001;padding:10px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.25);' +
+        'background:rgba(10,12,20,.9);color:#fff;font:600 14px system-ui,-apple-system,sans-serif;cursor:pointer';
+      cb.addEventListener('click', () => compareRun());
+      document.body.appendChild(cb);
+    }
+
     // ---- Larger two-row player on phones (v0.33.215+) ----
     // Admin setting player_tall_layout (boot.playerTallLayout), off by default.
     // On screens <= 600px wide the player becomes two rows: cover + full-width
@@ -4915,6 +5022,8 @@
     }
     function vlog(label, fields) {
       if (!spVerbose) return;
+      // Latest of each kind, for the sync-rig script (window.__spDiag).
+      try { (window.__spDiag = window.__spDiag || {})[label] = Object.assign({ at: Date.now() }, fields); } catch (_) {}
       const parts = Object.entries(fields || {}).map(([k, v]) => k + '=' + vfmt(v));
       console.log('[ShowPilot] ' + label + (parts.length ? ' ' + parts.join(' ') : ''));
     }

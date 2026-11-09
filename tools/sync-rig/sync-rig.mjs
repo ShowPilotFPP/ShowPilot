@@ -33,6 +33,7 @@
 //                     [--no-reload]   (measure the current session only)
 //                     [--no-audioflinger]
 //                     [--mic]          (measure with the reference's microphone instead of asking)
+//                     [--socket <name>] (a specific browser debugging socket; found automatically otherwise)
 // Needs Node 22+ (built-in WebSocket and fetch) and adb on the PATH.
 // ============================================================
 import { execFile } from 'node:child_process';
@@ -51,6 +52,7 @@ const MEASURES = Number(opt('measures', 2));
 const REF_PORT = Number(opt('ref-port', 9223));
 const PHONE_PORT = Number(opt('phone-port', 9222));
 const SERIAL = opt('serial', null);
+const SOCKET = opt('socket', null);
 const OUT = path.resolve('sync-rig-out');
 const USE_MIC = flag('mic');
 // Answers typed (or piped) one per line; queued so piped input works too.
@@ -215,9 +217,31 @@ async function round(n, phone, ref, uids, csv) {
   const listed = devices.split('\n').filter(l => /\tdevice\b/.test(l)).map(l => l.split('\t')[0]);
   step(`phone(s): ${listed.join(', ')}`);
   if (listed.length > 1 && !SERIAL) { console.error('More than one device in `adb devices` — pick one with --serial <name>.'); process.exit(1); }
-  step(`linking port ${PHONE_PORT} to Chrome on the phone…`);
-  await adb('forward', `tcp:${PHONE_PORT}`, 'localabstract:chrome_devtools_remote');
-  const phone = await cdpConnect(PHONE_PORT, 'phone');
+  // Every browser on the phone with remote debugging has its own socket:
+  // chrome_devtools_remote (Chrome), Terrace/… (Samsung Internet),
+  // webview_devtools_remote_<pid> (apps and web views), and others.
+  // Try each until one has the viewer page open with ?debug=1.
+  let sockets = [];
+  try {
+    const unix = await adb('shell', 'cat', '/proc/net/unix');
+    sockets = [...new Set((unix.match(/@[\w.:-]*devtools_remote[\w.:-]*/g) || []).map(x => x.slice(1)))];
+  } catch (_) {}
+  if (SOCKET) sockets = [SOCKET];
+  if (!sockets.length) sockets = ['chrome_devtools_remote'];
+  step(`browser debugging sockets on the phone: ${sockets.join(', ')}`);
+  let phone = null; const seen = [];
+  for (const sock of sockets) {
+    step(`linking port ${PHONE_PORT} to ${sock}…`);
+    try { await adb('forward', '--remove', `tcp:${PHONE_PORT}`); } catch (_) {}
+    await adb('forward', `tcp:${PHONE_PORT}`, 'localabstract:' + sock);
+    try { phone = await cdpConnect(PHONE_PORT, 'phone'); step(`using ${sock}`); break; }
+    catch (e) { seen.push(`  ${sock}: ${e.message.split('\n').slice(1).join(' ').trim() || e.message}`); }
+  }
+  if (!phone) {
+    console.error('No browser on the phone has the viewer page open with ?debug=1.\n' + seen.join('\n') +
+      '\nOpen the show\'s viewer page with ?debug=1 in a browser on the phone (Chrome works; Samsung Internet needs its own remote debugging turned on).');
+    process.exit(1);
+  }
   const ref = USE_MIC ? await cdpConnect(REF_PORT, 'reference') : null;
   await phone.send('Page.enable');
   step('reading Chrome\'s app id on the phone…');

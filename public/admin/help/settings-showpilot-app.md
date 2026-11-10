@@ -4,14 +4,14 @@ Everything for the ShowPilot phone app is on this page. The page is marked **Com
 
 ## List my show
 
-Tick **List my show in the ShowPilot app** and your show is listed straight away; the line under the switch says **Listed** when the app's directory has it. There's nothing else to press: whenever your show name, town, address, location or Public base URL changes, ShowPilot updates the listing by itself. While listed it also tells the directory once a minute whether a song is playing, so the app can show your show as live.
+Tick **List my show in the ShowPilot app** and your show is listed straight away; the line under the switch says **Listed** when the app's directory has it. There's nothing else to press: whenever your show name, town, address, location or Public web address changes, ShowPilot updates the listing by itself. While listed it also tells the directory once a minute whether a song is playing, so the app can show your show as live.
 
 Untick it and your show is removed from the app at once. If the directory can't be reached right then, ShowPilot keeps trying every minute until it's gone, and the line says so.
 
 Listing needs two things, and the page tells you if either is missing:
 
 - a show location: enter your **Show address** on this page, or set it in [Interaction Safeguards](help:settings-safeguards#gps-proximity-check), and
-- a **Public base URL** that starts with `https://` in [Settings › Audio](help:settings-audio). Phones on cellular reach your show through it, so a home network address won't work.
+- a **Public web address** that starts with `https://` in [Settings › General](help:settings-general#public-web-address). Phones on cellular reach your show through it, so a home network address won't work.
 
 ## What people see
 

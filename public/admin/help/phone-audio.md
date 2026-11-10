@@ -89,7 +89,7 @@ ShowPilot sets no limit on how many phones can listen at once. The header shows 
 
 ## 7. Listeners away from your home network
 
-People on cellular data can't reach ShowPilot by its local address. Make ShowPilot reachable from the internet and enter that address as the [Public base URL](help:settings-audio#external-audio-access). See [Public Access](help:settings-public-access).
+People on cellular data can't reach ShowPilot by its local address. Make ShowPilot reachable from the internet and enter that address as the [Public web address](help:settings-general#public-web-address). See [Public Access](help:settings-public-access).
 
 ## Common problems
 
@@ -100,7 +100,7 @@ People on cellular data can't reach ShowPilot by its local address. Make ShowPil
 | Viewer at the show is still turned away | Their phone may be sharing only an approximate location (on iPhone, **Precise Location** for Safari Websites is off), or they opened the page inside an app such as Facebook or Instagram, whose built-in browser won't share location. The message on their phone explains what to do; opening the page in Safari or Chrome usually fixes it. |
 | Player says **No audio for this sequence** | The song has no audio file in FPP, or hasn't synced yet. Sync the plugin. |
 | Silent, or **Tap to resume audio** | The phone paused the audio (a call, the screen locking). Tapping the player resumes it. |
-| Plays on Wi-Fi but not on cellular | Set the **Public base URL**. |
+| Plays on Wi-Fi but not on cellular | Set the **Public web address** (Settings › General). |
 | Old version of a song plays | Sync the plugin after replacing files on FPP. |
 | A song is missing from the **Audio Cache** | Very large files (over 50 MB) aren't stored by ShowPilot and stream through your show player instead. |
 | Everyone out of sync | Adjust **Audio sync offset**. Check the plugin is online. |

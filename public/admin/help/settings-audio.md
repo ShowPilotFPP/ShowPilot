@@ -59,6 +59,4 @@ The **Daemon port** is where ShowPilot reaches the audio helper the FPP plugin r
 
 ## External audio access
 
-Listeners on cellular data, or anywhere off your home network, can't reach your ShowPilot by its local address. Enter the **Public base URL (your domain)**, the full web address where your ShowPilot can be reached from the internet (for example `https://lights.example.com`). Their players then use it automatically, while people on your own network still use the faster direct path.
-
-Leave it blank if your ShowPilot isn't reachable from the internet.
+Listeners on cellular data, or anywhere off your home network, can't reach your ShowPilot by its local address. Their players get the music from your **Public web address**, set in [Settings › General](help:settings-general#public-web-address), while people on your own network still use the faster direct path.

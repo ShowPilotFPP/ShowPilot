@@ -2101,7 +2101,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.279</span>
+        <span class="app-version">v0.33.280-master.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2289,7 +2289,7 @@
         <div class="card" id="qrNoUrlCard" style="display:none;">
           <h2>Viewer QR Code</h2>
           <p class="muted" style="font-size: 0.85rem;">
-            Set your <strong>Public base URL</strong> in Settings → Audio to enable the QR code generator.
+            Set your <strong>Public web address</strong> in Settings → General to enable the QR code generator.
           </p>
         </div>
 
@@ -3576,6 +3576,20 @@
               </p>
             </div>
 
+            <div style="margin-top: 1.25rem;">
+              <label for="cfg_public_base_url">Public web address</label>
+              <input type="text" id="cfg_public_base_url"
+                     placeholder="https://yourdomain.com"
+                     onchange="saveSetting('public_base_url', this.value.trim())"
+                     style="width: 100%; max-width: 400px;" />
+              <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
+                The full web address where people reach your show from the internet, starting with https://.
+                It's your viewer page's address, and ShowPilot uses it for the Viewer QR code, for phone audio
+                away from your home network, and for the ShowPilot phone app. Leave it blank if your ShowPilot
+                isn't reachable from the internet.
+              </p>
+            </div>
+
             <div id="installCountSection" style="margin-top: 1.5rem;">
               <h3>Install count</h3>
               <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
@@ -4001,22 +4015,11 @@
             </div>
 
             <h3 style="margin-top: 1.5rem;">External audio access</h3>
-            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-              Listeners on cellular or away from your home network can't reach your local IP.
-              Set your public domain so the player automatically falls back to it for external listeners.
+            <p class="muted" style="font-size: 0.85rem; margin: 0;">
+              Listeners on cellular or away from your home network get the music from your
+              <strong>Public web address</strong> (<a href="#" class="sp-page-link" onclick="switchTab('general'); return false;">Settings &rarr; General</a>).
               Local listeners still use the direct path for best performance.
             </p>
-            <div>
-              <label for="cfg_public_base_url">Public base URL (your domain)</label>
-              <input type="text" id="cfg_public_base_url"
-                     placeholder="https://yourdomain.com"
-                     onchange="saveSetting('public_base_url', this.value.trim())"
-                     style="width: 100%; max-width: 400px;" />
-              <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
-                The full URL where this ShowPilot instance is publicly reachable.
-                Leave blank to disable external access.
-              </p>
-            </div>
           </div>
 
           <!-- APP — PWA install controls for admin & viewer -->
@@ -4133,7 +4136,7 @@
             </div>
 
             <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;">
-              It also needs a Public base URL that starts with https:// (<a href="#" class="sp-page-link" onclick="switchTab('audio'); return false;">Settings &rarr; Audio</a> &rarr; External audio access):
+              It also needs a Public web address that starts with https:// (<a href="#" class="sp-page-link" onclick="switchTab('general'); return false;">Settings &rarr; General</a>):
               phones on cellular reach your show through it. The app's main list shows your show to phones within about a mile of it,
               the same for every show; the Directory of Shows lets people search farther.
             </p>

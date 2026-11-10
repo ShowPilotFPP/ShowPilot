@@ -76,7 +76,7 @@ A scannable code that opens your viewer page, to print on a sign or show on a sc
 - **Copy URL** copies the viewer page address.
 - **Download SVG** saves the code as an image that stays sharp at any size.
 
-The code only appears once you've entered a **Public base URL** in [Settings › Audio](help:settings-audio). Until then this card tells you to set it.
+The code only appears once you've entered a **Public web address** in [Settings › General](help:settings-general#public-web-address). Until then this card tells you to set it.
 
 ## Top bar and menu
 

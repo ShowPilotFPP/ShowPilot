@@ -230,7 +230,10 @@ function createDirectory(db) {
         const sameBaseStillFresh = verifiedBase === apiBase && now - verifiedAt <= REVERIFY_GRACE_S && r.network;
         if (!sameBaseStillFresh) {
           if (prev) del.run(h);
-          const why = r.json ? (r.json.listed === true ? 'a different show answers at that address' : 'the show at that address says it is not listed')
+          // "Address" here is the web address; name it so nobody reads it as a street address.
+          const why = r.json ? (r.json.listed === true
+                                  ? 'a different ShowPilot answers at ' + apiBase + '. Check the Public web address in Settings → General'
+                                  : 'the ShowPilot at ' + apiBase + ' says it is not listed. Check the Public web address in Settings → General')
                              : ('could not read ' + apiBase + '/api/public/show-info (' + (r.error || 'no reply') + ')');
           return res.status(422).json({ error: why });
         }

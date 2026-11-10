@@ -37,7 +37,7 @@ The tunnel starts straight away and the badge should turn to **Tunnel Online** w
 
 > **Tip:** Cloudflare can also protect the `/admin` part of your address with **Cloudflare Access**, so only you can reach the admin pages. Viewers don't need it. It's free for small numbers of users and well worth setting up.
 
-If you use Listen on Phone, also enter your new address as the **Public base URL** in [Settings › Audio](help:settings-audio#external-audio-access), so listeners off your home network can hear the show.
+If you use Listen on Phone, also enter your new address as the **Public web address** in [Settings › General](help:settings-general#public-web-address), so listeners off your home network can hear the show.
 
 ## Controlling the tunnel
 

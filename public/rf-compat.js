@@ -7632,6 +7632,25 @@
     // theme changes or animations are off.
     let liveOn = false, liveRaf = 0, liveAnalyser = null, liveBuf = null, liveBands = null;
     let liveEls = [], liveLvls = [], livePeaks = [], liveMeans = [], liveQueue = [], liveLastT = 0;
+    // v0.33.280: the live lights change only the glow elements' own opacity
+    // and transform (each on its own GPU layer), never a CSS variable on a
+    // parent. A variable on the bulb (or on #of-deco) restyled the whole
+    // subtree including the bulbs' SVG gradients 30 times a second, and on
+    // iPhone/iPad that memory piled up until iOS killed the page (~1.9 GB,
+    // page reload a few minutes in). Apple touch devices also update a bit
+    // less often (~20/s instead of ~30/s).
+    let liveTargets = [];      // bands: [{ halo, hot }] per bulb; party: { halo, glint, spots }
+    const LIVE_MIN_MS = (/iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) ? 48 : 30;
+    function liveClearInline() {
+      const clear = (el) => { if (el) { el.style.removeProperty('opacity'); el.style.removeProperty('transform'); } };
+      if (Array.isArray(liveTargets)) liveTargets.forEach(t => { clear(t.halo); clear(t.hot); });
+      else if (liveTargets) { clear(liveTargets.halo); clear(liveTargets.glint); clear(liveTargets.spots); }
+    }
+    function liveOff() {
+      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      liveClearInline();
+    }
     // Modes: 'bands' (christmas-live: one band per bulb) and 'party'
     // (newyear-live, v0.33.226-beta: bass/mid/treble + energy -> --beat,
     // --energy, --treble on #of-deco, plus confetti bursts on big jumps).
@@ -7642,11 +7661,16 @@
       liveEls = (liveMode === 'bands' && decoLayer) ? Array.from(decoLayer.querySelectorAll('.ofd-lb'))
         : (liveMode === 'party' && decoLayer && decoLayer.querySelector('.ofd-nyball')) ? [0, 1, 2] : [];
       liveParty = liveMode === 'party' ? { beat: 0, treble: 0, energy: 0, ePeak: 0.05, eSlow: -1, lastBurst: 0 } : null;
+      liveTargets = liveMode === 'bands'
+        ? liveEls.map(b => ({ halo: b.querySelector('.ofd-halo'), hot: b.querySelector('.ofd-hot') }))
+        : liveMode === 'party' && decoLayer
+          ? { halo: decoLayer.querySelector('.ofd-nyball .ofd-nyhalo'), glint: decoLayer.querySelector('.ofd-nyball .ofd-nyglint'), spots: decoLayer.querySelector('.ofd-nyspots') }
+          : [];
       liveLvls = liveEls.map(() => 0);
       livePeaks = liveEls.map(() => 0);
       liveMeans = liveEls.map(() => -1);
       liveQueue = []; liveBands = null;
-      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      liveOff();
       // In the ShowPilot app (master.21), ask the app for the levels of
       // these ranges; it plays the audio, so it has the analyser's job.
       if (isAppMode()) {
@@ -7699,7 +7723,7 @@
       liveRaf = 0;
       if (!liveOn) return;
       liveRaf = requestAnimationFrame(liveFrame);
-      if (t - liveLastT < 30) return;
+      if (t - liveLastT < LIVE_MIN_MS) return;
       liveLastT = t;
       // In the ShowPilot app the frames arrive from the app (already timed for
       // when they're heard) instead of from an analyser.
@@ -7708,7 +7732,7 @@
         ? (appLivePlaying && !isMuted && document.visibilityState === 'visible')
         : !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
       if (!playing || !liveEls.length || (!app && !liveEnsureAnalyser())) {
-        if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+        liveOff();
         liveQueue = [];
         return;
       }
@@ -7743,9 +7767,10 @@
         P.energy = P.energy * 0.85 + Math.min(1, overall / P.ePeak) * 0.15;
         P.eSlow = P.eSlow < 0 ? overall : P.eSlow * 0.985 + overall * 0.015;
         if (overall > P.eSlow * 1.6 && overall > 0.15 && now - P.lastBurst > 4000) { P.lastBurst = now; liveConfettiBurst(); }
-        decoLayer.style.setProperty('--beat', P.beat.toFixed(3));
-        decoLayer.style.setProperty('--treble', P.treble.toFixed(3));
-        decoLayer.style.setProperty('--energy', P.energy.toFixed(3));
+        const T = liveTargets;
+        if (T.halo) { T.halo.style.opacity = (0.12 + P.beat * 0.88).toFixed(3); T.halo.style.transform = 'scale(' + (0.85 + P.beat * 0.45).toFixed(3) + ')'; }
+        if (T.glint) T.glint.style.opacity = (0.3 + P.treble * 0.7).toFixed(3);
+        if (T.spots) T.spots.style.opacity = (0.18 + P.energy * 0.55 + P.beat * 0.27).toFixed(3);
         return;
       }
       for (let i = 0; i < liveEls.length; i++) {
@@ -7759,7 +7784,9 @@
         livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
         const v = x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
         liveLvls[i] = Math.max(v, liveLvls[i] * 0.84);
-        liveEls[i].style.setProperty('--lvl', liveLvls[i].toFixed(3));
+        const L = liveLvls[i], T = liveTargets[i];
+        if (T && T.halo) { T.halo.style.opacity = (0.14 + L * 0.86).toFixed(3); T.halo.style.transform = 'scale(' + (0.72 + L * 0.62).toFixed(3) + ')'; }
+        if (T && T.hot) T.hot.style.opacity = (0.03 + L * 0.52).toFixed(3);
       }
     }
 
@@ -7994,8 +8021,9 @@
         @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
         @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
         /* "Live": while music plays, each bulb follows its frequency band (--lvl, set by the player). */
-        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity: calc(.14 + var(--lvl) * .86); transform: scale(calc(.72 + var(--lvl) * .62)); }
-        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity: calc(.03 + var(--lvl) * .52); }
+        /* (opacity/transform set per frame on the elements themselves; see liveFrame) */
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity:.14; transform:scale(.72); will-change: opacity, transform; }
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity:.03; }
       </style>
       <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
         <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
@@ -8462,9 +8490,10 @@
         #of-deco .ofd-nyspots.ofd-anim .ofd-nyspots-in { animation: ofdNySpots 16s linear infinite; }
         @keyframes ofdNySpots { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         /* Live: the music drives the light (variables set by the player). */
-        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity: calc(.12 + var(--beat, 0) * .88); transform: scale(calc(.85 + var(--beat, 0) * .45)); }
-        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity: calc(.3 + var(--treble, 0) * .7); }
-        #of-deco.ofd-live-on .ofd-nyspots { opacity: calc(.18 + var(--energy, 0) * .55 + var(--beat, 0) * .27); }
+        /* (opacity/transform set per frame on the elements themselves; see liveFrame) */
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity:.12; transform:scale(.85); will-change: opacity, transform; }
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity:.3; }
+        #of-deco.ofd-live-on .ofd-nyspots { opacity:.18; will-change: opacity; }
         #of-deco .ofd-nyburst .ofdny-bit { animation-iteration-count: 1 !important; }
       </style>
       <div class="ofd ofd-nyspots${A}"><div class="ofd-nyspots-in">${spots}</div></div>

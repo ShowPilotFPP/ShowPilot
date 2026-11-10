@@ -1615,7 +1615,9 @@
       _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
     }
     // Listen Only shows the last active mode's list (listDisplayMode).
-    const shownMode = data.listDisplayMode || data.viewerControlMode;
+    // With "Keep the song list" off (v0.33.280), Listen Only hides both.
+    const shownMode = (data.viewerControlMode === 'LISTEN' && data.listenShowList === false)
+      ? 'NONE' : (data.listDisplayMode || data.viewerControlMode);
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
       setVisible(el, shownMode === 'JUKEBOX');
     });

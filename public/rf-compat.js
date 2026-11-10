@@ -3582,22 +3582,6 @@
     // ---- Sticky-bottom panel ----
     const panel = document.createElement('div');
     panel.id = 'of-listen-panel';
-    // v0.33.280: no frosted-glass blur on the player on iPhone/iPad. Safari
-    // (and the app's page view) there keep re-blurring whatever moves behind
-    // it (a template's falling snow, the live bulbs, the ticking time pill)
-    // and the page's memory climbs until iOS kills it (reported: ~1.9 GB,
-    // page reloads mid-song). The panels keep their dark backgrounds.
-    (function () {
-      var ua = navigator.userAgent || '';
-      var appleTouch = /iPad|iPhone|iPod/.test(ua) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      if (!appleTouch || document.getElementById('sp-ios-noblur')) return;
-      var st = document.createElement('style');
-      st.id = 'sp-ios-noblur';
-      st.textContent = '#of-listen-panel,#of-listen-panel *,.sp-progress--fixed,.sp-progress-time{' +
-        '-webkit-backdrop-filter:none !important;backdrop-filter:none !important}';
-      (document.head || document.documentElement).appendChild(st);
-    })();
     panel.style.cssText = `
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
       padding: 12px 16px;

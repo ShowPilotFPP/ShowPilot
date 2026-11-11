@@ -162,6 +162,8 @@
         <tr><td><code>{playlist-voting-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="voting"</code></td><td>Voting mode.</td></tr>
         <tr><td><code>{on-demand-and-voting-dynamic-container}</code> <span class="tag rf">RF</span></td><td>same as voting</td><td>Voting mode (older Remote Falcon name).</td></tr>
         <tr><td><code>{race-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="race"</code></td><td>Race mode.</td></tr>
+        <tr><td><code>{listen-only-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="listenonly"</code></td><td>Listen only mode. When your template has this section, Listen only shows it and hides the voting and jukebox sections. Without it, Listen only keeps the last mode's song list on the page with picking closed.</td></tr>
+        <tr><td><code>{show-on-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="showon"</code></td><td>Every mode except Off (Voting, Jukebox, Race and Listen only) — e.g. now playing, your radio station or the Listen button.</td></tr>
         <tr><td><code>{location-code-dynamic-container}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="locationcode"</code></td><td>An access code is required.</td></tr>
         <tr><td><code>{after-hours-message}</code> <span class="tag rf">RF</span></td><td><code>data-showpilot-container="afterhours"</code></td><td>Viewer control is off (outside show hours).</td></tr>
         <tr><td><code>{message-dynamic-container}</code> <span class="tag sp">SP</span></td><td><code>data-showpilot-container="messages"</code></td><td>Visitor messages are open.</td></tr>
@@ -282,7 +284,7 @@
       <tbody>
         <tr><td><code>data-showpilot-mode</code> <span class="tag sp">SP</span></td><td><code>&lt;html&gt;</code> and <code>&lt;body&gt;</code></td><td><code>voting</code>, <code>jukebox</code>, <code>race</code>, <code>listen-only</code> or <code>off</code>. Updated live, e.g. <code>[data-showpilot-mode="off"] .vote-help { display: none; }</code></td></tr>
         <tr><td><code>.showpilot-listen-only</code> <span class="tag sp">SP</span></td><td><code>&lt;body&gt;</code></td><td>Listen Only mode: picking is closed, and a <code>.showpilot-listen-notice</code> appears above the song list.</td></tr>
-        <tr><td><code>data-showpilot-pick-only</code> <span class="tag sp">SP</span></td><td>any element</td><td>Hidden while Listen Only is on, e.g. your "Tap a song to vote!" text. The builders' voting and jukebox instructions have it already. Settings → Jukebox → <em>Listen only</em> also decides whether the song list stays on the page.</td></tr>
+        <tr><td><code>data-showpilot-pick-only</code> <span class="tag sp">SP</span></td><td>any element</td><td>Hidden while Listen Only is on, e.g. your "Tap a song to vote!" text. The builders' voting and jukebox instructions have it already. To replace the song list entirely in Listen only, use <code>{listen-only-dynamic-container}</code>.</td></tr>
       </tbody>
     </table></div>
   </section>

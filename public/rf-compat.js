@@ -1614,9 +1614,10 @@
     if (data.viewerControlMode && (data.viewerControlMode === 'RACE') !== _pageIsRace && !_swapInFlight) {
       _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
     }
-    // Listen Only shows the last active mode's list (listDisplayMode).
-    // With "Keep the song list" off (v0.33.280), Listen Only hides both.
-    const shownMode = (data.viewerControlMode === 'LISTEN' && data.listenShowList === false)
+    // Listen Only shows the last active mode's list (listDisplayMode),
+    // unless the template has its own Listen Only section (v0.33.281).
+    const hasListenSection = !!document.querySelector('[data-showpilot-container="listenonly"]');
+    const shownMode = (data.viewerControlMode === 'LISTEN' && hasListenSection)
       ? 'NONE' : (data.listDisplayMode || data.viewerControlMode);
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
       setVisible(el, shownMode === 'JUKEBOX');
@@ -1632,6 +1633,15 @@
     document.querySelectorAll('[data-showpilot-container="afterhours"]').forEach(el => {
       setVisible(el, data.viewerControlMode === 'OFF');
     });
+    // Listen Only / show-on sections (v0.33.281, issue #70)
+    if (data.viewerControlMode) {
+      document.querySelectorAll('[data-showpilot-container="listenonly"]').forEach(el => {
+        setVisible(el, data.viewerControlMode === 'LISTEN');
+      });
+      document.querySelectorAll('[data-showpilot-container="showon"]').forEach(el => {
+        setVisible(el, data.viewerControlMode !== 'OFF');
+      });
+    }
     // Race mode container visibility (v0.33.155+)
     document.querySelectorAll('[data-showpilot-container="race"]').forEach(el => {
       setVisible(el, data.viewerControlMode === 'RACE');

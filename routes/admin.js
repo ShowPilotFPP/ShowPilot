@@ -364,7 +364,6 @@ router.put('/config', requireAdmin, (req, res) => {
     'cooldown_unit',
     'cooldown_default',
     'cooldown_show_cooled',
-    'listen_show_list',
     'blocked_ips',
     // Viewer player decoration
     'player_decoration',
@@ -445,7 +444,6 @@ router.put('/config', requireAdmin, (req, res) => {
   if ('cooldown_unit' in updates) updates.cooldown_unit = updates.cooldown_unit === 'songs' ? 'songs' : 'minutes';
   if ('cooldown_default' in updates) updates.cooldown_default = require('../lib/cooldown').toInt(updates.cooldown_default) || 0;
   if ('cooldown_show_cooled' in updates) updates.cooldown_show_cooled = updates.cooldown_show_cooled ? 1 : 0;
-  if ('listen_show_list' in updates) updates.listen_show_list = updates.listen_show_list ? 1 : 0;
 
   // Sanitize psa_trigger_mode (v0.30.0+) to one of two allowed values.
   // Anything else falls back to 'interactions' (the default + safe option).

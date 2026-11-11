@@ -280,8 +280,6 @@ router.get('/state', (req, res) => {
     // Song list layout to show: the mode itself, or in Listen Only the last
     // active mode's layout (v0.33.249+).
     listDisplayMode: listDisplayMode(cfg),
-    // Listen Only (v0.33.280): false = hide the voting/jukebox sections.
-    listenShowList: Number(cfg.listen_show_list) !== 0,
     nowPlaying: nowPlaying.sequence_name || null,
     nowPlayingDisplayName: npLabel.displayName,
     nowPlayingArtist: nowPlaying.sequence_name ? (npLabel.artist || '') : '',

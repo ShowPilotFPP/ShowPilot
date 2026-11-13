@@ -4093,7 +4093,11 @@
     // call audio the moment a page opens the mic, which silenced the player
     // in the first real test — a browser can't play and listen at once there.
     // That measurement needs a native app.
-    const ltDetectOk = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
+    // Turned off everywhere in v0.33.282: a feature that can't work on every
+    // phone stays out of the web player. The code is kept; set this to true
+    // to bring the button back.
+    const LT_DETECT_ENABLED = false;
+    const ltDetectOk = LT_DETECT_ENABLED && !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
       !/Android/i.test(navigator.userAgent || '');
     let ltDetectBusy = false, ltDetectLast = null;
     function ltDetectMsg(html) {

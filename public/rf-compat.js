@@ -4101,6 +4101,12 @@
     }
     async function ltGetMic() {
       const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+      // iOS Safari refuses the mic while the audio session is 'playback'
+      // ("audio session category is not compatible with audio capture").
+      // Switch to play-and-record only for the measurement; ltDetect() puts
+      // it back to 'playback' when the mic closes, so normal listening is
+      // unchanged. Feature-detected: a no-op outside Safari. (Thanks jddocea, #71)
+      try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (_) {}
       let stream = await navigator.mediaDevices.getUserMedia({ audio: base });
       let devices = [];
       try {

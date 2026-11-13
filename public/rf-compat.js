@@ -4210,7 +4210,7 @@
           ltDetectMsg('Listening… ' + left + ' s. Keep the volume up and stay still.'));
         const outLatDuring = audioCtx.outputLatency || 0;
         stream.getTracks().forEach(t => t.stop()); stream = null;
-        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch (_) {}
         ltDetectMsg('Working it out…');
         await new Promise(r => setTimeout(r, 30));
         const r = window.SPMicCore.roundTrip(cap.mic, cap.tap, cap.sr);
@@ -4243,7 +4243,7 @@
           '<div class="sp-lt-auto-detail">Round trip ' + info.roundTripMs + ' ms (runs ' + r.runs.join(', ') + ') · mic ' + info.micMs + ' ms ' +
           (info.micReported ? 'reported' : 'assumed') + ' · already covered ' + info.coveredMs + ' ms · mic: ' + esc(info.mic || 'unknown') + '</div>');
       } catch (e) {
-        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch (_) {}
         ltDetectMsg(e && e.name === 'NotAllowedError'
           ? 'Microphone permission was denied. Allow it for this site in your browser settings, or set the timing by hand below.'
           : '<b>No result:</b> ' + (e && e.message ? e.message : e) + '.');
@@ -4633,7 +4633,7 @@
     // playback makes it ignore the mute switch, no silent asset needed.
     // Feature-detected since only Safari has it; harmless no-op elsewhere.
     if ('audioSession' in navigator) {
-      try { navigator.audioSession.type = 'playback'; } catch {}
+      try { navigator.audioSession.type = 'auto'; } catch {}
     }
     // Holds an AudioContext created synchronously inside a user-gesture
     // handler (btn.onclick), before startup() actually runs. iOS Safari
@@ -5591,7 +5591,7 @@
       // (phone call, Siri, another app grabbing audio focus). Cheap and
       // idempotent, so no harm in repeating it.
       if ('audioSession' in navigator) {
-        try { navigator.audioSession.type = 'playback'; } catch {}
+        try { navigator.audioSession.type = 'auto'; } catch {}
       }
       // If the show isn't currently playing, there's no audio to gate on.
       // Skip the location prompt entirely — just open the panel so the

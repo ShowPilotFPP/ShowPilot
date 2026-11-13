@@ -14,7 +14,7 @@ Scenario: The FPP page shows what FPP reports
   And the FPP page shows "Flood On"
   And the FPP health is ok
 
-Scenario: A hot CPU, a full disk and a missing remote are flagged
+Scenario: A hot CPU, a full disk and a missing remote during the show are flagged
   Given the show has songs "Alpha", "Bravo" and "Charlie"
   When the show player reports FPP idle, the CPU at 74°C
   Then the FPP health is warn
@@ -25,6 +25,8 @@ Scenario: A hot CPU, a full disk and a missing remote are flagged
   Then the FPP health is bad
   And the FPP page shows "Disk almost full"
   When the show player reports FPP idle, the CPU at 50°C, 40% disk free, with the remote "Matrix" offline
+  Then the FPP health is ok
+  When the show player reports FPP playing "Alpha.fseq" from "Christmas", the CPU at 50°C, 40% disk free, with the remote "Matrix" offline
   Then the FPP health is warn
   And the FPP page shows "not seen recently"
 

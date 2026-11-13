@@ -399,7 +399,7 @@ const STEPS = [
           advancedView: { HostName: 'ShowFPP', Platform: 'Raspberry Pi', Variant: 'Pi 4', Version: '10.1', Branch: 'master', IPs: ['10.0.0.20'], Utilization: { CPU: 12.5, Memory: 40.2, Uptime: '3 days' } },
         },
         multisync: { systems: [{ local: 1, hostname: 'ShowFPP', address: '10.0.0.20', fppModeString: 'player', lastSeen: now }].concat(remote
-          ? [{ local: 0, hostname: remote, address: '10.0.0.21', fppModeString: 'remote', version: '10.1', lastSeen: online.toLowerCase() === 'online' ? now - 5 : now - 600 }] : []) },
+          ? [{ local: 0, hostname: remote, address: '10.0.0.21', fppModeString: 'remote', version: '10.1', lastSeen: online.toLowerCase() === 'online' ? now - 5 : now - 1800 }] : []) },
         disk: disk ? { freeBytes: Number(disk) * 1e9, totalBytes: 100e9 } : { freeBytes: 40e9, totalBytes: 100e9 },
         playlists: ['Christmas', 'Halloween'], presets: ['Flood On', 'Fog'],
         results: (ctx.last.fppCommands || []).map(c => ({ id: c.id, ok: true, message: '' })),

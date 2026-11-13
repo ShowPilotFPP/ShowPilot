@@ -3796,6 +3796,22 @@
       const refStartSec = Math.max(0, expected - 1.0);
       return { mic: cap.mic, ref: monoSlice(currentBuffer, refStartSec, cap.mic.length + Math.round(2.2 * sr)), refStartSec, expectedPosSec: expected };
     }
+    // iOS Safari refuses the mic while the audio session is 'playback'
+    // ("AudioSession category is not compatible with audio capture"), the
+    // same problem #71 found in Detect my delay. Measure sync and Compare
+    // devices switch to play-and-record only while the mic is open, then go
+    // back to 'playback' and rebuild the audio engine like Detect my delay
+    // does. Only where navigator.audioSession exists (Safari); elsewhere
+    // nothing changes.
+    function micSessionRecord() {
+      if (!navigator.audioSession) return false;
+      try { navigator.audioSession.type = 'play-and-record'; return true; } catch (_) { return false; }
+    }
+    function micSessionDone(switched) {
+      if (!switched) return;
+      try { navigator.audioSession.type = 'playback'; } catch (_) {}
+      try { ltRestoreAudio(); } catch (_) {}
+    }
     async function micMeasure() {
       if (micBusy) return;
       if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -3806,8 +3822,9 @@
       micBusy = true;
       const buf = currentBuffer;
       const wasMuted = isMuted;
-      let stream = null;
+      let stream = null, iosSwitched = false;
       try {
+        iosSwitched = micSessionRecord();
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
         if (gainNode) gainNode.gain.value = 1;
         micPanel('Step 1 of 2 — listening with the phone playing (5 s)… keep the phone\'s volume up and stay still.');
@@ -3846,6 +3863,7 @@
         micPanel(e && e.name === 'NotAllowedError' ? 'Microphone permission was denied.' : 'Measurement failed: ' + (e && e.message ? e.message : e));
       } finally {
         if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micSessionDone(iosSwitched);
         micBusy = false;
       }
     }
@@ -3915,8 +3933,9 @@
       micBusy = true;
       const buf = currentBuffer;
       const wasMuted = isMuted;
-      let stream = null;
+      let stream = null, iosSwitched = false;
       try {
+        iosSwitched = micSessionRecord();
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
         if (gainNode) gainNode.gain.value = 1;
         micPanel('Comparing — step 1 of 2: listening with this device playing (4 s)…');
@@ -3952,6 +3971,7 @@
         return fail(e && e.name === 'NotAllowedError' ? 'microphone permission was denied' : (e && e.message ? e.message : String(e)));
       } finally {
         if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micSessionDone(iosSwitched);
         micBusy = false;
       }
     }

@@ -49,6 +49,11 @@ Then in Cloudflare:
 Optional: make the stats page private by starting it with `STATS_KEY=yourkey`
 and opening `/?key=yourkey`.
 
+Directory admin page: start it with `ADMIN_KEY=<long random value>` (for
+example `openssl rand -hex 24`) and open `/admin`. Without `ADMIN_KEY` the
+page and its API answer 404. With pm2:
+`ADMIN_KEY=… pm2 restart showpilot-install-counter --update-env && pm2 save`.
+
 ## Endpoints
 
 | Path | What |
@@ -60,6 +65,10 @@ and opening `/?key=yourkey`.
 | `POST /api/shows/checkin` | Listed show's once-a-minute check-in (directory) |
 | `POST /api/shows/remove` | Show whose owner turned listing off (directory) |
 | `GET /api/shows/nearby?lat=&lng=&radius_mi=` | Phone app: listed shows near a point (directory) |
+| `GET /api/shows/directory?lat=&lng=&radius_mi=` | Phone app: Directory of Shows map (directory) |
+| `GET /admin` | Directory admin page (needs `ADMIN_KEY`) |
+| `GET /api/admin/directory` | Admin: every show, refused check-ins, blocked shows |
+| `POST /api/admin/directory/check` `remove` `block` `unblock` `dismiss` | Admin actions, body `{ "idHash": "…" }` (`block` also takes `reason`) |
 
 "Running" means checked in within the last 30 days. Daily totals are saved
 for the trend line.
@@ -129,3 +138,27 @@ to `https://<counter host>/api/shows/…` (`DEFAULT_URL` in
 
 Testing only: `VERIFY_REWRITE_TO=http://127.0.0.1:3100` sends the ownership
 check to a local server instead of the show's real address.
+
+## Directory admin
+
+`/admin` (with `ADMIN_KEY` set; the page asks for the key once per browser
+tab and sends it as `Authorization: Bearer …`, never in the URL):
+
+- **Shows:** every show on record with its state — *Live*, *Online* (checking
+  in, not playing), *Not checking in* (quiet 2.5 min – 1 day: still in the
+  app, shown as not live), *Dropped* (quiet over a day: out of the app,
+  deleted after 30 days) — plus version, pin, listing ID and a flag when the
+  daily ownership check is failing but the 2-day grace keeps it listed.
+- **Check:** runs live against the show: its `show-info` and listing ID, the
+  viewer page, and `/api/now-playing-audio` at its pin. Passing re-verifies the
+  listing.
+- **Remove:** takes it out now. If the owner still has listing on, it comes
+  back on its next check-in (about a minute).
+- **Block:** keeps it out. Its check-ins get `403` and the owner's ShowPilot
+  shows "Not listed: this show was removed from the ShowPilot app directory…".
+  **Unblock** lets it back on its next check-in.
+- **Refused check-ins:** the latest refusal per install and why (bad web
+  address, ownership mismatch, show-info unreachable…), so "my show isn't in
+  the app" can be answered. Cleared when that install's check-in works.
+- **What a phone sees here:** runs `/nearby` and `/directory` for any point
+  (or a show's own pin with *Test here*).

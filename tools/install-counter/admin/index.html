@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Show Directory Admin</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta name="theme-color" content="#0f1115">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#e3e6eb;--accent:#2563eb;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--info:#475569;--chip:#eef1f5;--okbg:#e8f6ec;--warnbg:#fdf3e2;--badbg:#fdecec}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#171a21;--text:#e8eaef;--muted:#9aa2b1;--line:#2a2f3a;--accent:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--info:#a5b4c8;--chip:#222733;--okbg:#14261b;--warnbg:#2a2214;--badbg:#2c1719}}
+:root[data-theme="dark"]{--bg:#0f1115;--card:#171a21;--text:#e8eaef;--muted:#9aa2b1;--line:#2a2f3a;--accent:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--info:#a5b4c8;--chip:#222733;--okbg:#14261b;--warnbg:#2a2214;--badbg:#2c1719}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:28px 16px 48px}
+h1{font-size:1.5rem;margin:0 0 4px}
+h2{font-size:1rem;margin:0}
+.sub{color:var(--muted);margin:0 0 20px;font-size:.9rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.head .grow{flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.kpi{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;text-align:left;color:inherit;font:inherit}
+.kpi:hover{border-color:var(--accent)}
+.kpi .label{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
+.kpi .value{font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums}
+button,.btn{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+button:hover,.btn:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--bad)}
+button.danger.armed{background:var(--bad);border-color:var(--bad);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+input[type=text],input[type=password],input[type=search],input[type=number]{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);min-width:0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--chip);border-radius:999px;padding:3px 10px;font-size:.8rem;cursor:pointer;color:inherit}
+.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.muted{color:var(--muted);font-size:.85rem}
+.small{font-size:.8rem}
+.show{border-top:1px solid var(--line);padding:12px 0}
+.show:first-child{border-top:0;padding-top:4px}
+.row1{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.row1 .main{flex:1;min-width:220px}
+.name{font-weight:600}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px;background:var(--muted)}
+.dot.live{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dot.online{background:var(--accent)}
+.dot.silent{background:var(--warn)}
+.dot.dropped{background:var(--bad)}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.badge{font-size:.72rem;border-radius:6px;padding:1px 7px;background:var(--chip);color:var(--muted)}
+.badge.warn{background:var(--warnbg);color:var(--warn)}
+.badge.bad{background:var(--badbg);color:var(--bad)}
+.badge.ok{background:var(--okbg);color:var(--ok)}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:2px 16px;margin-top:6px;font-size:.82rem;color:var(--muted)}
+.meta b{font-weight:500;color:var(--text)}
+.meta a{color:var(--accent);word-break:break-all}
+.diag{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.diag div{display:grid;grid-template-columns:22px 150px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--line);font-size:.85rem}
+.diag div:first-child{border-top:0}
+.diag .i{font-weight:700;text-align:center}
+.diag .ok .i{color:var(--ok)}.diag .warn .i{color:var(--warn)}.diag .bad .i{color:var(--bad)}.diag .info .i{color:var(--info)}
+.diag .bad{background:var(--badbg)}.diag .warn{background:var(--warnbg)}
+@media (max-width:560px){.diag div{grid-template-columns:22px 1fr}.diag div span:last-child{grid-column:2}}
+.blockform{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.blockform input{flex:1;min-width:180px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:.78rem}
+.scroll{overflow-x:auto}
+.empty{color:var(--muted);font-size:.9rem;padding:8px 0}
+.gate{max-width:420px;margin:12vh auto 0}
+.gate form{display:flex;gap:8px;margin-top:12px}
+.gate input{flex:1}
+.err{color:var(--bad);font-size:.85rem;margin-top:8px;min-height:1.2em}
+.where{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.where input{width:130px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+@media (max-width:720px){.cols{grid-template-columns:1fr}}
+.hit{background:var(--okbg)}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:.88rem;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100% - 32px)}
+.toast.on{opacity:1}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <section id="gate" class="gate card" hidden>
+    <h1>Show directory admin</h1>
+    <p class="muted">Enter the admin key (the counter's <code>ADMIN_KEY</code>). It's kept for this tab only.</p>
+    <form id="gateForm">
+      <input id="keyInput" type="password" autocomplete="current-password" placeholder="Admin key" required>
+      <button class="primary" type="submit">Open</button>
+    </form>
+    <div class="err" id="gateErr"></div>
+  </section>
+
+  <div id="app" hidden>
+    <div class="head">
+      <div class="grow">
+        <h1>Show directory</h1>
+        <p class="sub" id="sub" style="margin:0">Loading…</p>
+      </div>
+      <label class="muted small"><input type="checkbox" id="auto" checked> Auto-refresh</label>
+      <button id="refresh" type="button">Refresh</button>
+      <button id="lock" type="button">Lock</button>
+    </div>
+
+    <div class="grid" id="kpis"></div>
+
+    <section class="card">
+      <div class="head">
+        <h2 class="grow">Shows</h2>
+        <input id="q" type="search" placeholder="Search name, town, address, URL" style="width:min(320px,100%)">
+      </div>
+      <div class="chips" id="filters" style="margin-bottom:8px"></div>
+      <div id="shows"></div>
+    </section>
+
+    <section class="card">
+      <div class="head"><h2 class="grow">Refused check-ins</h2><span class="muted small">Latest refusal per install. Cleared when its next check-in works.</span></div>
+      <div id="rejects"></div>
+    </section>
+
+    <section class="card">
+      <div class="head"><h2 class="grow">Blocked</h2><span class="muted small">Kept out of the app. Their owners see "Not listed" with a removal message.</span></div>
+      <div id="blocked"></div>
+    </section>
+
+    <section class="card" id="whereCard">
+      <div class="head"><h2 class="grow">What a phone sees here</h2></div>
+      <div class="where">
+        <input id="wLat" type="text" inputmode="decimal" placeholder="Latitude">
+        <input id="wLng" type="text" inputmode="decimal" placeholder="Longitude">
+        <label class="muted small">Directory radius <input id="wR" type="number" min="1" max="100" value="25" style="width:70px"> mi</label>
+        <button class="primary" id="wGo" type="button">Run</button>
+        <button id="wMe" type="button">Use my location</button>
+      </div>
+      <p class="muted small" style="margin:8px 0 0">Asks the same endpoints the app uses. "Home screen" is the app's Nearby list (fixed listing distance); "Directory" is the map screen.</p>
+      <div class="cols" id="wOut" hidden>
+        <div><h2 style="margin-bottom:6px">Home screen</h2><div id="wNearby"></div></div>
+        <div><h2 style="margin-bottom:6px">Directory</h2><div id="wDir"></div></div>
+      </div>
+    </section>
+
+    <p class="muted small">Remove takes a show out now; if its owner still has "List my show" on, it comes back on its next check-in (about a minute). Block keeps it out until you unblock it. Check runs the ownership check, viewer page and phone-audio tests live, and re-verifies the listing when it passes.</p>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const store = {
+    get() { try { return sessionStorage.getItem('spDirAdminKey') || ''; } catch (e) { return memKey; } },
+    set(v) { memKey = v; try { sessionStorage.setItem('spDirAdminKey', v); } catch (e) {} },
+    clear() { memKey = ''; try { sessionStorage.removeItem('spDirAdminKey'); } catch (e) {} },
+  };
+  let memKey = '';
+  let data = null;
+  let filter = 'all';
+  const open = new Map();   // idHash -> diagnosis result (or 'loading')
+  const blockOpen = new Set();
+  let timer = null;
+
+  const STATUS = {
+    live: { label: 'Live', note: 'Checking in and playing' },
+    online: { label: 'Online', note: 'Checking in, not playing' },
+    silent: { label: 'Not checking in', note: 'Quiet for 2.5 min – 1 day' },
+    dropped: { label: 'Dropped', note: 'Quiet over a day' },
+  };
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('on');
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600);
+  }
+
+  function ago(sec) {
+    if (sec == null || !isFinite(sec)) return '–';
+    if (sec < 90) return Math.max(0, Math.round(sec)) + ' s ago';
+    if (sec < 5400) return Math.round(sec / 60) + ' min ago';
+    if (sec < 172800) return Math.round(sec / 3600) + ' h ago';
+    return Math.round(sec / 86400) + ' days ago';
+  }
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '–';
+
+  async function api(path, body) {
+    const opts = { headers: { 'Authorization': 'Bearer ' + store.get() } };
+    if (body) { opts.method = 'POST'; opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const r = await fetch('/api/admin' + path, opts);
+    let j = null; try { j = await r.json(); } catch (e) {}
+    if (r.status === 401 || r.status === 429) {
+      store.clear(); showGate((j && j.error) || 'Wrong key');
+      throw new Error('auth');
+    }
+    if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+    return j;
+  }
+
+  function showGate(msg) {
+    stopAuto();
+    $('app').hidden = true; $('gate').hidden = false;
+    $('gateErr').textContent = msg || '';
+    $('keyInput').focus();
+  }
+
+  async function load() {
+    try {
+      data = await api('/directory');
+    } catch (e) {
+      if (e.message !== 'auth') {
+        if ($('app').hidden) showGate('Couldn\'t reach the directory: ' + e.message);
+        else $('sub').textContent = 'Couldn\'t load: ' + e.message;
+      }
+      return;
+    }
+    $('gate').hidden = true; $('app').hidden = false;
+    render();
+  }
+
+  function counts() {
+    const c = { all: data.shows.length, live: 0, online: 0, silent: 0, dropped: 0, problems: 0 };
+    for (const s of data.shows) { c[s.status]++; if (problem(s)) c.problems++; }
+    return c;
+  }
+  const problem = (s) => s.status === 'silent' || s.status === 'dropped' || !!s.verifyError;
+
+  function render() {
+    const c = counts();
+    $('sub').textContent = c.all + ' show' + (c.all === 1 ? '' : 's') + ' on record · updated ' + new Date(data.now * 1000).toLocaleTimeString();
+    const k = [
+      ['live', 'Live', c.live], ['online', 'Online', c.online], ['silent', 'Not checking in', c.silent],
+      ['dropped', 'Dropped', c.dropped], ['#rejects', 'Refused', data.rejects.length], ['#blocked', 'Blocked', data.blocked.length],
+    ];
+    $('kpis').innerHTML = k.map(([f, l, n]) => '<button class="kpi" type="button" data-kpi="' + f + '"><div class="label">' + l + '</div><div class="value">' + n + '</div></button>').join('');
+
+    const fl = [['all', 'All', c.all], ['live', 'Live', c.live], ['online', 'Online', c.online], ['silent', 'Not checking in', c.silent], ['dropped', 'Dropped', c.dropped], ['problems', 'Needs a look', c.problems]];
+    $('filters').innerHTML = fl.map(([f, l, n]) => '<button class="chip" type="button" data-filter="' + f + '" aria-pressed="' + (filter === f) + '">' + l + ' ' + n + '</button>').join('');
+
+    renderShows(); renderRejects(); renderBlocked();
+  }
+
+  function renderShows() {
+    const q = $('q').value.trim().toLowerCase();
+    let list = data.shows.filter(s => filter === 'all' || (filter === 'problems' ? problem(s) : s.status === filter));
+    if (q) list = list.filter(s => [s.name, s.town, s.address, s.apiBaseUrl, s.viewerUrl, s.version].join(' ').toLowerCase().includes(q));
+    const order = { live: 0, online: 1, silent: 2, dropped: 3 };
+    list.sort((a, b) => (order[a.status] - order[b.status]) || a.name.localeCompare(b.name));
+    if (!list.length) { $('shows').innerHTML = '<div class="empty">' + (data.shows.length ? 'No shows match.' : 'No shows have checked in yet.') + '</div>'; return; }
+    $('shows').innerHTML = list.map(showHtml).join('');
+  }
+
+  function showHtml(s) {
+    const st = STATUS[s.status];
+    const map = 'https://www.openstreetmap.org/?mlat=' + s.lat + '&mlon=' + s.lng + '#map=15/' + s.lat + '/' + s.lng;
+    const badges = [
+      '<span class="badge">' + esc(s.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + ' ' + esc(s.version || '?') + '</span>',
+      s.hasAudio ? '<span class="badge ok">Phone audio</span>' : '<span class="badge">No phone audio</span>',
+      s.fuzzed ? '<span class="badge">Rounded pin</span>' : '<span class="badge ok">Exact pin</span>',
+      s.verifyError ? '<span class="badge warn" title="' + esc(s.verifyError) + '">Ownership check failing</span>' : '',
+      s.status === 'silent' ? '<span class="badge warn">Last check-in ' + ago(data.now - s.lastSeen) + '</span>' : '',
+      s.status === 'dropped' ? '<span class="badge bad">Out of the app</span>' : '',
+    ].join('');
+    const d = open.get(s.idHash);
+    return '<div class="show" data-id="' + s.idHash + '">'
+      + '<div class="row1"><div class="main">'
+      + '<div class="name"><span class="dot ' + s.status + '" title="' + esc(st.note) + '"></span>' + esc(s.name) + '</div>'
+      + '<div class="muted">' + esc(st.label) + (s.live && s.nowPlaying ? ' · ' + esc(s.nowPlaying) : '') + (s.town ? ' · ' + esc(s.town) : '') + (s.address ? ' · ' + esc(s.address) : '') + '</div>'
+      + '<div class="badges">' + badges + '</div>'
+      + '</div><div class="actions">'
+      + '<button type="button" data-act="check">' + (d === 'loading' ? 'Checking…' : 'Check') + '</button>'
+      + '<button type="button" data-act="where">Test here</button>'
+      + '<button type="button" class="danger" data-act="remove">Remove</button>'
+      + '<button type="button" class="danger" data-act="block">Block</button>'
+      + '</div></div>'
+      + '<div class="meta">'
+      + '<span>Last check-in <b>' + ago(data.now - s.lastSeen) + '</b></span>'
+      + '<span>Verified <b>' + ago(data.now - s.verifiedAt) + '</b></span>'
+      + '<span>First seen <b>' + esc(when(s.firstSeen)) + '</b></span>'
+      + '<span>Pin <a href="' + map + '" target="_blank" rel="noopener noreferrer">' + s.lat + ', ' + s.lng + '</a> (' + s.reachMi + ' mi)</span>'
+      + '<span>Viewer <a href="' + esc(s.viewerUrl) + '" target="_blank" rel="noopener noreferrer">' + esc(s.viewerUrl) + '</a></span>'
+      + (s.apiBaseUrl.replace(/\/+$/, '') !== s.viewerUrl.replace(/\/+$/, '') ? '<span>API <b>' + esc(s.apiBaseUrl) + '</b></span>' : '')
+      + '<span>Listing ID <b>' + esc(s.publicId) + '</b></span>'
+      + '</div>'
+      + (blockOpen.has(s.idHash) ? blockFormHtml() : '')
+      + diagHtml(d)
+      + '</div>';
+  }
+
+  function blockFormHtml() {
+    return '<form class="blockform" data-blockform><input type="text" maxlength="200" placeholder="Reason (only you see this)"><button type="submit" class="danger armed">Block show</button><button type="button" data-act="cancelblock">Cancel</button></form>';
+  }
+
+  function diagHtml(d) {
+    if (!d || d === 'loading') return '';
+    if (d.error) return '<div class="diag"><div class="bad"><span class="i">!</span><span>Check failed</span><span>' + esc(d.error) + '</span></div></div>';
+    const icon = { ok: '✓', warn: '!', bad: '✕', info: 'i' };
+    return '<div class="diag">' + d.checks.map(c => '<div class="' + c.level + '"><span class="i">' + icon[c.level] + '</span><span>' + esc(c.label) + '</span><span>' + esc(c.detail) + '</span></div>').join('') + '</div>';
+  }
+
+  function renderRejects() {
+    if (!data.rejects.length) { $('rejects').innerHTML = '<div class="empty">None. Every recent check-in was accepted.</div>'; return; }
+    $('rejects').innerHTML = '<div class="scroll"><table><thead><tr><th>Show</th><th>Why</th><th>Last</th><th></th></tr></thead><tbody>'
+      + data.rejects.map(r => {
+        const d = open.get(r.idHash);
+        return '<tr data-id="' + r.idHash + '"><td><b>' + esc(r.name || '(no name)') + '</b>' + (r.town ? '<br><span class="muted">' + esc(r.town) + '</span>' : '')
+          + '<br><span class="muted small">' + esc(r.apiBaseUrl || '(no web address)') + '</span>'
+          + '<br><span class="muted small">' + esc(r.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + ' ' + esc(r.version || '?') + (r.listed ? ' · still listed' : '') + '</span></td>'
+          + '<td>' + esc(r.reason) + (r.status ? ' <span class="muted small">(' + r.status + ')</span>' : '') + diagHtml(d) + '</td>'
+          + '<td class="small">' + ago(data.now - r.lastAt) + '<br><span class="muted">' + r.count + '× since ' + esc(ago(data.now - r.firstAt)) + '</span></td>'
+          + '<td><div class="actions"><button type="button" data-act="check">' + (d === 'loading' ? 'Checking…' : 'Check') + '</button>'
+          + '<button type="button" data-act="dismiss">Dismiss</button><button type="button" class="danger" data-act="block">Block</button></div>'
+          + (blockOpen.has(r.idHash) ? blockFormHtml() : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function renderBlocked() {
+    if (!data.blocked.length) { $('blocked').innerHTML = '<div class="empty">No blocked shows.</div>'; return; }
+    $('blocked').innerHTML = '<div class="scroll"><table><thead><tr><th>Show</th><th>Reason</th><th>Blocked</th><th>Last try</th><th></th></tr></thead><tbody>'
+      + data.blocked.map(b => '<tr data-id="' + b.idHash + '"><td><b>' + esc(b.name || '(no name)') + '</b><br><span class="muted small">' + esc(b.apiBaseUrl) + '</span></td>'
+        + '<td>' + esc(b.reason || '–') + '</td><td class="small">' + esc(when(b.blockedAt)) + '</td>'
+        + '<td class="small">' + (b.lastAttemptAt ? ago(data.now - b.lastAttemptAt) : 'none') + '</td>'
+        + '<td><button type="button" data-act="unblock">Unblock</button></td></tr>').join('')
+      + '</tbody></table></div>';
+  }
+
+  async function check(id) {
+    open.set(id, 'loading'); render();
+    try { open.set(id, await api('/directory/check', { idHash: id })); }
+    catch (e) { if (e.message === 'auth') return; open.set(id, { error: e.message }); }
+    await load();
+  }
+
+  async function act(id, act, el) {
+    if (act === 'check') return check(id);
+    if (act === 'where') {
+      const s = data.shows.find(x => x.idHash === id);
+      if (!s) return;
+      $('wLat').value = s.lat; $('wLng').value = s.lng;
+      $('whereCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return where(s.publicId);
+    }
+    if (act === 'remove') {
+      if (!el.classList.contains('armed')) {
+        el.classList.add('armed'); el.textContent = 'Confirm remove';
+        setTimeout(() => { el.classList.remove('armed'); el.textContent = 'Remove'; }, 4000);
+        return;
+      }
+      await api('/directory/remove', { idHash: id });
+      open.delete(id); toast('Removed. It comes back on its next check-in if its owner still lists it.');
+      return load();
+    }
+    if (act === 'block') { blockOpen.add(id); render(); const f = document.querySelector('[data-id="' + id + '"] [data-blockform] input'); if (f) f.focus(); return; }
+    if (act === 'cancelblock') { blockOpen.delete(id); return render(); }
+    if (act === 'dismiss') { await api('/directory/dismiss', { idHash: id }); open.delete(id); return load(); }
+    if (act === 'unblock') { await api('/directory/unblock', { idHash: id }); toast('Unblocked. It is listed again on its next check-in.'); return load(); }
+  }
+
+  async function where(highlight) {
+    const lat = Number($('wLat').value), lng = Number($('wLng').value), r = Number($('wR').value) || 25;
+    if (!isFinite(lat) || !isFinite(lng) || !$('wLat').value || !$('wLng').value) { toast('Enter a latitude and longitude.'); return; }
+    $('wOut').hidden = false;
+    $('wNearby').innerHTML = $('wDir').innerHTML = '<div class="empty">Loading…</div>';
+    const q = 'lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng);
+    const list = (shows, el) => {
+      if (!shows.length) { el.innerHTML = '<div class="empty">No shows.</div>'; return; }
+      el.innerHTML = '<table><tbody>' + shows.map(s => '<tr' + (highlight && s.id === highlight ? ' class="hit"' : '') + '><td><b>' + esc(s.name) + '</b>'
+        + (s.live ? ' <span class="badge ok">Live</span>' : '') + '<br><span class="muted small">' + esc(s.town || '') + (s.fuzzed ? ' · rounded pin' : ' · exact pin') + '</span></td>'
+        + '<td class="small" style="text-align:right">' + s.distanceMi + ' mi</td></tr>').join('') + '</tbody></table>'
+        + (highlight && !shows.some(s => s.id === highlight) ? '<p class="muted small">This show isn\'t in this list.</p>' : '');
+    };
+    try {
+      const [a, b] = await Promise.all([
+        fetch('/api/shows/nearby?' + q).then(x => x.json()),
+        fetch('/api/shows/directory?' + q + '&radius_mi=' + encodeURIComponent(r)).then(x => x.json()),
+      ]);
+      list(a.shows || [], $('wNearby'));
+      list(b.shows || [], $('wDir'));
+    } catch (e) {
+      $('wNearby').innerHTML = $('wDir').innerHTML = '<div class="empty">Couldn\'t load: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function startAuto() { stopAuto(); if ($('auto').checked) timer = setInterval(() => { if (!document.hidden && !document.querySelector('[data-blockform]')) load(); }, 15000); }
+  function stopAuto() { if (timer) clearInterval(timer); timer = null; }
+
+  document.addEventListener('click', (e) => {
+    const k = e.target.closest('[data-kpi]');
+    if (k) {
+      const f = k.dataset.kpi;
+      if (f[0] === '#') { $(f.slice(1)).closest('section').scrollIntoView({ behavior: 'smooth' }); return; }
+      filter = f; render(); return;
+    }
+    const f = e.target.closest('[data-filter]');
+    if (f) { filter = f.dataset.filter; render(); return; }
+    const b = e.target.closest('[data-act]');
+    if (b) {
+      const row = b.closest('[data-id]');
+      if (row) act(row.dataset.id, b.dataset.act, b).catch(err => { if (err.message !== 'auth') toast(err.message); });
+    }
+  });
+  document.addEventListener('submit', (e) => {
+    const form = e.target.closest('[data-blockform]');
+    if (!form) return;
+    e.preventDefault();
+    const id = form.closest('[data-id]').dataset.id;
+    api('/directory/block', { idHash: id, reason: form.querySelector('input').value })
+      .then(() => { blockOpen.delete(id); open.delete(id); toast('Blocked.'); return load(); })
+      .catch(err => { if (err.message !== 'auth') toast(err.message); });
+  });
+  $('gateForm').addEventListener('submit', (e) => { e.preventDefault(); store.set($('keyInput').value.trim()); $('keyInput').value = ''; load().then(() => { if (!$('app').hidden) startAuto(); }); });
+  $('refresh').addEventListener('click', load);
+  $('lock').addEventListener('click', () => { store.clear(); showGate(''); });
+  $('auto').addEventListener('change', startAuto);
+  $('q').addEventListener('input', renderShows);
+  $('wGo').addEventListener('click', () => where(null));
+  $('wMe').addEventListener('click', () => {
+    if (!navigator.geolocation) { toast('This browser has no location.'); return; }
+    navigator.geolocation.getCurrentPosition((p) => {
+      $('wLat').value = p.coords.latitude.toFixed(5); $('wLng').value = p.coords.longitude.toFixed(5); where(null);
+    }, () => toast('Location not available.'), { enableHighAccuracy: true, timeout: 10000 });
+  });
+
+  if (store.get()) load().then(() => { if (!$('app').hidden) startAuto(); else showGate(''); });
+  else showGate('');
+})();
+</script>
+</body>
+</html>

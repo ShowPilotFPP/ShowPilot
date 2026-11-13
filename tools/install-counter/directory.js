@@ -31,6 +31,11 @@
 // the listingId there to match the one derived from the install ID in the
 // check-in. That proves the check-in came from the server at that address,
 // so nobody can list someone else's site, and it proves phones can reach it.
+//
+// Admin (adminRouter, mounted by server.js behind ADMIN_KEY): every show
+// with its check-in and verification state, rejected check-ins and why,
+// a live diagnosis of one show, and remove / block / unblock. A blocked
+// show's check-ins are refused with a message its owner sees in ShowPilot.
 // ============================================================
 'use strict';
 const crypto = require('crypto');
@@ -94,14 +99,19 @@ function isPrivateAddress(ip) {
     || x.startsWith('fea') || x.startsWith('feb') || x.startsWith('ff');
 }
 
-// GET a small JSON document from a show. Refuses private addresses (checked
-// after DNS, and the checked address is the one connected to).
-function fetchShowInfo(base) {
+// GET something small from a show. Refuses private addresses (checked after
+// DNS, and the checked address is the one connected to). Resolves
+// { status, ms, json | error, network } and never rejects. With asJson
+// false only the status is wanted (the body is read up to a limit and
+// dropped).
+function fetchFromShow(urlStr, { asJson = true, maxBytes = 16384 } = {}) {
   return new Promise((resolve) => {
+    const t0 = Date.now();
     let target;
     try {
-      target = new URL((VERIFY_REWRITE_TO || base).replace(/\/+$/, '') + '/api/public/show-info');
-    } catch { return resolve({ error: 'bad address' }); }
+      const u = new URL(urlStr);
+      target = VERIFY_REWRITE_TO ? new URL(u.pathname + u.search, VERIFY_REWRITE_TO) : u;
+    } catch { return resolve({ error: 'bad address', ms: 0 }); }
     const mod = target.protocol === 'http:' ? http : https;
     const lookup = (hostname, opts, cb) => {
       dns.lookup(hostname, { all: true }, (err, addrs) => {
@@ -112,19 +122,34 @@ function fetchShowInfo(base) {
         cb(null, ok[0].address, ok[0].family);
       });
     };
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; resolve({ ms: Date.now() - t0, ...r }); } };
     const req = mod.get(target, {
       lookup, timeout: 8000,
-      headers: { 'Accept': 'application/json', 'User-Agent': 'ShowPilot-Directory' },
+      headers: { 'Accept': asJson ? 'application/json' : 'text/html,*/*', 'User-Agent': 'ShowPilot-Directory' },
     }, (res) => {
-      if (res.statusCode !== 200) { res.resume(); return resolve({ error: 'answered ' + res.statusCode }); }
+      const status = res.statusCode;
+      if (!asJson) {
+        // Status is enough; read a little so the server isn't cut off mid-header.
+        let n = 0;
+        res.on('data', (d) => { n += d.length; if (n > maxBytes) { finish({ status, location: res.headers.location || null }); req.destroy(); } });
+        res.on('end', () => finish({ status, location: res.headers.location || null }));
+        res.on('error', () => finish({ status }));
+        return;
+      }
+      if (status !== 200) { res.resume(); return finish({ status, error: 'answered ' + status }); }
       let buf = '';
       res.setEncoding('utf8');
-      res.on('data', (d) => { buf += d; if (buf.length > 16384) req.destroy(new Error('reply too large')); });
-      res.on('end', () => { try { resolve({ json: JSON.parse(buf) }); } catch { resolve({ error: 'reply was not JSON' }); } });
+      res.on('data', (d) => { buf += d; if (buf.length > maxBytes) req.destroy(new Error('reply too large')); });
+      res.on('end', () => { try { finish({ status, json: JSON.parse(buf) }); } catch { finish({ status, error: 'reply was not JSON' }); } });
     });
     req.on('timeout', () => req.destroy(new Error('timed out')));
-    req.on('error', (e) => resolve({ error: e.message, network: true }));
+    req.on('error', (e) => finish({ error: e.message, network: true }));
   });
+}
+
+function fetchShowInfo(base) {
+  return fetchFromShow(String(base).replace(/\/+$/, '') + '/api/public/show-info');
 }
 
 function distanceMiles(lat1, lng1, lat2, lng2) {
@@ -164,17 +189,62 @@ function createDirectory(db) {
   if (!cols.includes('fuzzed')) db.exec('ALTER TABLE shows ADD COLUMN fuzzed INTEGER NOT NULL DEFAULT 1');
   // Optional show address (shown in the app with a Navigate button).
   if (!cols.includes('address')) db.exec('ALTER TABLE shows ADD COLUMN address TEXT');
+  // Admin: the last failed re-verification that the grace period let through.
+  if (!cols.includes('verify_error')) db.exec('ALTER TABLE shows ADD COLUMN verify_error TEXT');
+  if (!cols.includes('verify_error_at')) db.exec('ALTER TABLE shows ADD COLUMN verify_error_at INTEGER');
+  db.exec(`
+  -- Shows the admin keeps out of the directory. Their check-ins are refused.
+  CREATE TABLE IF NOT EXISTS shows_blocked (
+    id_hash         TEXT PRIMARY KEY,
+    public_id       TEXT,
+    name            TEXT,
+    api_base_url    TEXT,
+    reason          TEXT,
+    blocked_at      INTEGER NOT NULL,
+    last_attempt_at INTEGER
+  );
+  -- The latest refused check-in per install, so "my show isn't in the app"
+  -- can be answered. Cleared when that install's check-in succeeds.
+  CREATE TABLE IF NOT EXISTS shows_rejects (
+    id_hash       TEXT PRIMARY KEY,
+    public_id     TEXT,
+    product       TEXT,
+    version       TEXT,
+    name          TEXT,
+    town          TEXT,
+    api_base_url  TEXT,
+    status        INTEGER,
+    reason        TEXT NOT NULL,
+    first_at      INTEGER NOT NULL,
+    last_at       INTEGER NOT NULL,
+    count         INTEGER NOT NULL DEFAULT 1
+  );
+  `);
 
   const getRow = db.prepare('SELECT * FROM shows WHERE id_hash = ?');
   const upsert = db.prepare(`
     INSERT INTO shows (id_hash, public_id, product, version, name, town, address, viewer_url, api_base_url, lat, lng, radius_mi,
-                       fuzzed, live, has_audio, now_playing, verified_base, verified_at, first_seen, last_seen)
+                       fuzzed, live, has_audio, now_playing, verified_base, verified_at, verify_error, verify_error_at, first_seen, last_seen)
     VALUES (@id_hash, @public_id, @product, @version, @name, @town, @address, @viewer_url, @api_base_url, @lat, @lng, @radius_mi,
-            @fuzzed, @live, @has_audio, @now_playing, @verified_base, @verified_at, @now, @now)
+            @fuzzed, @live, @has_audio, @now_playing, @verified_base, @verified_at, @verify_error, @verify_error_at, @now, @now)
     ON CONFLICT(id_hash) DO UPDATE SET product=@product, version=@version, name=@name, town=@town, address=@address, viewer_url=@viewer_url,
       api_base_url=@api_base_url, lat=@lat, lng=@lng, radius_mi=@radius_mi, fuzzed=@fuzzed, live=@live, has_audio=@has_audio,
-      now_playing=@now_playing, verified_base=@verified_base, verified_at=@verified_at, last_seen=@now`);
+      now_playing=@now_playing, verified_base=@verified_base, verified_at=@verified_at,
+      verify_error=@verify_error, verify_error_at=@verify_error_at, last_seen=@now`);
   const del = db.prepare('DELETE FROM shows WHERE id_hash = ?');
+  const getBlocked = db.prepare('SELECT * FROM shows_blocked WHERE id_hash = ?');
+  const touchBlocked = db.prepare('UPDATE shows_blocked SET last_attempt_at = ? WHERE id_hash = ?');
+  const getReject = db.prepare('SELECT * FROM shows_rejects WHERE id_hash = ?');
+  const delReject = db.prepare('DELETE FROM shows_rejects WHERE id_hash = ?');
+  const putReject = db.prepare(`
+    INSERT INTO shows_rejects (id_hash, public_id, product, version, name, town, api_base_url, status, reason, first_at, last_at, count)
+    VALUES (@id_hash, @public_id, @product, @version, @name, @town, @api_base_url, @status, @reason, @now, @now, 1)
+    ON CONFLICT(id_hash) DO UPDATE SET public_id=@public_id, product=@product, version=@version, name=@name, town=@town,
+      api_base_url=@api_base_url, status=@status, reason=@reason, last_at=@now,
+      count = CASE WHEN shows_rejects.reason = @reason THEN shows_rejects.count + 1 ELSE 1 END,
+      first_at = CASE WHEN shows_rejects.reason = @reason THEN shows_rejects.first_at ELSE @now END`);
+
+  const BLOCKED_MESSAGE = 'this show was removed from the ShowPilot app directory. If you think that is a mistake, contact ShowPilot support.';
 
   let verifying = 0;
   const busy = new Set();
@@ -186,23 +256,40 @@ function createDirectory(db) {
     const b = req.body || {};
     const id = String(b.id || '').toLowerCase();
     if (!ID_RE.test(id) || !PRODUCTS.includes(b.product)) return res.status(400).json({ error: 'bad id or product' });
+    const h = idHash(id);
+    const now = Math.floor(Date.now() / 1000);
+    const blocked = getBlocked.get(h);
+    if (blocked) {
+      touchBlocked.run(now, h);
+      return res.status(403).json({ error: BLOCKED_MESSAGE, blocked: true });
+    }
+    // Every refusal from here on is kept (latest per install) for the admin page.
+    const reject = (status, error) => {
+      try {
+        putReject.run({
+          id_hash: h, public_id: listingId(id), product: b.product,
+          version: VERSION_RE.test(String(b.version || '')) ? String(b.version) : null,
+          name: text(b.name, 60) || null, town: text(b.town, 60) || null,
+          api_base_url: text(b.apiBaseUrl, 300) || null, status, reason: text(error, 300), now,
+        });
+      } catch { /* the log is best-effort */ }
+      return res.status(status).json({ error });
+    };
     const api = publicHttpsUrl(b.apiBaseUrl);
     const viewer = publicHttpsUrl(b.viewerUrl);
-    if (!api) return res.status(400).json({ error: 'apiBaseUrl must be a public https:// address' });
-    if (!viewer || viewer.hostname !== api.hostname) return res.status(400).json({ error: 'viewerUrl must be https:// on the same host as apiBaseUrl' });
+    if (!api) return reject(400, 'apiBaseUrl must be a public https:// address');
+    if (!viewer || viewer.hostname !== api.hostname) return reject(400, 'viewerUrl must be https:// on the same host as apiBaseUrl');
     const lat = Number(b.lat), lng = Number(b.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) {
-      return res.status(400).json({ error: 'bad location' });
+      return reject(400, 'bad location');
     }
     const name = text(b.name, 60);
-    if (!name) return res.status(400).json({ error: 'name is required' });
+    if (!name) return reject(400, 'name is required');
     const town = text(b.town, 60) || null;
     const address = text(b.address, 160) || null;
     const rLat = Math.round(lat * 1e5) / 1e5, rLng = Math.round(lng * 1e5) / 1e5;
     const fuzzed = b.fuzzed === false ? 0 : 1;   // older installs don't say: assume rounded (the default)
 
-    const h = idHash(id);
-    const now = Math.floor(Date.now() / 1000);
     const prev = getRow.get(h);
     // The rate limit is for the heartbeat. A check-in that changes what's
     // listed (the owner just edited a detail) goes through at once.
@@ -216,6 +303,8 @@ function createDirectory(db) {
     const pid = listingId(id);
     let verifiedBase = prev ? prev.verified_base : null;
     let verifiedAt = prev ? prev.verified_at : 0;
+    let verifyError = prev ? prev.verify_error : null;
+    let verifyErrorAt = prev ? prev.verify_error_at : null;
     const needVerify = verifiedBase !== apiBase || now - verifiedAt > REVERIFY_S;
 
     if (needVerify) {
@@ -226,6 +315,7 @@ function createDirectory(db) {
       const ok = r.json && r.json.listed === true && r.json.listingId === pid;
       if (ok) {
         verifiedBase = apiBase; verifiedAt = now;
+        verifyError = null; verifyErrorAt = null;
       } else {
         const sameBaseStillFresh = verifiedBase === apiBase && now - verifiedAt <= REVERIFY_GRACE_S && r.network;
         if (!sameBaseStillFresh) {
@@ -235,8 +325,11 @@ function createDirectory(db) {
                                   ? 'a different ShowPilot answers at ' + apiBase + '. Check the Public web address in Settings → General'
                                   : 'the ShowPilot at ' + apiBase + ' says it is not listed. Check the Public web address in Settings → General')
                              : ('could not read ' + apiBase + '/api/public/show-info (' + (r.error || 'no reply') + ')');
-          return res.status(422).json({ error: why });
+          return reject(422, why);
         }
+        // Still listed on its earlier check, but the admin should see this.
+        verifyError = 'could not read /api/public/show-info (' + (r.error || 'no reply') + ')';
+        verifyErrorAt = now;
       }
     }
 
@@ -250,8 +343,10 @@ function createDirectory(db) {
       fuzzed,
       live: live ? 1 : 0, has_audio: b.hasAudio === true ? 1 : 0,
       now_playing: live ? (text(b.nowPlaying, 120) || null) : null,
-      verified_base: verifiedBase, verified_at: verifiedAt, now,
+      verified_base: verifiedBase, verified_at: verifiedAt,
+      verify_error: verifyError, verify_error_at: verifyErrorAt, now,
     });
+    if (getReject.get(h)) delReject.run(h);
     res.json({ ok: true, listed: true, id: pid });
   });
 
@@ -259,6 +354,7 @@ function createDirectory(db) {
     const id = String((req.body || {}).id || '').toLowerCase();
     if (!ID_RE.test(id)) return res.status(400).json({ error: 'bad id' });
     const r = del.run(idHash(id));
+    delReject.run(idHash(id));
     res.status(r.changes ? 200 : 404).json({ ok: true, removed: r.changes > 0 });
   });
 
@@ -333,8 +429,192 @@ function createDirectory(db) {
   });
 
   function cleanup() {
-    db.prepare('DELETE FROM shows WHERE last_seen < ?').run(Math.floor(Date.now() / 1000) - FORGET_S);
+    const cutoff = Math.floor(Date.now() / 1000) - FORGET_S;
+    db.prepare('DELETE FROM shows WHERE last_seen < ?').run(cutoff);
+    db.prepare('DELETE FROM shows_rejects WHERE last_at < ?').run(cutoff);
   }
+
+  // ------------------------------------------------------------
+  // Admin
+  // ------------------------------------------------------------
+  function showStatus(r, now) {
+    const age = now - r.last_seen;
+    if (age > LIST_STALE_S) return 'dropped';            // out of the app, deleted after FORGET_S
+    if (age > LIVE_STALE_S) return 'silent';             // still listed, shown as not live
+    return r.live === 1 ? 'live' : 'online';
+  }
+
+  function adminShow(r, now) {
+    return {
+      idHash: r.id_hash, publicId: r.public_id, product: r.product, version: r.version,
+      name: r.name, town: r.town || '', address: r.address || '',
+      viewerUrl: r.viewer_url, apiBaseUrl: r.api_base_url,
+      lat: r.lat, lng: r.lng, fuzzed: r.fuzzed !== 0,
+      live: r.live === 1, hasAudio: r.has_audio === 1, nowPlaying: r.now_playing || '',
+      verifiedAt: r.verified_at, verifiedBase: r.verified_base,
+      verifyError: r.verify_error || null, verifyErrorAt: r.verify_error_at || null,
+      firstSeen: r.first_seen, lastSeen: r.last_seen, status: showStatus(r, now),
+      reachMi: LISTING_RADIUS_MI + (r.fuzzed === 0 ? 0 : FUZZ_SLACK_MI),
+    };
+  }
+
+  function overview() {
+    const now = Math.floor(Date.now() / 1000);
+    const shows = db.prepare('SELECT * FROM shows ORDER BY last_seen DESC').all().map(r => adminShow(r, now));
+    const rejects = db.prepare('SELECT * FROM shows_rejects ORDER BY last_at DESC').all().map(r => ({
+      idHash: r.id_hash, publicId: r.public_id, product: r.product, version: r.version,
+      name: r.name || '', town: r.town || '', apiBaseUrl: r.api_base_url || '',
+      status: r.status, reason: r.reason, firstAt: r.first_at, lastAt: r.last_at, count: r.count,
+      listed: shows.some(s => s.idHash === r.id_hash),
+    }));
+    const blocked = db.prepare('SELECT * FROM shows_blocked ORDER BY blocked_at DESC').all().map(r => ({
+      idHash: r.id_hash, publicId: r.public_id, name: r.name || '', apiBaseUrl: r.api_base_url || '',
+      reason: r.reason || '', blockedAt: r.blocked_at, lastAttemptAt: r.last_attempt_at || null,
+    }));
+    return {
+      now,
+      limits: { liveStaleS: LIVE_STALE_S, listStaleS: LIST_STALE_S, forgetS: FORGET_S, reverifyS: REVERIFY_S,
+                reverifyGraceS: REVERIFY_GRACE_S, listingRadiusMi: LISTING_RADIUS_MI, fuzzSlackMi: FUZZ_SLACK_MI },
+      shows, rejects, blocked,
+    };
+  }
+
+  const ago = (s) => s < 90 ? Math.round(s) + ' s ago' : s < 5400 ? Math.round(s / 60) + ' min ago'
+    : s < 172800 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago';
+
+  // Runs the same checks a check-in and a phone depend on, against the show
+  // as it is right now. Re-verifies the listing when ownership checks out.
+  async function diagnose(h) {
+    const now = Math.floor(Date.now() / 1000);
+    const row = getRow.get(h), rej = getReject.get(h), blk = getBlocked.get(h);
+    const base = (row && row.api_base_url) || (rej && rej.api_base_url) || (blk && blk.api_base_url) || '';
+    const pid = (row && row.public_id) || (rej && rej.public_id) || (blk && blk.public_id) || null;
+    const checks = [];
+    const add = (level, label, detail) => checks.push({ level, label, detail });
+
+    if (blk) add('bad', 'Blocked', 'Blocked ' + ago(now - blk.blocked_at) + (blk.reason ? ' (' + blk.reason + ')' : '') + '. Its check-ins are refused'
+      + (blk.last_attempt_at ? '; the last one came ' + ago(now - blk.last_attempt_at) + '.' : ' and none have come since.'));
+    if (row) {
+      const age = now - row.last_seen;
+      if (age <= LIVE_STALE_S) add('ok', 'Checking in', 'Last check-in ' + ago(age) + (row.version ? ' from ' + row.product + ' ' + row.version : '') + '.');
+      else if (age <= LIST_STALE_S) add('warn', 'Not checking in', 'Last check-in ' + ago(age) + '. Still in the app, but shown as not live. ShowPilot may be stopped, or it can\'t reach the directory.');
+      else add('bad', 'Dropped from the app', 'Last check-in ' + ago(age) + '. Shows that are quiet for a day drop out; this one is deleted after 30 days.');
+      if (row.verify_error) add('warn', 'Last ownership check failed', ago(now - row.verify_error_at) + ': ' + row.verify_error + '. Kept listed for up to 2 days while its earlier check is fresh.');
+      else add('ok', 'Ownership verified', ago(now - row.verified_at) + ' (re-checked daily).');
+    } else if (rej) {
+      add('bad', 'Not in the directory', 'Its last check-in (' + ago(now - rej.last_at) + ', ' + rej.count + '× in a row) was refused: ' + rej.reason);
+    } else if (!blk) {
+      add('info', 'Not in the directory', 'No check-in on record.');
+    }
+
+    if (!base) { add('info', 'Web address', 'No web address on record, so there is nothing to test.'); return { at: now, checks }; }
+    const api = publicHttpsUrl(base);
+    if (!api) { add('bad', 'Web address', base + ' is not a public https:// address, so phones and the directory can\'t use it.'); return { at: now, checks }; }
+    if (verifying >= MAX_VERIFY_AT_ONCE) { add('warn', 'Live checks', 'Directory is busy verifying other shows; try again in a moment.'); return { at: now, checks }; }
+
+    const apiBase = base.replace(/\/+$/, '');
+    const wantAudio = row ? row.has_audio === 1 : (rej ? rej.product === 'showpilot' : false);
+    verifying++;
+    let info, page, audio;
+    try {
+      [info, page, audio] = await Promise.all([
+        fetchShowInfo(apiBase),
+        row ? fetchFromShow(row.viewer_url, { asJson: false, maxBytes: 65536 }) : Promise.resolve(null),
+        wantAudio ? fetchFromShow(apiBase + '/api/now-playing-audio' + (row ? '?lat=' + row.lat + '&lng=' + row.lng : ''), { maxBytes: 262144 }) : Promise.resolve(null),
+      ]);
+    } finally { verifying--; }
+
+    if (!info.json) {
+      add('bad', 'Show info', 'Couldn\'t read ' + apiBase + '/api/public/show-info: ' + (info.error || 'no reply') + ' (' + info.ms + ' ms). The directory can\'t verify it and phones can\'t reach it.');
+    } else {
+      const j = info.json;
+      const slow = info.ms > 2500 ? ' Slow to answer (' + info.ms + ' ms).' : ' Answered in ' + info.ms + ' ms.';
+      if (j.listed !== true) add('bad', 'Show info', 'The show says it is not listed (its owner turned "List my show" off, or it\'s missing a location or name).' + slow);
+      else if (pid && j.listingId !== pid) add('bad', 'Show info', 'A different ShowPilot answers at this address (listing ID doesn\'t match). Usually a wrong Public web address in Settings → General.' + slow);
+      else {
+        add(info.ms > 2500 ? 'warn' : 'ok', 'Show info', 'Listed as "' + text(j.name, 60) + '"' + (j.town ? ', ' + text(j.town, 60) : '')
+          + (j.live ? ', live' : ', not live') + (j.hasAudio ? ', phone audio on' : '') + '.' + slow);
+        if (row) db.prepare('UPDATE shows SET verified_base = ?, verified_at = ?, verify_error = NULL, verify_error_at = NULL WHERE id_hash = ?').run(apiBase, now, h);
+      }
+    }
+    if (page) {
+      if (page.status === 200) add(page.ms > 4000 ? 'warn' : 'ok', 'Viewer page', 'Loads (' + page.ms + ' ms).');
+      else if (page.status >= 300 && page.status < 400) add('warn', 'Viewer page', 'Redirects (' + page.status + ') to ' + (page.location || '?') + '. The app follows it, but the listed address should be the final one.');
+      else add('bad', 'Viewer page', page.status ? 'Answered ' + page.status + '.' : 'Couldn\'t load: ' + (page.error || 'no reply') + '.');
+    }
+    if (audio) {
+      if (!audio.json) add('bad', 'Phone audio', 'Couldn\'t read /api/now-playing-audio: ' + (audio.error || 'no reply') + '. The app can show the page but not play audio.');
+      else {
+        const a = audio.json;
+        if (a.audioDisabled) add('warn', 'Phone audio', 'Audio is turned off on this show, but it is listed as having phone audio.');
+        else if (a.audioGateBlocked) add('info', 'Phone audio', 'Reachable. At the listed pin the show says: ' + text(a.audioGateReason, 160));
+        else add('ok', 'Phone audio', 'Reachable (' + audio.ms + ' ms)' + (a.playing ? ', playing ' + (text(a.displayName || a.sequenceName || '', 80) || 'a song') : ', nothing playing right now') + '.');
+      }
+    }
+    if (row) {
+      add('info', 'Where phones see it', 'Home screen: within ' + (LISTING_RADIUS_MI + (row.fuzzed === 0 ? 0 : FUZZ_SLACK_MI))
+        + ' mi of its pin (' + row.lat + ', ' + row.lng + (row.fuzzed === 0 ? ', exact from its address' : ', rounded to about a mile') + '). Directory map: within the distance the user picks.');
+    }
+    return { at: now, checks };
+  }
+
+  function nameFor(h) {
+    const row = getRow.get(h), rej = getReject.get(h), blk = getBlocked.get(h);
+    const src = row || rej || blk || null;
+    return src ? { public_id: src.public_id || null, name: src.name || null, api_base_url: src.api_base_url || null } : null;
+  }
+
+  const adminRouter = express.Router();
+  const H_RE = /^[0-9a-f]{64}$/;
+  const hashFrom = (req) => { const v = String((req.body || {}).idHash || '').toLowerCase(); return H_RE.test(v) ? v : null; };
+
+  adminRouter.get('/directory', (req, res) => { res.set('Cache-Control', 'no-store').json(overview()); });
+
+  adminRouter.post('/directory/check', json, async (req, res) => {
+    const h = hashFrom(req);
+    if (!h) return res.status(400).json({ error: 'bad idHash' });
+    if (!nameFor(h)) return res.status(404).json({ error: 'not found' });
+    try { res.json(await diagnose(h)); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Takes it out now. If its owner still has listing on, it comes back on
+  // the next check-in (about a minute) — use block to keep it out.
+  adminRouter.post('/directory/remove', json, (req, res) => {
+    const h = hashFrom(req);
+    if (!h) return res.status(400).json({ error: 'bad idHash' });
+    const r = del.run(h);
+    delReject.run(h);
+    res.json({ ok: true, removed: r.changes > 0 });
+  });
+
+  adminRouter.post('/directory/block', json, (req, res) => {
+    const h = hashFrom(req);
+    if (!h) return res.status(400).json({ error: 'bad idHash' });
+    const src = nameFor(h);
+    if (!src) return res.status(404).json({ error: 'not found' });
+    const reason = text((req.body || {}).reason, 200) || null;
+    db.transaction(() => {
+      db.prepare(`INSERT INTO shows_blocked (id_hash, public_id, name, api_base_url, reason, blocked_at) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id_hash) DO UPDATE SET reason = excluded.reason`).run(h, src.public_id, src.name, src.api_base_url, reason, Math.floor(Date.now() / 1000));
+      del.run(h);
+      delReject.run(h);
+    })();
+    res.json({ ok: true });
+  });
+
+  adminRouter.post('/directory/unblock', json, (req, res) => {
+    const h = hashFrom(req);
+    if (!h) return res.status(400).json({ error: 'bad idHash' });
+    const r = db.prepare('DELETE FROM shows_blocked WHERE id_hash = ?').run(h);
+    res.json({ ok: true, unblocked: r.changes > 0 });
+  });
+
+  adminRouter.post('/directory/dismiss', json, (req, res) => {
+    const h = hashFrom(req);
+    if (!h) return res.status(400).json({ error: 'bad idHash' });
+    delReject.run(h);
+    res.json({ ok: true });
+  });
 
   function counts() {
     const now = Math.floor(Date.now() / 1000);
@@ -344,7 +624,7 @@ function createDirectory(db) {
     };
   }
 
-  return { router, cleanup, counts };
+  return { router, adminRouter, cleanup, counts };
 }
 
 module.exports = { createDirectory, listingId, isPrivateAddress, publicHttpsUrl };

@@ -32,6 +32,9 @@ const PORT = Number(process.env.PORT || 3040);
 const HOST = process.env.HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STATS_KEY = process.env.STATS_KEY || ''; // set to make the stats page private (?key=...)
+// Directory admin page (/admin): off unless ADMIN_KEY is set. Use a long
+// random value (openssl rand -hex 24); the page asks for it once per tab.
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
 const PRODUCTS = ['showpilot', 'showpilot-lite'];
 const LEVELS = new Set(['off', 'country', 'region', 'city']);
@@ -200,6 +203,36 @@ app.get('/api/live', requireKey, (req, res) => {
   liveClients.add(res);
   req.on('close', () => liveClients.delete(res));
 });
+// ------------------------------------------------------------
+// Directory admin. The key goes in an Authorization: Bearer header (never
+// the URL, so it stays out of logs). Wrong keys are counted for everyone
+// together (we don't look at IPs): 20 misses in 15 minutes locks the admin
+// API until the window passes.
+// ------------------------------------------------------------
+const ADMIN_FAIL_LIMIT = 20;
+const ADMIN_FAIL_WINDOW_MS = 15 * 60 * 1000;
+let adminFails = [];
+const sha = (v) => crypto.createHash('sha256').update(String(v)).digest();
+
+function requireAdmin(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  if (!ADMIN_KEY) return res.status(404).json({ error: 'admin is off' });
+  const now = Date.now();
+  adminFails = adminFails.filter(t => now - t < ADMIN_FAIL_WINDOW_MS);
+  if (adminFails.length >= ADMIN_FAIL_LIMIT) return res.status(429).json({ error: 'too many wrong keys; try again later' });
+  const m = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+  if (m && crypto.timingSafeEqual(sha(m[1]), sha(ADMIN_KEY))) return next();
+  adminFails.push(now);
+  res.status(401).json({ error: 'wrong key' });
+}
+
+app.use('/api/admin', requireAdmin, directory.adminRouter);
+app.get('/admin', (req, res) => {
+  res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
+  if (!ADMIN_KEY) return res.status(404).type('text').send('The admin page is off. Start the counter with ADMIN_KEY=<a long random value> to turn it on.');
+  res.sendFile(path.join(__dirname, 'admin', 'index.html'));
+});
+
 app.get('/', requireKey, (req, res) => {
   res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'public', 'index.html'));
 });

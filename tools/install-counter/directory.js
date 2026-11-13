@@ -32,7 +32,7 @@
 // check-in. That proves the check-in came from the server at that address,
 // so nobody can list someone else's site, and it proves phones can reach it.
 //
-// Admin (adminRouter, mounted by server.js behind ADMIN_KEY): every show
+// Admin (adminRouter, mounted by server.js behind sign-in): every show
 // with its check-in and verification state, rejected check-ins and why,
 // a live diagnosis of one show, and remove / block / unblock. A blocked
 // show's check-ins are refused with a message its owner sees in ShowPilot.
@@ -374,7 +374,7 @@ function createDirectory(db) {
     const now = Math.floor(Date.now() / 1000);
     const dLat = radius / 69;
     const dLng = radius / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.05));
-    const rows = db.prepare(`SELECT * FROM shows WHERE verified_at > 0 AND last_seen >= ?
+    const rows = db.prepare(`SELECT * FROM shows WHERE verified_at > 0 AND last_seen >= ? AND id_hash NOT IN (SELECT id_hash FROM shows_blocked)
       AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?`).all(now - LIST_STALE_S, lat - dLat, lat + dLat, lng - dLng, lng + dLng);
     const shows = [];
     for (const r of rows) {
@@ -410,7 +410,7 @@ function createDirectory(db) {
     const now = Math.floor(Date.now() / 1000);
     const dLat = radius / 69;
     const dLng = radius / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.05));
-    const rows = db.prepare(`SELECT * FROM shows WHERE verified_at > 0 AND last_seen >= ?
+    const rows = db.prepare(`SELECT * FROM shows WHERE verified_at > 0 AND last_seen >= ? AND id_hash NOT IN (SELECT id_hash FROM shows_blocked)
       AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?`).all(now - LIST_STALE_S, lat - dLat, lat + dLat, lng - dLng, lng + dLng);
     const shows = [];
     for (const r of rows) {
@@ -460,7 +460,7 @@ function createDirectory(db) {
 
   function overview() {
     const now = Math.floor(Date.now() / 1000);
-    const shows = db.prepare('SELECT * FROM shows ORDER BY last_seen DESC').all().map(r => adminShow(r, now));
+    const shows = db.prepare('SELECT * FROM shows WHERE id_hash NOT IN (SELECT id_hash FROM shows_blocked) ORDER BY last_seen DESC').all().map(r => adminShow(r, now));
     const rejects = db.prepare('SELECT * FROM shows_rejects ORDER BY last_at DESC').all().map(r => ({
       idHash: r.id_hash, publicId: r.public_id, product: r.product, version: r.version,
       name: r.name || '', town: r.town || '', apiBaseUrl: r.api_base_url || '',
@@ -470,6 +470,7 @@ function createDirectory(db) {
     const blocked = db.prepare('SELECT * FROM shows_blocked ORDER BY blocked_at DESC').all().map(r => ({
       idHash: r.id_hash, publicId: r.public_id, name: r.name || '', apiBaseUrl: r.api_base_url || '',
       reason: r.reason || '', blockedAt: r.blocked_at, lastAttemptAt: r.last_attempt_at || null,
+      kept: !!getRow.get(r.id_hash),
     }));
     return {
       now,
@@ -596,7 +597,8 @@ function createDirectory(db) {
     db.transaction(() => {
       db.prepare(`INSERT INTO shows_blocked (id_hash, public_id, name, api_base_url, reason, blocked_at) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(id_hash) DO UPDATE SET reason = excluded.reason`).run(h, src.public_id, src.name, src.api_base_url, reason, Math.floor(Date.now() / 1000));
-      del.run(h);
+      // The listing row stays (hidden from the app while blocked), so
+      // unblocking brings the show straight back.
       delReject.run(h);
     })();
     res.json({ ok: true });
@@ -606,7 +608,7 @@ function createDirectory(db) {
     const h = hashFrom(req);
     if (!h) return res.status(400).json({ error: 'bad idHash' });
     const r = db.prepare('DELETE FROM shows_blocked WHERE id_hash = ?').run(h);
-    res.json({ ok: true, unblocked: r.changes > 0 });
+    res.json({ ok: true, unblocked: r.changes > 0, restored: !!getRow.get(h) });
   });
 
   adminRouter.post('/directory/dismiss', json, (req, res) => {
@@ -619,8 +621,8 @@ function createDirectory(db) {
   function counts() {
     const now = Math.floor(Date.now() / 1000);
     return {
-      listed: db.prepare('SELECT COUNT(*) AS n FROM shows WHERE verified_at > 0 AND last_seen >= ?').get(now - LIST_STALE_S).n,
-      live: db.prepare('SELECT COUNT(*) AS n FROM shows WHERE verified_at > 0 AND live = 1 AND last_seen >= ?').get(now - LIVE_STALE_S).n,
+      listed: db.prepare('SELECT COUNT(*) AS n FROM shows WHERE verified_at > 0 AND last_seen >= ? AND id_hash NOT IN (SELECT id_hash FROM shows_blocked)').get(now - LIST_STALE_S).n,
+      live: db.prepare('SELECT COUNT(*) AS n FROM shows WHERE verified_at > 0 AND live = 1 AND last_seen >= ? AND id_hash NOT IN (SELECT id_hash FROM shows_blocked)').get(now - LIVE_STALE_S).n,
     };
   }
 

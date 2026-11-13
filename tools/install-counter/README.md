@@ -49,10 +49,10 @@ Then in Cloudflare:
 Optional: make the stats page private by starting it with `STATS_KEY=yourkey`
 and opening `/?key=yourkey`.
 
-Directory admin page: start it with `ADMIN_KEY=<long random value>` (for
-example `openssl rand -hex 24`) and open `/admin`. Without `ADMIN_KEY` the
-page and its API answer 404. With pm2:
-`ADMIN_KEY=… pm2 restart showpilot-install-counter --update-env && pm2 save`.
+Directory admin page (`/admin`): add a user on the server, in this folder:
+`node admin-user.js add <username>` (asks for a password, at least 10
+characters). `node admin-user.js list` and `node admin-user.js remove <name>`
+manage users. The page and its API stay off (404) until a user exists.
 
 ## Endpoints
 
@@ -66,7 +66,8 @@ page and its API answer 404. With pm2:
 | `POST /api/shows/remove` | Show whose owner turned listing off (directory) |
 | `GET /api/shows/nearby?lat=&lng=&radius_mi=` | Phone app: listed shows near a point (directory) |
 | `GET /api/shows/directory?lat=&lng=&radius_mi=` | Phone app: Directory of Shows map (directory) |
-| `GET /admin` | Directory admin page (needs `ADMIN_KEY`) |
+| `GET /admin` | Directory admin page (sign in with a user from `admin-user.js`) |
+| `POST /api/admin/login` `logout` `password`, `GET /api/admin/me` | Admin sign-in |
 | `GET /api/admin/directory` | Admin: every show, refused check-ins, blocked shows |
 | `POST /api/admin/directory/check` `remove` `block` `unblock` `dismiss` | Admin actions, body `{ "idHash": "…" }` (`block` also takes `reason`) |
 
@@ -141,8 +142,9 @@ check to a local server instead of the show's real address.
 
 ## Directory admin
 
-`/admin` (with `ADMIN_KEY` set; the page asks for the key once per browser
-tab and sends it as `Authorization: Bearer …`, never in the URL):
+`/admin`, signed in with a username and password (`admin-user.js`). The
+session is an HttpOnly cookie for 14 days; 5 wrong passwords for a username
+in 15 minutes lock that username for a while.
 
 - **Shows:** every show on record with its state — *Live*, *Online* (checking
   in, not playing), *Not checking in* (quiet 2.5 min – 1 day: still in the
@@ -154,9 +156,9 @@ tab and sends it as `Authorization: Bearer …`, never in the URL):
   listing.
 - **Remove:** takes it out now. If the owner still has listing on, it comes
   back on its next check-in (about a minute).
-- **Block:** keeps it out. Its check-ins get `403` and the owner's ShowPilot
-  shows "Not listed: this show was removed from the ShowPilot app directory…".
-  **Unblock** lets it back on its next check-in.
+- **Block:** hides it from the app. Its check-ins get `403` and the owner's
+  ShowPilot shows "Not listed: this show was removed from the ShowPilot app
+  directory…". **Unblock** puts it straight back.
 - **Refused check-ins:** the latest refusal per install and why (bad web
   address, ownership mismatch, show-info unreachable…), so "my show isn't in
   the app" can be answered. Cleared when that install's check-in works.

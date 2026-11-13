@@ -27,14 +27,12 @@ const crypto = require('crypto');
 const express = require('express');
 const Database = require('better-sqlite3');
 const { createDirectory } = require('./directory');
+const { createAdminAuth } = require('./admin-auth');
 
 const PORT = Number(process.env.PORT || 3040);
 const HOST = process.env.HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STATS_KEY = process.env.STATS_KEY || ''; // set to make the stats page private (?key=...)
-// Directory admin page (/admin): off unless ADMIN_KEY is set. Use a long
-// random value (openssl rand -hex 24); the page asks for it once per tab.
-const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
 const PRODUCTS = ['showpilot', 'showpilot-lite'];
 const LEVELS = new Set(['off', 'country', 'region', 'city']);
@@ -204,32 +202,15 @@ app.get('/api/live', requireKey, (req, res) => {
   req.on('close', () => liveClients.delete(res));
 });
 // ------------------------------------------------------------
-// Directory admin. The key goes in an Authorization: Bearer header (never
-// the URL, so it stays out of logs). Wrong keys are counted for everyone
-// together (we don't look at IPs): 20 misses in 15 minutes locks the admin
-// API until the window passes.
+// Directory admin: username + password (admin-auth.js). Off until a user
+// is added on the server with `node admin-user.js add <name>`.
 // ------------------------------------------------------------
-const ADMIN_FAIL_LIMIT = 20;
-const ADMIN_FAIL_WINDOW_MS = 15 * 60 * 1000;
-let adminFails = [];
-const sha = (v) => crypto.createHash('sha256').update(String(v)).digest();
-
-function requireAdmin(req, res, next) {
-  res.set('Cache-Control', 'no-store');
-  if (!ADMIN_KEY) return res.status(404).json({ error: 'admin is off' });
-  const now = Date.now();
-  adminFails = adminFails.filter(t => now - t < ADMIN_FAIL_WINDOW_MS);
-  if (adminFails.length >= ADMIN_FAIL_LIMIT) return res.status(429).json({ error: 'too many wrong keys; try again later' });
-  const m = /^Bearer (.+)$/.exec(req.get('authorization') || '');
-  if (m && crypto.timingSafeEqual(sha(m[1]), sha(ADMIN_KEY))) return next();
-  adminFails.push(now);
-  res.status(401).json({ error: 'wrong key' });
-}
-
-app.use('/api/admin', requireAdmin, directory.adminRouter);
+const adminAuth = createAdminAuth(db);
+app.use('/api/admin', adminAuth.router);
+app.use('/api/admin', adminAuth.requireSession, directory.adminRouter);
 app.get('/admin', (req, res) => {
   res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
-  if (!ADMIN_KEY) return res.status(404).type('text').send('The admin page is off. Start the counter with ADMIN_KEY=<a long random value> to turn it on.');
+  if (!adminAuth.hasUsers()) return res.status(404).type('text').send('The admin page is off until an admin user exists. On the server, in this app\'s folder, run:  node admin-user.js add <username>');
   res.sendFile(path.join(__dirname, 'admin', 'index.html'));
 });
 

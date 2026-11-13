@@ -6,239 +6,412 @@
 <meta name="robots" content="noindex">
 <title>Show Directory Admin</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#0e1014">
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#e3e6eb;--accent:#2563eb;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--info:#475569;--chip:#eef1f5;--okbg:#e8f6ec;--warnbg:#fdf3e2;--badbg:#fdecec}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#171a21;--text:#e8eaef;--muted:#9aa2b1;--line:#2a2f3a;--accent:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--info:#a5b4c8;--chip:#222733;--okbg:#14261b;--warnbg:#2a2214;--badbg:#2c1719}}
-:root[data-theme="dark"]{--bg:#0f1115;--card:#171a21;--text:#e8eaef;--muted:#9aa2b1;--line:#2a2f3a;--accent:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--info:#a5b4c8;--chip:#222733;--okbg:#14261b;--warnbg:#2a2214;--badbg:#2c1719}
+:root{
+  --bg:#f4f5f8;--surface:#fff;--inset:#f7f8fa;--text:#14171c;--muted:#5f6673;--faint:#8a919d;--line:#e2e5ea;--line2:#eceef2;
+  --accent:#2563eb;--on-accent:#fff;--accent-soft:#e8effd;--ok:#15803d;--ok-soft:#e6f5eb;--online:#2563eb;--online-soft:#e8effd;
+  --warn:#b45309;--warn-soft:#fdf2e1;--bad:#c42b2b;--bad-soft:#fdecec;--info:#556275;--info-soft:#eef1f5;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.04);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1014;--surface:#161a21;--inset:#1b2029;--text:#e9ebf0;--muted:#a1a9b7;--faint:#727b8a;--line:#262c37;--line2:#20252e;
+  --accent:#6ea2ff;--on-accent:#0b1426;--accent-soft:#1a2740;--ok:#4ade80;--ok-soft:#132a1c;--online:#6ea2ff;--online-soft:#1a2740;
+  --warn:#fbbf24;--warn-soft:#2c2412;--bad:#f87171;--bad-soft:#2f1719;--info:#a7b3c6;--info-soft:#202632;--shadow:none}}
+:root[data-theme="dark"]{
+  --bg:#0e1014;--surface:#161a21;--inset:#1b2029;--text:#e9ebf0;--muted:#a1a9b7;--faint:#727b8a;--line:#262c37;--line2:#20252e;
+  --accent:#6ea2ff;--on-accent:#0b1426;--accent-soft:#1a2740;--ok:#4ade80;--ok-soft:#132a1c;--online:#6ea2ff;--online-soft:#1a2740;
+  --warn:#fbbf24;--warn-soft:#2c2412;--bad:#f87171;--bad-soft:#2f1719;--info:#a7b3c6;--info-soft:#202632;--shadow:none}
 *{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:1040px;margin:0 auto;padding:28px 16px 48px}
-h1{font-size:1.5rem;margin:0 0 4px}
-h2{font-size:1rem;margin:0}
-.sub{color:var(--muted);margin:0 0 20px;font-size:.9rem}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-.head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.head .grow{flex:1}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
-.kpi{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;text-align:left;color:inherit;font:inherit}
-.kpi:hover{border-color:var(--accent)}
-.kpi .label{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
-.kpi .value{font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums}
-button,.btn{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
-button:hover,.btn:hover{border-color:var(--accent)}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button.danger{color:var(--bad)}
-button.danger.armed{background:var(--bad);border-color:var(--bad);color:#fff}
-button:disabled{opacity:.5;cursor:default}
-input[type=text],input[type=password],input[type=search],input[type=number]{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);min-width:0}
-.chips{display:flex;gap:6px;flex-wrap:wrap}
-.chip{border:1px solid var(--line);background:var(--chip);border-radius:999px;padding:3px 10px;font-size:.8rem;cursor:pointer;color:inherit}
-.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
-.muted{color:var(--muted);font-size:.85rem}
-.small{font-size:.8rem}
-.show{border-top:1px solid var(--line);padding:12px 0}
-.show:first-child{border-top:0;padding-top:4px}
-.row1{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
-.row1 .main{flex:1;min-width:220px}
-.name{font-weight:600}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px;background:var(--muted)}
-.dot.live{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
-.dot.online{background:var(--accent)}
-.dot.silent{background:var(--warn)}
-.dot.dropped{background:var(--bad)}
-.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
-.badge{font-size:.72rem;border-radius:6px;padding:1px 7px;background:var(--chip);color:var(--muted)}
-.badge.warn{background:var(--warnbg);color:var(--warn)}
-.badge.bad{background:var(--badbg);color:var(--bad)}
-.badge.ok{background:var(--okbg);color:var(--ok)}
-.actions{display:flex;gap:6px;flex-wrap:wrap}
-.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:2px 16px;margin-top:6px;font-size:.82rem;color:var(--muted)}
-.meta b{font-weight:500;color:var(--text)}
-.meta a{color:var(--accent);word-break:break-all}
-.diag{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.diag div{display:grid;grid-template-columns:22px 150px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--line);font-size:.85rem}
-.diag div:first-child{border-top:0}
-.diag .i{font-weight:700;text-align:center}
-.diag .ok .i{color:var(--ok)}.diag .warn .i{color:var(--warn)}.diag .bad .i{color:var(--bad)}.diag .info .i{color:var(--info)}
-.diag .bad{background:var(--badbg)}.diag .warn{background:var(--warnbg)}
-@media (max-width:560px){.diag div{grid-template-columns:22px 1fr}.diag div span:last-child{grid-column:2}}
-.blockform{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
-.blockform input{flex:1;min-width:180px}
-table{width:100%;border-collapse:collapse;font-size:.85rem}
-td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-th{color:var(--muted);font-weight:500;font-size:.78rem}
-.scroll{overflow-x:auto}
-.empty{color:var(--muted);font-size:.9rem;padding:8px 0}
-.gate{max-width:420px;margin:12vh auto 0}
-.gate form{display:flex;gap:8px;margin-top:12px}
-.gate input{flex:1}
-.err{color:var(--bad);font-size:.85rem;margin-top:8px;min-height:1.2em}
-.where{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.where input{width:130px}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
-@media (max-width:720px){.cols{grid-template-columns:1fr}}
-.hit{background:var(--okbg)}
-.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:.88rem;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100% - 32px)}
-.toast.on{opacity:1}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}
 [hidden]{display:none!important}
+
+/* Top bar */
+.top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top-in{max-width:1080px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.brand img{width:28px;height:28px}
+.brand b{font-size:1.05rem;letter-spacing:-.01em}
+.brand span{color:var(--faint);font-size:.82rem;display:block;line-height:1.2}
+.top .upd{color:var(--faint);font-size:.8rem;white-space:nowrap}
+@media (max-width:640px){.top .upd{display:none}}
+
+main{max-width:1080px;margin:0 auto;padding:24px 16px 64px}
+
+/* Buttons */
+button,.btn{font:inherit;font-size:.86rem;font-weight:500;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;line-height:1.3}
+button:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+button.ghost:hover{background:var(--inset);color:var(--text)}
+button.ghost.danger{color:var(--bad)}
+button.ghost.danger:hover{background:var(--bad-soft)}
+button.solid-danger{background:var(--bad);border-color:var(--bad);color:#fff}
+button:disabled{opacity:.55;cursor:default}
+button svg{width:15px;height:15px;flex:none}
+.icon-btn{padding:6px 8px}
+input[type=text],input[type=password],input[type=search],input[type=number]{font:inherit;font-size:.92rem;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);min-width:0;width:100%}
+
+/* User menu */
+.menu{position:relative}
+.menu summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 8px 4px 4px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;font-weight:500}
+.menu summary::-webkit-details-marker{display:none}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:.8rem;text-transform:uppercase}
+.menu .pop{position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px;min-width:190px;display:flex;flex-direction:column}
+.menu .pop button{border:0;background:none;justify-content:flex-start;padding:8px 10px;border-radius:6px;font-weight:400}
+.menu .pop button:hover{background:var(--inset)}
+.menu .pop label{display:flex;gap:8px;align-items:center;padding:8px 10px;font-size:.86rem;color:var(--muted)}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:32px}
+@media (max-width:900px){.stats{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:480px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{display:block;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);font-weight:400}
+.stat .l{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.8rem}
+.stat .v{font-size:1.75rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;margin-top:4px}
+.stat.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none;display:inline-block}
+.dot.live{background:var(--ok)}.dot.online{background:var(--online)}.dot.silent{background:var(--warn)}.dot.dropped,.dot.refused,.dot.blocked{background:var(--bad)}
+.dot.live.pulse{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.dot.live.pulse{animation:none}}
+
+/* Sections */
+.sec{margin-bottom:40px}
+.sec-head{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.sec-head h2{margin:0;font-size:1.12rem;letter-spacing:-.01em}
+.sec-head .count{color:var(--faint);font-weight:500;margin-left:6px}
+.sec-head p{margin:2px 0 0;color:var(--muted);font-size:.85rem}
+.sec-head .grow{flex:1;min-width:220px}
+
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.search{position:relative;flex:1;min-width:220px;max-width:360px}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--faint)}
+.search input{padding-left:34px}
+.seg{display:flex;gap:4px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{border:0;background:none;padding:5px 10px;border-radius:7px;color:var(--muted);font-weight:500}
+.seg button[aria-pressed=true]{background:var(--inset);color:var(--text);box-shadow:var(--shadow)}
+.seg button .n{color:var(--faint);font-weight:400;margin-left:2px}
+
+/* Show cards */
+.list{display:flex;flex-direction:column;gap:12px}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;position:relative}
+.item::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--faint)}
+.item.live::before{background:var(--ok)}.item.online::before{background:var(--online)}.item.silent::before{background:var(--warn)}.item.dropped::before,.item.refused::before,.item.blocked::before{background:var(--bad)}
+.item-head{display:flex;gap:16px;align-items:flex-start;padding:16px 18px 14px 22px;flex-wrap:wrap}
+.item-title{flex:1;min-width:240px}
+.item-title h3{margin:0;font-size:1.06rem;letter-spacing:-.01em;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:.74rem;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--info-soft);color:var(--info);letter-spacing:.01em}
+.pill.live{background:var(--ok-soft);color:var(--ok)}.pill.online{background:var(--online-soft);color:var(--online)}.pill.silent{background:var(--warn-soft);color:var(--warn)}.pill.dropped,.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.lines{margin-top:6px;display:flex;flex-direction:column;gap:2px;font-size:.9rem;color:var(--muted)}
+.lines div{display:flex;align-items:center;gap:7px;min-width:0}
+.lines svg{width:14px;height:14px;flex:none;color:var(--faint)}
+.lines .np{color:var(--text)}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.tag{font-size:.74rem;padding:2px 8px;border-radius:6px;background:var(--inset);color:var(--muted);border:1px solid var(--line2)}
+.tag.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.tag.warn{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.tag.bad{color:var(--bad);background:var(--bad-soft);border-color:transparent}
+.acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.acts .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+@media (max-width:560px){.acts .sep{display:none}.acts button{padding:6px 10px}}
+
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 20px;padding:14px 18px 16px 22px;background:var(--inset);border-top:1px solid var(--line2)}
+@media (max-width:760px){.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.fact{min-width:0}
+.fact .k{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:600}
+.fact .v{font-size:.9rem;margin-top:2px;overflow-wrap:anywhere}
+.fact .v small{color:var(--muted);font-size:.8rem}
+.fact.wide{grid-column:span 2}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.84rem}
+
+/* Diagnosis */
+.diag{border-top:1px solid var(--line2);padding:14px 18px 16px 22px}
+.diag-h{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--muted);margin-bottom:10px}
+.diag-h b{color:var(--text);font-size:.9rem}
+.diag-h .grow{flex:1}
+.checks{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.checks li{display:grid;grid-template-columns:24px 170px 1fr;gap:10px;align-items:start;font-size:.88rem}
+.checks .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:.75rem;font-weight:800;background:var(--info-soft);color:var(--info)}
+.checks .ok .ic{background:var(--ok-soft);color:var(--ok)}
+.checks .warn .ic{background:var(--warn-soft);color:var(--warn)}
+.checks .bad .ic{background:var(--bad-soft);color:var(--bad)}
+.checks .lab{font-weight:600;padding-top:1px}
+.checks .det{color:var(--muted);padding-top:1px}
+.checks .bad .det{color:var(--text)}
+@media (max-width:640px){.checks li{grid-template-columns:24px 1fr}.checks .det{grid-column:2}}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.blockform{display:flex;gap:8px;flex-wrap:wrap;padding:14px 18px 16px 22px;border-top:1px solid var(--line2);background:var(--bad-soft)}
+.blockform input{flex:1;min-width:200px}
+.blockform p{width:100%;margin:0;font-size:.84rem;color:var(--text)}
+
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;padding:22px;text-align:center;color:var(--muted);font-size:.92rem}
+
+/* Phone test */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px}
+.where{display:grid;grid-template-columns:1fr 1fr 110px auto auto;gap:8px;align-items:end}
+@media (max-width:760px){.where{grid-template-columns:1fr 1fr}.where .r{grid-column:span 2}}
+.where label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted);font-weight:500}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.cols h3{font-size:.9rem;margin:0 0 2px}
+.cols p.muted{margin:0 0 8px}
+.res{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+.res div{display:flex;gap:10px;align-items:center;padding:9px 12px;border-top:1px solid var(--line2);font-size:.88rem}
+.res div:first-child{border-top:0}
+.res div.hit{background:var(--ok-soft)}
+.res .nm{flex:1;min-width:0}
+.res .nm small{display:block;color:var(--muted);font-size:.78rem}
+.res .d{color:var(--muted);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted);font-size:.85rem}
+.foot{color:var(--faint);font-size:.82rem;max-width:760px}
+
+/* Sign-in */
+.auth{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
+.auth-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.12);padding:28px}
+.auth-card img{width:40px;height:40px}
+.auth-card h1{font-size:1.3rem;margin:14px 0 2px;letter-spacing:-.01em}
+.auth-card p{margin:0 0 20px;color:var(--muted);font-size:.9rem}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;font-size:.84rem;font-weight:500}
+.auth-card button.primary{width:100%;justify-content:center;padding:10px;font-size:.95rem;margin-top:4px}
+.err{color:var(--bad);font-size:.86rem;min-height:1.3em;margin-top:10px}
+
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);padding:24px;width:min(400px,calc(100% - 32px));box-shadow:0 20px 60px rgba(0,0,0,.3)}
+dialog::backdrop{background:rgba(10,12,16,.5)}
+dialog h2{margin:0 0 16px;font-size:1.1rem}
+dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,8px);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:.88rem;opacity:0;transition:.2s;pointer-events:none;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
 </style>
 </head>
 <body>
-<main>
-  <section id="gate" class="gate card" hidden>
-    <h1>Show directory admin</h1>
-    <p class="muted">Enter the admin key (the counter's <code>ADMIN_KEY</code>). It's kept for this tab only.</p>
-    <form id="gateForm">
-      <input id="keyInput" type="password" autocomplete="current-password" placeholder="Admin key" required>
-      <button class="primary" type="submit">Open</button>
-    </form>
-    <div class="err" id="gateErr"></div>
-  </section>
 
-  <div id="app" hidden>
-    <div class="head">
-      <div class="grow">
-        <h1>Show directory</h1>
-        <p class="sub" id="sub" style="margin:0">Loading…</p>
-      </div>
-      <label class="muted small"><input type="checkbox" id="auto" checked> Auto-refresh</label>
-      <button id="refresh" type="button">Refresh</button>
-      <button id="lock" type="button">Lock</button>
+<section class="auth" id="auth" hidden>
+  <form class="auth-card" id="loginForm" autocomplete="on">
+    <img src="favicon.svg" alt="">
+    <h1>Show Directory</h1>
+    <p>Sign in to manage the shows listed in the ShowPilot app.</p>
+    <label class="field">Username<input id="lUser" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label class="field">Password<input id="lPass" type="password" name="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit" id="lBtn">Sign in</button>
+    <div class="err" id="lErr" role="alert"></div>
+  </form>
+</section>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="top-in">
+      <div class="brand"><img src="favicon.svg" alt=""><div><b>Show Directory</b><span>ShowPilot app listings</span></div></div>
+      <span class="upd" id="upd"></span>
+      <button class="icon-btn" id="refresh" type="button" title="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+      <details class="menu" id="menu">
+        <summary><span class="avatar" id="avatar">?</span><span id="who"></span></summary>
+        <div class="pop">
+          <label><input type="checkbox" id="auto" checked> Auto-refresh</label>
+          <button type="button" id="chpw">Change password</button>
+          <button type="button" id="logout">Sign out</button>
+        </div>
+      </details>
     </div>
+  </header>
 
-    <div class="grid" id="kpis"></div>
+  <main>
+    <div class="stats" id="stats"></div>
 
-    <section class="card">
-      <div class="head">
-        <h2 class="grow">Shows</h2>
-        <input id="q" type="search" placeholder="Search name, town, address, URL" style="width:min(320px,100%)">
+    <section class="sec" id="secShows">
+      <div class="sec-head"><div class="grow"><h2>Shows<span class="count" id="showCount"></span></h2><p>Every show that has checked in. Click a show's Check to test it live.</p></div></div>
+      <div class="toolbar">
+        <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search name, town, address, web address"></div>
+        <div class="seg" id="filters" role="group" aria-label="Filter shows"></div>
       </div>
-      <div class="chips" id="filters" style="margin-bottom:8px"></div>
-      <div id="shows"></div>
+      <div class="list" id="shows"></div>
     </section>
 
-    <section class="card">
-      <div class="head"><h2 class="grow">Refused check-ins</h2><span class="muted small">Latest refusal per install. Cleared when its next check-in works.</span></div>
-      <div id="rejects"></div>
+    <section class="sec" id="secRejects">
+      <div class="sec-head"><div class="grow"><h2>Refused check-ins<span class="count" id="rejCount"></span></h2><p>Shows that tried to list and were turned away, with the reason. Cleared when their next check-in works.</p></div></div>
+      <div class="list" id="rejects"></div>
     </section>
 
-    <section class="card">
-      <div class="head"><h2 class="grow">Blocked</h2><span class="muted small">Kept out of the app. Their owners see "Not listed" with a removal message.</span></div>
-      <div id="blocked"></div>
+    <section class="sec" id="secBlocked">
+      <div class="sec-head"><div class="grow"><h2>Blocked<span class="count" id="blkCount"></span></h2><p>Hidden from the app. Their owners see "Not listed" with a removal message. Unblocking puts them straight back.</p></div></div>
+      <div class="list" id="blocked"></div>
     </section>
 
-    <section class="card" id="whereCard">
-      <div class="head"><h2 class="grow">What a phone sees here</h2></div>
-      <div class="where">
-        <input id="wLat" type="text" inputmode="decimal" placeholder="Latitude">
-        <input id="wLng" type="text" inputmode="decimal" placeholder="Longitude">
-        <label class="muted small">Directory radius <input id="wR" type="number" min="1" max="100" value="25" style="width:70px"> mi</label>
-        <button class="primary" id="wGo" type="button">Run</button>
-        <button id="wMe" type="button">Use my location</button>
+    <section class="sec" id="secWhere">
+      <div class="sec-head"><div class="grow"><h2>What a phone sees here</h2><p>Asks the same endpoints the app uses, for any spot.</p></div></div>
+      <div class="panel">
+        <div class="where">
+          <label>Latitude<input id="wLat" type="text" inputmode="decimal" placeholder="36.0895"></label>
+          <label>Longitude<input id="wLng" type="text" inputmode="decimal" placeholder="-93.7381"></label>
+          <label class="r">Map radius (mi)<input id="wR" type="number" min="1" max="100" value="25"></label>
+          <button class="primary" id="wGo" type="button">Run</button>
+          <button id="wMe" type="button">Use my location</button>
+        </div>
+        <div class="cols" id="wOut" hidden>
+          <div><h3>Home screen</h3><p class="muted">Shows within their fixed listing distance</p><div id="wNearby"></div></div>
+          <div><h3>Directory map</h3><p class="muted" id="wDirNote"></p><div id="wDir"></div></div>
+        </div>
       </div>
-      <p class="muted small" style="margin:8px 0 0">Asks the same endpoints the app uses. "Home screen" is the app's Nearby list (fixed listing distance); "Directory" is the map screen.</p>
-      <div class="cols" id="wOut" hidden>
-        <div><h2 style="margin-bottom:6px">Home screen</h2><div id="wNearby"></div></div>
-        <div><h2 style="margin-bottom:6px">Directory</h2><div id="wDir"></div></div>
-      </div>
     </section>
 
-    <p class="muted small">Remove takes a show out now; if its owner still has "List my show" on, it comes back on its next check-in (about a minute). Block keeps it out until you unblock it. Check runs the ownership check, viewer page and phone-audio tests live, and re-verifies the listing when it passes.</p>
-  </div>
-</main>
-<div class="toast" id="toast"></div>
+    <p class="foot"><b>Remove</b> takes a show out now; if its owner still lists it, it comes back on its next check-in (about a minute). <b>Block</b> hides it until you unblock it. <b>Check</b> tests its show info, viewer page and phone audio live, and re-verifies the listing when it passes.</p>
+  </main>
+</div>
+
+<dialog id="pwDialog">
+  <form id="pwForm" method="dialog">
+    <h2>Change password</h2>
+    <input type="text" name="username" autocomplete="username" id="pwUser" hidden>
+    <label class="field">Current password<input id="pwCur" type="password" autocomplete="current-password" required></label>
+    <label class="field">New password<input id="pwNew" type="password" autocomplete="new-password" minlength="10" required></label>
+    <label class="field">New password again<input id="pwNew2" type="password" autocomplete="new-password" minlength="10" required></label>
+    <div class="err" id="pwErr" role="alert"></div>
+    <div class="row"><button type="button" id="pwCancel">Cancel</button><button class="primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
 <script>
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const store = {
-    get() { try { return sessionStorage.getItem('spDirAdminKey') || ''; } catch (e) { return memKey; } },
-    set(v) { memKey = v; try { sessionStorage.setItem('spDirAdminKey', v); } catch (e) {} },
-    clear() { memKey = ''; try { sessionStorage.removeItem('spDirAdminKey'); } catch (e) {} },
+  const ICON = {
+    music: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+    pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>',
   };
-  let memKey = '';
-  let data = null;
-  let filter = 'all';
-  const open = new Map();   // idHash -> diagnosis result (or 'loading')
-  const blockOpen = new Set();
-  let timer = null;
-
   const STATUS = {
-    live: { label: 'Live', note: 'Checking in and playing' },
-    online: { label: 'Online', note: 'Checking in, not playing' },
-    silent: { label: 'Not checking in', note: 'Quiet for 2.5 min – 1 day' },
-    dropped: { label: 'Dropped', note: 'Quiet over a day' },
+    live: 'Live', online: 'Online', silent: 'Not checking in', dropped: 'Dropped from app',
   };
+  const STATUS_NOTE = {
+    live: 'Checking in and playing', online: 'Checking in, nothing playing',
+    silent: 'Quiet for 2.5 minutes to a day. Still in the app, shown as not live.', dropped: 'Quiet for over a day. Out of the app; deleted after 30 days.',
+  };
+
+  let data = null, me = '', filter = 'all', timer = null;
+  const diag = new Map();        // idHash -> 'loading' | result
+  const blockOpen = new Set();
 
   function toast(msg) {
     const t = $('toast'); t.textContent = msg; t.classList.add('on');
-    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600);
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2800);
   }
-
   function ago(sec) {
     if (sec == null || !isFinite(sec)) return '–';
-    if (sec < 90) return Math.max(0, Math.round(sec)) + ' s ago';
+    if (sec < 60) return Math.max(0, Math.round(sec)) + ' s ago';
     if (sec < 5400) return Math.round(sec / 60) + ' min ago';
     if (sec < 172800) return Math.round(sec / 3600) + ' h ago';
     return Math.round(sec / 86400) + ' days ago';
   }
-  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '–';
+  const date = (ts) => ts ? new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '–';
+  const dateTime = (ts) => ts ? new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '–';
+  const product = (p, v) => (p === 'showpilot-lite' ? 'ShowPilot Lite' : 'ShowPilot') + (v ? ' ' + v : '');
+  const host = (u) => { try { return new URL(u).host; } catch (e) { return u || ''; } };
 
   async function api(path, body) {
-    const opts = { headers: { 'Authorization': 'Bearer ' + store.get() } };
-    if (body) { opts.method = 'POST'; opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const opts = { credentials: 'same-origin', headers: {} };
+    if (body !== undefined) {
+      opts.method = 'POST';
+      opts.headers['Content-Type'] = 'application/json';
+      opts.headers['X-Requested-With'] = 'ShowPilotAdmin';
+      opts.body = JSON.stringify(body);
+    }
     const r = await fetch('/api/admin' + path, opts);
     let j = null; try { j = await r.json(); } catch (e) {}
-    if (r.status === 401 || r.status === 429) {
-      store.clear(); showGate((j && j.error) || 'Wrong key');
-      throw new Error('auth');
-    }
+    if (r.status === 401 && path !== '/login' && path !== '/password') { showAuth(); throw new Error('auth'); }
     if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
     return j;
   }
 
-  function showGate(msg) {
+  // ---------- Sign in ----------
+  function showAuth(msg) {
     stopAuto();
-    $('app').hidden = true; $('gate').hidden = false;
-    $('gateErr').textContent = msg || '';
-    $('keyInput').focus();
+    $('app').hidden = true; $('auth').hidden = false;
+    $('lErr').textContent = msg || '';
+    setTimeout(() => ($('lUser').value ? $('lPass') : $('lUser')).focus(), 0);
   }
-
-  async function load() {
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('lBtn').disabled = true; $('lErr').textContent = '';
     try {
-      data = await api('/directory');
-    } catch (e) {
-      if (e.message !== 'auth') {
-        if ($('app').hidden) showGate('Couldn\'t reach the directory: ' + e.message);
-        else $('sub').textContent = 'Couldn\'t load: ' + e.message;
-      }
-      return;
-    }
-    $('gate').hidden = true; $('app').hidden = false;
+      const r = await api('/login', { username: $('lUser').value.trim(), password: $('lPass').value });
+      $('lPass').value = '';
+      signedIn(r.username);
+    } catch (err) { $('lErr').textContent = err.message; }
+    $('lBtn').disabled = false;
+  });
+  function signedIn(name) {
+    me = name;
+    $('who').textContent = name; $('avatar').textContent = name.slice(0, 1); $('pwUser').value = name;
+    $('auth').hidden = true; $('app').hidden = false;
+    load(); startAuto();
+  }
+  $('logout').addEventListener('click', async () => {
+    $('menu').open = false;
+    try { await api('/logout', {}); } catch (e) {}
+    data = null; showAuth('Signed out.');
+  });
+  $('chpw').addEventListener('click', () => {
+    $('menu').open = false; $('pwErr').textContent = ''; $('pwForm').reset(); $('pwUser').value = me;
+    $('pwDialog').showModal(); $('pwCur').focus();
+  });
+  $('pwCancel').addEventListener('click', () => $('pwDialog').close());
+  $('pwForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if ($('pwNew').value !== $('pwNew2').value) { $('pwErr').textContent = 'The new passwords don\'t match.'; return; }
+    try {
+      await api('/password', { current: $('pwCur').value, next: $('pwNew').value });
+      $('pwDialog').close();
+      showAuth('Password changed. Sign in with the new one.');
+    } catch (err) { if (err.message !== 'auth') $('pwErr').textContent = err.message; }
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#menu')) $('menu').open = false; });
+
+  // ---------- Data ----------
+  async function load() {
+    try { data = await api('/directory'); }
+    catch (e) { if (e.message !== 'auth') toast('Couldn\'t load: ' + e.message); return; }
     render();
   }
-
-  function counts() {
-    const c = { all: data.shows.length, live: 0, online: 0, silent: 0, dropped: 0, problems: 0 };
-    for (const s of data.shows) { c[s.status]++; if (problem(s)) c.problems++; }
-    return c;
+  function startAuto() {
+    stopAuto();
+    if ($('auto').checked) timer = setInterval(() => {
+      if (!document.hidden && !blockOpen.size && !$('pwDialog').open) load();
+    }, 15000);
   }
+  function stopAuto() { if (timer) clearInterval(timer); timer = null; }
+
   const problem = (s) => s.status === 'silent' || s.status === 'dropped' || !!s.verifyError;
 
   function render() {
-    const c = counts();
-    $('sub').textContent = c.all + ' show' + (c.all === 1 ? '' : 's') + ' on record · updated ' + new Date(data.now * 1000).toLocaleTimeString();
-    const k = [
+    const c = { all: data.shows.length, live: 0, online: 0, silent: 0, dropped: 0, problems: 0 };
+    for (const s of data.shows) { c[s.status]++; if (problem(s)) c.problems++; }
+    $('upd').textContent = 'Updated ' + new Date(data.now * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+
+    const tiles = [
       ['live', 'Live', c.live], ['online', 'Online', c.online], ['silent', 'Not checking in', c.silent],
-      ['dropped', 'Dropped', c.dropped], ['#rejects', 'Refused', data.rejects.length], ['#blocked', 'Blocked', data.blocked.length],
+      ['dropped', 'Dropped', c.dropped], ['refused', 'Refused', data.rejects.length], ['blocked', 'Blocked', data.blocked.length],
     ];
-    $('kpis').innerHTML = k.map(([f, l, n]) => '<button class="kpi" type="button" data-kpi="' + f + '"><div class="label">' + l + '</div><div class="value">' + n + '</div></button>').join('');
+    $('stats').innerHTML = tiles.map(([k, l, n]) =>
+      '<button class="stat' + (filter === k ? ' on' : '') + '" type="button" data-stat="' + k + '"><span class="l"><span class="dot ' + k + (k === 'live' && n ? ' pulse' : '') + '"></span>' + l + '</span><span class="v">' + n + '</span></button>').join('');
 
-    const fl = [['all', 'All', c.all], ['live', 'Live', c.live], ['online', 'Online', c.online], ['silent', 'Not checking in', c.silent], ['dropped', 'Dropped', c.dropped], ['problems', 'Needs a look', c.problems]];
-    $('filters').innerHTML = fl.map(([f, l, n]) => '<button class="chip" type="button" data-filter="' + f + '" aria-pressed="' + (filter === f) + '">' + l + ' ' + n + '</button>').join('');
-
+    const segs = [['all', 'All', c.all], ['live', 'Live', c.live], ['online', 'Online', c.online], ['silent', 'Not checking in', c.silent], ['dropped', 'Dropped', c.dropped], ['problems', 'Needs a look', c.problems]];
+    $('filters').innerHTML = segs.map(([f, l, n]) => '<button type="button" data-filter="' + f + '" aria-pressed="' + (filter === f) + '">' + l + '<span class="n">' + n + '</span></button>').join('');
+    $('showCount').textContent = c.all;
+    $('rejCount').textContent = data.rejects.length;
+    $('blkCount').textContent = data.blocked.length;
     renderShows(); renderRejects(); renderBlocked();
   }
 
@@ -248,150 +421,173 @@ th{color:var(--muted);font-weight:500;font-size:.78rem}
     if (q) list = list.filter(s => [s.name, s.town, s.address, s.apiBaseUrl, s.viewerUrl, s.version].join(' ').toLowerCase().includes(q));
     const order = { live: 0, online: 1, silent: 2, dropped: 3 };
     list.sort((a, b) => (order[a.status] - order[b.status]) || a.name.localeCompare(b.name));
-    if (!list.length) { $('shows').innerHTML = '<div class="empty">' + (data.shows.length ? 'No shows match.' : 'No shows have checked in yet.') + '</div>'; return; }
-    $('shows').innerHTML = list.map(showHtml).join('');
+    $('shows').innerHTML = list.length ? list.map(showCard).join('')
+      : '<div class="empty">' + (data.shows.length ? 'No shows match this filter.' : 'No shows have checked in yet.') + '</div>';
   }
 
-  function showHtml(s) {
-    const st = STATUS[s.status];
-    const map = 'https://www.openstreetmap.org/?mlat=' + s.lat + '&mlon=' + s.lng + '#map=15/' + s.lat + '/' + s.lng;
-    const badges = [
-      '<span class="badge">' + esc(s.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + ' ' + esc(s.version || '?') + '</span>',
-      s.hasAudio ? '<span class="badge ok">Phone audio</span>' : '<span class="badge">No phone audio</span>',
-      s.fuzzed ? '<span class="badge">Rounded pin</span>' : '<span class="badge ok">Exact pin</span>',
-      s.verifyError ? '<span class="badge warn" title="' + esc(s.verifyError) + '">Ownership check failing</span>' : '',
-      s.status === 'silent' ? '<span class="badge warn">Last check-in ' + ago(data.now - s.lastSeen) + '</span>' : '',
-      s.status === 'dropped' ? '<span class="badge bad">Out of the app</span>' : '',
+  function actions(id, kind) {
+    const d = diag.get(id);
+    const check = '<button type="button" data-act="check"' + (d === 'loading' ? ' disabled' : '') + '>' + (d === 'loading' ? '<span class="spin"></span> Checking' : 'Check') + '</button>';
+    if (kind === 'show') return check + '<button type="button" data-act="where">Test here</button><span class="sep"></span>'
+      + '<button type="button" class="ghost danger" data-act="remove">Remove</button><button type="button" class="ghost danger" data-act="block">Block</button>';
+    if (kind === 'reject') return check + '<button type="button" data-act="dismiss">Dismiss</button><span class="sep"></span><button type="button" class="ghost danger" data-act="block">Block</button>';
+    return check + '<button type="button" class="primary" data-act="unblock">Unblock</button>';
+  }
+
+  function showCard(s) {
+    const map = 'https://www.openstreetmap.org/?mlat=' + s.lat + '&mlon=' + s.lng + '#map=16/' + s.lat + '/' + s.lng;
+    const where = [s.address, s.address ? '' : s.town].filter(Boolean).join(' · ');
+    const tags = [
+      '<span class="tag">' + esc(product(s.product, s.version)) + '</span>',
+      s.hasAudio ? '<span class="tag ok">Phone audio</span>' : '<span class="tag">No phone audio</span>',
+      s.fuzzed ? '<span class="tag">Rounded pin</span>' : '<span class="tag ok">Exact pin</span>',
+      s.verifyError ? '<span class="tag warn" title="' + esc(s.verifyError) + '">Ownership check failing</span>' : '',
     ].join('');
-    const d = open.get(s.idHash);
-    return '<div class="show" data-id="' + s.idHash + '">'
-      + '<div class="row1"><div class="main">'
-      + '<div class="name"><span class="dot ' + s.status + '" title="' + esc(st.note) + '"></span>' + esc(s.name) + '</div>'
-      + '<div class="muted">' + esc(st.label) + (s.live && s.nowPlaying ? ' · ' + esc(s.nowPlaying) : '') + (s.town ? ' · ' + esc(s.town) : '') + (s.address ? ' · ' + esc(s.address) : '') + '</div>'
-      + '<div class="badges">' + badges + '</div>'
-      + '</div><div class="actions">'
-      + '<button type="button" data-act="check">' + (d === 'loading' ? 'Checking…' : 'Check') + '</button>'
-      + '<button type="button" data-act="where">Test here</button>'
-      + '<button type="button" class="danger" data-act="remove">Remove</button>'
-      + '<button type="button" class="danger" data-act="block">Block</button>'
-      + '</div></div>'
-      + '<div class="meta">'
-      + '<span>Last check-in <b>' + ago(data.now - s.lastSeen) + '</b></span>'
-      + '<span>Verified <b>' + ago(data.now - s.verifiedAt) + '</b></span>'
-      + '<span>First seen <b>' + esc(when(s.firstSeen)) + '</b></span>'
-      + '<span>Pin <a href="' + map + '" target="_blank" rel="noopener noreferrer">' + s.lat + ', ' + s.lng + '</a> (' + s.reachMi + ' mi)</span>'
-      + '<span>Viewer <a href="' + esc(s.viewerUrl) + '" target="_blank" rel="noopener noreferrer">' + esc(s.viewerUrl) + '</a></span>'
-      + (s.apiBaseUrl.replace(/\/+$/, '') !== s.viewerUrl.replace(/\/+$/, '') ? '<span>API <b>' + esc(s.apiBaseUrl) + '</b></span>' : '')
-      + '<span>Listing ID <b>' + esc(s.publicId) + '</b></span>'
+    return '<article class="item ' + s.status + '" data-id="' + s.idHash + '">'
+      + '<div class="item-head"><div class="item-title">'
+      + '<h3>' + esc(s.name) + '<span class="pill ' + s.status + '" title="' + esc(STATUS_NOTE[s.status]) + '"><span class="dot ' + s.status + (s.status === 'live' ? ' pulse' : '') + '"></span>' + STATUS[s.status] + '</span></h3>'
+      + '<div class="lines">'
+      + (s.live && s.nowPlaying ? '<div class="np">' + ICON.music + '<span>' + esc(s.nowPlaying) + '</span></div>' : '')
+      + (where ? '<div>' + ICON.pin + '<span>' + esc(where) + (s.address && s.town ? ' <span style="color:var(--faint)">(' + esc(s.town) + ')</span>' : '') + '</span></div>' : '')
+      + '<div>' + ICON.globe + '<a href="' + esc(s.viewerUrl) + '" target="_blank" rel="noopener noreferrer">' + esc(host(s.viewerUrl)) + '</a></div>'
+      + '</div><div class="tags">' + tags + '</div></div>'
+      + '<div class="acts">' + actions(s.idHash, 'show') + '</div></div>'
+      + '<div class="facts">'
+      + fact('Last check-in', ago(data.now - s.lastSeen))
+      + fact('Ownership verified', ago(data.now - s.verifiedAt))
+      + fact('First seen', date(s.firstSeen))
+      + fact('Seen by phones within', s.reachMi + ' mi')
+      + fact('Map pin', '<a href="' + map + '" target="_blank" rel="noopener noreferrer" class="mono">' + s.lat + ', ' + s.lng + '</a>', true)
+      + fact('Listing ID', '<span class="mono">' + esc(s.publicId) + '</span>', true)
+      + (s.apiBaseUrl.replace(/\/+$/, '') !== s.viewerUrl.replace(/\/+$/, '') ? fact('API address', '<span class="mono">' + esc(s.apiBaseUrl) + '</span>', true) : '')
       + '</div>'
-      + (blockOpen.has(s.idHash) ? blockFormHtml() : '')
-      + diagHtml(d)
-      + '</div>';
+      + blockForm(s.idHash, s.name)
+      + diagHtml(s.idHash)
+      + '</article>';
+  }
+  const fact = (k, v, raw) => '<div class="fact"><div class="k">' + k + '</div><div class="v">' + (raw ? v : esc(v)) + '</div></div>';
+
+  function blockForm(id, name) {
+    if (!blockOpen.has(id)) return '';
+    return '<form class="blockform" data-blockform><p>Block <b>' + esc(name || 'this show') + '</b>? It disappears from the app and its owner sees a removal message.</p>'
+      + '<input type="text" maxlength="200" placeholder="Reason (only admins see this)">'
+      + '<button type="button" data-act="cancelblock">Cancel</button><button type="submit" class="solid-danger">Block show</button></form>';
   }
 
-  function blockFormHtml() {
-    return '<form class="blockform" data-blockform><input type="text" maxlength="200" placeholder="Reason (only you see this)"><button type="submit" class="danger armed">Block show</button><button type="button" data-act="cancelblock">Cancel</button></form>';
-  }
-
-  function diagHtml(d) {
-    if (!d || d === 'loading') return '';
-    if (d.error) return '<div class="diag"><div class="bad"><span class="i">!</span><span>Check failed</span><span>' + esc(d.error) + '</span></div></div>';
+  function diagHtml(id) {
+    const d = diag.get(id);
+    if (!d) return '';
+    if (d === 'loading') return '<div class="diag"><div class="diag-h"><span class="spin"></span> Testing the show live…</div></div>';
+    if (d.error) return '<div class="diag"><ul class="checks"><li class="bad"><span class="ic">✕</span><span class="lab">Check failed</span><span class="det">' + esc(d.error) + '</span></li></ul></div>';
     const icon = { ok: '✓', warn: '!', bad: '✕', info: 'i' };
-    return '<div class="diag">' + d.checks.map(c => '<div class="' + c.level + '"><span class="i">' + icon[c.level] + '</span><span>' + esc(c.label) + '</span><span>' + esc(c.detail) + '</span></div>').join('') + '</div>';
+    const bad = d.checks.filter(c => c.level === 'bad').length, warn = d.checks.filter(c => c.level === 'warn').length;
+    const sum = bad ? bad + ' problem' + (bad > 1 ? 's' : '') : warn ? warn + ' warning' + (warn > 1 ? 's' : '') : 'All good';
+    return '<div class="diag"><div class="diag-h"><b>Check results</b><span>· ' + sum + ' · ' + new Date(d.at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</span><span class="grow"></span>'
+      + '<button type="button" class="ghost" data-act="closediag">Hide</button></div><ul class="checks">'
+      + d.checks.map(c => '<li class="' + c.level + '"><span class="ic">' + icon[c.level] + '</span><span class="lab">' + esc(c.label) + '</span><span class="det">' + esc(c.detail) + '</span></li>').join('')
+      + '</ul></div>';
   }
 
   function renderRejects() {
     if (!data.rejects.length) { $('rejects').innerHTML = '<div class="empty">None. Every recent check-in was accepted.</div>'; return; }
-    $('rejects').innerHTML = '<div class="scroll"><table><thead><tr><th>Show</th><th>Why</th><th>Last</th><th></th></tr></thead><tbody>'
-      + data.rejects.map(r => {
-        const d = open.get(r.idHash);
-        return '<tr data-id="' + r.idHash + '"><td><b>' + esc(r.name || '(no name)') + '</b>' + (r.town ? '<br><span class="muted">' + esc(r.town) + '</span>' : '')
-          + '<br><span class="muted small">' + esc(r.apiBaseUrl || '(no web address)') + '</span>'
-          + '<br><span class="muted small">' + esc(r.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + ' ' + esc(r.version || '?') + (r.listed ? ' · still listed' : '') + '</span></td>'
-          + '<td>' + esc(r.reason) + (r.status ? ' <span class="muted small">(' + r.status + ')</span>' : '') + diagHtml(d) + '</td>'
-          + '<td class="small">' + ago(data.now - r.lastAt) + '<br><span class="muted">' + r.count + '× since ' + esc(ago(data.now - r.firstAt)) + '</span></td>'
-          + '<td><div class="actions"><button type="button" data-act="check">' + (d === 'loading' ? 'Checking…' : 'Check') + '</button>'
-          + '<button type="button" data-act="dismiss">Dismiss</button><button type="button" class="danger" data-act="block">Block</button></div>'
-          + (blockOpen.has(r.idHash) ? blockFormHtml() : '') + '</td></tr>';
-      }).join('') + '</tbody></table></div>';
+    $('rejects').innerHTML = data.rejects.map(r =>
+      '<article class="item refused" data-id="' + r.idHash + '"><div class="item-head"><div class="item-title">'
+      + '<h3>' + esc(r.name || '(no name)') + '<span class="pill bad">Refused' + (r.count > 1 ? ' ×' + r.count : '') + '</span></h3>'
+      + '<div class="lines"><div style="color:var(--text)">' + ICON.alert + '<span>' + esc(r.reason) + '</span></div>'
+      + (r.apiBaseUrl ? '<div>' + ICON.globe + '<span class="mono">' + esc(r.apiBaseUrl) + '</span></div>' : '') + '</div>'
+      + '<div class="tags"><span class="tag">' + esc(product(r.product, r.version)) + '</span>' + (r.town ? '<span class="tag">' + esc(r.town) + '</span>' : '')
+      + (r.listed ? '<span class="tag ok">Still listed</span>' : '<span class="tag bad">Not in the app</span>') + '</div></div>'
+      + '<div class="acts">' + actions(r.idHash, 'reject') + '</div></div>'
+      + '<div class="facts">' + fact('Last refused', ago(data.now - r.lastAt)) + fact('First refused', ago(data.now - r.firstAt)) + fact('Times in a row', String(r.count)) + fact('Error code', r.status ? String(r.status) : '–') + '</div>'
+      + blockForm(r.idHash, r.name) + diagHtml(r.idHash) + '</article>').join('');
   }
 
   function renderBlocked() {
     if (!data.blocked.length) { $('blocked').innerHTML = '<div class="empty">No blocked shows.</div>'; return; }
-    $('blocked').innerHTML = '<div class="scroll"><table><thead><tr><th>Show</th><th>Reason</th><th>Blocked</th><th>Last try</th><th></th></tr></thead><tbody>'
-      + data.blocked.map(b => '<tr data-id="' + b.idHash + '"><td><b>' + esc(b.name || '(no name)') + '</b><br><span class="muted small">' + esc(b.apiBaseUrl) + '</span></td>'
-        + '<td>' + esc(b.reason || '–') + '</td><td class="small">' + esc(when(b.blockedAt)) + '</td>'
-        + '<td class="small">' + (b.lastAttemptAt ? ago(data.now - b.lastAttemptAt) : 'none') + '</td>'
-        + '<td><button type="button" data-act="unblock">Unblock</button></td></tr>').join('')
-      + '</tbody></table></div>';
+    $('blocked').innerHTML = data.blocked.map(b =>
+      '<article class="item blocked" data-id="' + b.idHash + '"><div class="item-head"><div class="item-title">'
+      + '<h3>' + esc(b.name || '(no name)') + '<span class="pill bad">Blocked</span></h3>'
+      + '<div class="lines">' + (b.reason ? '<div style="color:var(--text)">' + ICON.alert + '<span>' + esc(b.reason) + '</span></div>' : '')
+      + (b.apiBaseUrl ? '<div>' + ICON.globe + '<span class="mono">' + esc(b.apiBaseUrl) + '</span></div>' : '') + '</div></div>'
+      + '<div class="acts">' + actions(b.idHash, 'blocked') + '</div></div>'
+      + '<div class="facts">' + fact('Blocked', dateTime(b.blockedAt)) + fact('Last tried to list', b.lastAttemptAt ? ago(data.now - b.lastAttemptAt) : 'Not since')
+      + fact('On unblock', b.kept ? 'Back at once' : 'Back on next check-in') + '</div>'
+      + diagHtml(b.idHash) + '</article>').join('');
   }
 
-  async function check(id) {
-    open.set(id, 'loading'); render();
-    try { open.set(id, await api('/directory/check', { idHash: id })); }
-    catch (e) { if (e.message === 'auth') return; open.set(id, { error: e.message }); }
-    await load();
-  }
-
-  async function act(id, act, el) {
-    if (act === 'check') return check(id);
-    if (act === 'where') {
-      const s = data.shows.find(x => x.idHash === id);
-      if (!s) return;
+  // ---------- Actions ----------
+  async function act(id, what, el) {
+    if (what === 'check') {
+      diag.set(id, 'loading'); render();
+      try { diag.set(id, await api('/directory/check', { idHash: id })); }
+      catch (e) { if (e.message === 'auth') return; diag.set(id, { error: e.message }); }
+      return load();
+    }
+    if (what === 'closediag') { diag.delete(id); return render(); }
+    if (what === 'where') {
+      const s = data.shows.find(x => x.idHash === id); if (!s) return;
       $('wLat').value = s.lat; $('wLng').value = s.lng;
-      $('whereCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      $('secWhere').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return where(s.publicId);
     }
-    if (act === 'remove') {
-      if (!el.classList.contains('armed')) {
-        el.classList.add('armed'); el.textContent = 'Confirm remove';
-        setTimeout(() => { el.classList.remove('armed'); el.textContent = 'Remove'; }, 4000);
+    if (what === 'remove') {
+      if (!el.dataset.armed) {
+        el.dataset.armed = '1'; el.className = 'solid-danger'; el.textContent = 'Confirm remove';
+        setTimeout(() => { if (el.isConnected) { delete el.dataset.armed; el.className = 'ghost danger'; el.textContent = 'Remove'; } }, 4000);
         return;
       }
       await api('/directory/remove', { idHash: id });
-      open.delete(id); toast('Removed. It comes back on its next check-in if its owner still lists it.');
+      diag.delete(id); toast('Removed. It returns on its next check-in if its owner still lists it.');
       return load();
     }
-    if (act === 'block') { blockOpen.add(id); render(); const f = document.querySelector('[data-id="' + id + '"] [data-blockform] input'); if (f) f.focus(); return; }
-    if (act === 'cancelblock') { blockOpen.delete(id); return render(); }
-    if (act === 'dismiss') { await api('/directory/dismiss', { idHash: id }); open.delete(id); return load(); }
-    if (act === 'unblock') { await api('/directory/unblock', { idHash: id }); toast('Unblocked. It is listed again on its next check-in.'); return load(); }
+    if (what === 'block') {
+      blockOpen.add(id); render();
+      const f = document.querySelector('[data-id="' + id + '"] [data-blockform] input'); if (f) f.focus();
+      return;
+    }
+    if (what === 'cancelblock') { blockOpen.delete(id); return render(); }
+    if (what === 'dismiss') { await api('/directory/dismiss', { idHash: id }); diag.delete(id); return load(); }
+    if (what === 'unblock') {
+      const r = await api('/directory/unblock', { idHash: id });
+      diag.delete(id);
+      toast(r.restored ? 'Unblocked. It\'s back in the app.' : 'Unblocked. It returns on its next check-in.');
+      return load();
+    }
   }
 
   async function where(highlight) {
-    const lat = Number($('wLat').value), lng = Number($('wLng').value), r = Number($('wR').value) || 25;
-    if (!isFinite(lat) || !isFinite(lng) || !$('wLat').value || !$('wLng').value) { toast('Enter a latitude and longitude.'); return; }
-    $('wOut').hidden = false;
-    $('wNearby').innerHTML = $('wDir').innerHTML = '<div class="empty">Loading…</div>';
+    const lat = Number($('wLat').value), lng = Number($('wLng').value), r = Math.min(100, Math.max(1, Number($('wR').value) || 25));
+    if (!$('wLat').value || !$('wLng').value || !isFinite(lat) || !isFinite(lng)) { toast('Enter a latitude and longitude.'); return; }
+    $('wOut').hidden = false; $('wDirNote').textContent = 'Every listed show within ' + r + ' mi';
+    $('wNearby').innerHTML = $('wDir').innerHTML = '<div class="empty"><span class="spin"></span></div>';
     const q = 'lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng);
-    const list = (shows, el) => {
-      if (!shows.length) { el.innerHTML = '<div class="empty">No shows.</div>'; return; }
-      el.innerHTML = '<table><tbody>' + shows.map(s => '<tr' + (highlight && s.id === highlight ? ' class="hit"' : '') + '><td><b>' + esc(s.name) + '</b>'
-        + (s.live ? ' <span class="badge ok">Live</span>' : '') + '<br><span class="muted small">' + esc(s.town || '') + (s.fuzzed ? ' · rounded pin' : ' · exact pin') + '</span></td>'
-        + '<td class="small" style="text-align:right">' + s.distanceMi + ' mi</td></tr>').join('') + '</tbody></table>'
-        + (highlight && !shows.some(s => s.id === highlight) ? '<p class="muted small">This show isn\'t in this list.</p>' : '');
+    const list = (shows) => {
+      if (!shows.length) return '<div class="empty">No shows here.</div>';
+      const miss = highlight && !shows.some(s => s.id === highlight);
+      return '<div class="res">' + shows.map(s => '<div' + (highlight && s.id === highlight ? ' class="hit"' : '') + '><span class="dot ' + (s.live ? 'live' : '') + '"></span><span class="nm">' + esc(s.name)
+        + '<small>' + esc(s.town || '') + (s.town ? ' · ' : '') + (s.fuzzed ? 'rounded pin' : 'exact pin') + '</small></span><span class="d">' + s.distanceMi + ' mi</span></div>').join('') + '</div>'
+        + (miss ? '<p class="muted" style="margin-top:8px">That show isn\'t in this list.</p>' : '');
     };
     try {
       const [a, b] = await Promise.all([
         fetch('/api/shows/nearby?' + q).then(x => x.json()),
-        fetch('/api/shows/directory?' + q + '&radius_mi=' + encodeURIComponent(r)).then(x => x.json()),
+        fetch('/api/shows/directory?' + q + '&radius_mi=' + r).then(x => x.json()),
       ]);
-      list(a.shows || [], $('wNearby'));
-      list(b.shows || [], $('wDir'));
+      $('wNearby').innerHTML = list(a.shows || []);
+      $('wDir').innerHTML = list(b.shows || []);
     } catch (e) {
       $('wNearby').innerHTML = $('wDir').innerHTML = '<div class="empty">Couldn\'t load: ' + esc(e.message) + '</div>';
     }
   }
 
-  function startAuto() { stopAuto(); if ($('auto').checked) timer = setInterval(() => { if (!document.hidden && !document.querySelector('[data-blockform]')) load(); }, 15000); }
-  function stopAuto() { if (timer) clearInterval(timer); timer = null; }
-
+  // ---------- Events ----------
   document.addEventListener('click', (e) => {
-    const k = e.target.closest('[data-kpi]');
-    if (k) {
-      const f = k.dataset.kpi;
-      if (f[0] === '#') { $(f.slice(1)).closest('section').scrollIntoView({ behavior: 'smooth' }); return; }
-      filter = f; render(); return;
+    const st = e.target.closest('[data-stat]');
+    if (st) {
+      const k = st.dataset.stat;
+      if (k === 'refused') { $('secRejects').scrollIntoView({ behavior: 'smooth' }); return; }
+      if (k === 'blocked') { $('secBlocked').scrollIntoView({ behavior: 'smooth' }); return; }
+      filter = filter === k ? 'all' : k; render(); $('secShows').scrollIntoView({ behavior: 'smooth' }); return;
     }
     const f = e.target.closest('[data-filter]');
     if (f) { filter = f.dataset.filter; render(); return; }
@@ -407,24 +603,21 @@ th{color:var(--muted);font-weight:500;font-size:.78rem}
     e.preventDefault();
     const id = form.closest('[data-id]').dataset.id;
     api('/directory/block', { idHash: id, reason: form.querySelector('input').value })
-      .then(() => { blockOpen.delete(id); open.delete(id); toast('Blocked.'); return load(); })
+      .then(() => { blockOpen.delete(id); diag.delete(id); toast('Blocked. It\'s hidden from the app.'); return load(); })
       .catch(err => { if (err.message !== 'auth') toast(err.message); });
   });
-  $('gateForm').addEventListener('submit', (e) => { e.preventDefault(); store.set($('keyInput').value.trim()); $('keyInput').value = ''; load().then(() => { if (!$('app').hidden) startAuto(); }); });
   $('refresh').addEventListener('click', load);
-  $('lock').addEventListener('click', () => { store.clear(); showGate(''); });
   $('auto').addEventListener('change', startAuto);
   $('q').addEventListener('input', renderShows);
   $('wGo').addEventListener('click', () => where(null));
   $('wMe').addEventListener('click', () => {
-    if (!navigator.geolocation) { toast('This browser has no location.'); return; }
+    if (!navigator.geolocation) { toast('This browser can\'t share a location.'); return; }
     navigator.geolocation.getCurrentPosition((p) => {
       $('wLat').value = p.coords.latitude.toFixed(5); $('wLng').value = p.coords.longitude.toFixed(5); where(null);
     }, () => toast('Location not available.'), { enableHighAccuracy: true, timeout: 10000 });
   });
 
-  if (store.get()) load().then(() => { if (!$('app').hidden) startAuto(); else showGate(''); });
-  else showGate('');
+  api('/me').then(r => signedIn(r.username)).catch(e => { if (e.message !== 'auth') showAuth('Couldn\'t reach the directory: ' + e.message); });
 })();
 </script>
 </body>

@@ -4560,6 +4560,9 @@
         // a user gesture on iOS, which would break the resume-on-restart
         // flow.
         try { stopAudio(); } catch {}
+        // Stay awake for a while (a short stop between shows), then let
+        // the phone sleep.
+        try { scheduleKeepAwakeStop(); } catch {}
 
         // Hide the player content. notPlayingMsg has flex:1 so it takes
         // the textCol's place. Close (×) stays visible.
@@ -4582,6 +4585,7 @@
         minBtn.style.display = '';
         if (ltBtn) ltBtn.style.display = '';
         panel.classList.remove('sp-not-playing');
+        try { setKeepAwake(!userPaused); } catch {}
         // If the user has the panel open when the show resumes, get audio
         // going. If audioCtx already exists (panel was opened during a
         // prior playing window), a syncOnce() picks up the new track.
@@ -4678,6 +4682,48 @@
     let _pendingGestureAudioCtx = null;
     let gainNode = null;
     let isMuted = false;
+
+    // ---- Keep the page awake with the screen off (Android) ----
+    // Chrome slows or pauses the code of a page you can't see once the tab
+    // stops playing sound, and the silent gap between songs counts as not
+    // playing. The code that starts the next song then doesn't run until
+    // the screen is turned back on. The -80 dBFS keep-alive level below
+    // (which keeps the speaker stream open) is under the level Chrome counts
+    // as sound (about -72 dBFS), so while the player is open and not paused
+    // the same constant level is raised to -60 dBFS: still a steady DC level
+    // no speaker can reproduce, but enough for Chrome to keep the tab
+    // running. It drops back to -80 dBFS on Pause, and 10 minutes after the
+    // show stops, so a phone left on the page can sleep.
+    // ?keepawake=0 turns this off; ?keepawake=1 turns it on off Android.
+    const SP_KEEPALIVE_QUIET = 0.0001;  // -80 dBFS
+    const SP_KEEPALIVE_AWAKE = 0.001;   // -60 dBFS
+    const SP_KEEPAWAKE_AFTER_STOP_MS = 10 * 60 * 1000;
+    let keepAliveSrc = null;
+    let keepAwakeStopTimer = null;
+    function spKeepAwakeOn() {
+      let q = null;
+      try { q = new URLSearchParams(window.location.search).get('keepawake'); } catch (_) {}
+      if (q === '0') return false;
+      if (q === '1') return true;
+      return /Android/i.test(navigator.userAgent || '');
+    }
+    function setKeepAwake(on) {
+      if (keepAwakeStopTimer) { clearTimeout(keepAwakeStopTimer); keepAwakeStopTimer = null; }
+      if (!keepAliveSrc || !audioCtx) return;
+      const level = (on && spKeepAwakeOn()) ? SP_KEEPALIVE_AWAKE : SP_KEEPALIVE_QUIET;
+      // A short ramp, so the level change can't click on analog outputs.
+      try { keepAliveSrc.offset.setTargetAtTime(level, audioCtx.currentTime, 0.05); }
+      catch (_) { try { keepAliveSrc.offset.value = level; } catch (_) {} }
+      try { if (spVerbose) console.log('[ShowPilot] keep awake:', level === SP_KEEPALIVE_AWAKE ? 'on (-60 dBFS)' : 'off (-80 dBFS)'); } catch (_) {}
+    }
+    // Let the phone sleep if the show stays stopped.
+    function scheduleKeepAwakeStop() {
+      if (keepAwakeStopTimer) clearTimeout(keepAwakeStopTimer);
+      keepAwakeStopTimer = setTimeout(() => {
+        keepAwakeStopTimer = null;
+        setKeepAwake(false);
+      }, SP_KEEPAWAKE_AFTER_STOP_MS);
+    }
     let currentBuffer = null;     // AudioBuffer of currently-playing track
     let currentSource = null;     // AudioBufferSourceNode of currently playing
     let currentSequence = null;
@@ -5096,7 +5142,7 @@
           measuredDelayMs: outDelayMs,
           rawTsGapMs: ts && ts.contextTime > 0 ? +((ctx.currentTime - ts.contextTime) * 1000).toFixed(1) : null,
           rawPerfAgeMs: ts && ts.performanceTime > 0 ? +(performance.now() - ts.performanceTime).toFixed(1) : null,
-          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', keepAlive: spFreshStreamOn(), state: ctx.state,
+          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', keepAlive: spFreshStreamOn(), keepAwake: spKeepAwakeOn(), state: ctx.state,
         });
       };
       tick();
@@ -5688,12 +5734,15 @@
       if (!userPaused && (currentSource || (htmlAudio && !htmlAudio.paused))) {
         userPaused = true;
         stopAudio();
+        setKeepAwake(false); // paused on purpose: let the phone sleep
         trackChangeAt = 0;
         setPlayIcon(false);
         statusEl.textContent = _pt('Paused');
         return;
       }
       userPaused = false;
+      setKeepAwake(true);
+      if (_showNotPlaying) scheduleKeepAwakeStop();
       // Resume inside the tap so iOS allows it.
       if (audioCtx && audioCtx.state === 'suspended') {
         try { audioCtx.resume().catch(() => {}); } catch {}
@@ -5894,14 +5943,27 @@
         // report, and the switch makes the audio clock jump. A tiny constant
         // level (-80 dBFS DC, which speakers can't reproduce) means the
         // output is never silent, so the stream stays up all show.
-        if (spFreshStreamOn() && audioCtx.createConstantSource) {
+        // The same source keeps the page awake with the screen off while
+        // listening (see setKeepAwake). An earlier one is stopped first, so
+        // a second startup() on the same context doesn't stack levels.
+        if (keepAliveSrc) {
+          try { keepAliveSrc.stop(); } catch (_) {}
+          try { keepAliveSrc.disconnect(); } catch (_) {}
+          keepAliveSrc = null;
+        }
+        if ((spFreshStreamOn() || spKeepAwakeOn()) && audioCtx.createConstantSource) {
           try {
             const keepAlive = audioCtx.createConstantSource();
-            keepAlive.offset.value = 0.0001;
+            keepAlive.offset.value = SP_KEEPALIVE_QUIET;
             keepAlive.connect(audioCtx.destination);
             keepAlive.start();
+            keepAliveSrc = keepAlive;
           } catch (_) {}
         }
+        // Opened before the show starts: stay awake for a while so the
+        // first song can start with the screen off.
+        setKeepAwake(!userPaused);
+        if (_showNotPlaying) scheduleKeepAwakeStop();
         // v0.33.203: log device-driven state changes (e.g. Android pausing
         // audio on a Bluetooth route/focus change) and try to recover.
         try {
@@ -6263,6 +6325,8 @@
       }
 
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
+      if (keepAwakeStopTimer) { clearTimeout(keepAwakeStopTimer); keepAwakeStopTimer = null; }
+      keepAliveSrc = null;
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       rateTrim = 0; rateTrimLastCtx = 0;
       currentBuffer = null;

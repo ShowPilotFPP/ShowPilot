@@ -4709,6 +4709,7 @@
     }
     function setKeepAwake(on) {
       if (keepAwakeStopTimer) { clearTimeout(keepAwakeStopTimer); keepAwakeStopTimer = null; }
+      try { if (on) spAnchorPlay(); else spAnchorPause(); } catch (_) {}
       if (!keepAliveSrc || !audioCtx) return;
       const level = (on && spKeepAwakeOn()) ? SP_KEEPALIVE_AWAKE : SP_KEEPALIVE_QUIET;
       // A short ramp, so the level change can't click on analog outputs.
@@ -4723,6 +4724,119 @@
         keepAwakeStopTimer = null;
         setKeepAwake(false);
       }, SP_KEEPAWAKE_AFTER_STOP_MS);
+    }
+
+    // ---- Media Session: notification and lock-screen controls ----
+    // Browsers only show the media notification and lock-screen controls
+    // for a playing <audio>/<video> element. The player's sound comes from
+    // Web Audio, which doesn't count, so while listening a looping <audio>
+    // element of pure silence plays alongside it (the "anchor") and
+    // navigator.mediaSession carries the song's title, artist and cover,
+    // plus Play and Pause. The anchor carries no music, so sync is
+    // unchanged. It follows the keep-awake state: playing while listening,
+    // paused on Pause and 10 minutes after the show stops.
+    // On by default where the browser has Media Session, except iPhone and
+    // iPad for now (not tested there). ?mediasession=0 turns it off;
+    // ?mediasession=1 turns it on anywhere.
+    let spAnchor = null;
+    let spAnchorUrl = null;
+    let spMsReady = false;
+    function spMediaSessionOn() {
+      let q = null;
+      try { q = new URLSearchParams(window.location.search).get('mediasession'); } catch (_) {}
+      if (q === '0') return false;
+      const has = ('mediaSession' in navigator) && typeof Audio !== 'undefined';
+      if (q === '1') return has;
+      const ua = navigator.userAgent || '';
+      const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      return has && !ios;
+    }
+    // 10 s of 16-bit mono silence as a WAV, made once.
+    function spSilentWavUrl() {
+      if (spAnchorUrl) return spAnchorUrl;
+      const sr = 8000, n = sr * 10;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+      str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, n * 2, true);
+      spAnchorUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+      return spAnchorUrl;
+    }
+    // Pause from the notification / lock screen. Between songs nothing is
+    // playing, so the Pause button's own test would read it as Play; set
+    // the paused state directly instead.
+    function spPauseFromMediaSession() {
+      if (userPaused) { spAnchorPause(); return; }
+      if (currentSource || (htmlAudio && !htmlAudio.paused)) { playBtn.onclick(); return; }
+      userPaused = true;
+      trackChangeAt = 0;
+      setPlayIcon(false);
+      statusEl.textContent = _pt('Paused');
+      setKeepAwake(false);
+    }
+    function spSetupMediaSession() {
+      if (spMsReady) return;
+      spMsReady = true;
+      const set = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch (_) {} };
+      set('play', () => { if (userPaused) playBtn.onclick(); else spAnchorPlay(); });
+      set('pause', () => spPauseFromMediaSession());
+      // A live show: no seeking or skipping from the phone.
+      ['seekbackward', 'seekforward', 'seekto', 'previoustrack', 'nexttrack'].forEach((a) => set(a, null));
+    }
+    // Start (or keep) the anchor playing. The first start has to be inside a
+    // tap (the Listen button or Play); later starts are allowed because the
+    // page has been tapped.
+    function spAnchorPlay() {
+      if (!spMediaSessionOn() || isAppMode()) return;
+      try {
+        if (!spAnchor) {
+          spAnchor = new Audio();
+          spAnchor.loop = true;
+          spAnchor.preload = 'auto';
+          spAnchor.setAttribute('playsinline', '');
+          spAnchor.src = spSilentWavUrl();
+        }
+        if (spAnchor.paused) {
+          const p = spAnchor.play();
+          if (p && p.catch) p.catch((e) => { try { if (spVerbose) console.log('[ShowPilot] media session anchor:', e && e.name); } catch (_) {} });
+        }
+      } catch (_) {}
+      spSetupMediaSession();
+      try { navigator.mediaSession.playbackState = 'playing'; } catch (_) {}
+    }
+    function spAnchorPause() {
+      try { if (spAnchor && !spAnchor.paused) spAnchor.pause(); } catch (_) {}
+      if (spMsReady) { try { navigator.mediaSession.playbackState = 'paused'; } catch (_) {} }
+    }
+    // Player closed: stop and clear the notification.
+    function spAnchorStop() {
+      spAnchorPause();
+      if (spMsReady) {
+        try { navigator.mediaSession.metadata = null; } catch (_) {}
+        try { navigator.mediaSession.playbackState = 'none'; } catch (_) {}
+        try { if (navigator.mediaSession.setPositionState) navigator.mediaSession.setPositionState(); } catch (_) {}
+      }
+    }
+    // Song details for the notification. With a length, the notification's
+    // progress bar follows the song instead of the 10 s anchor.
+    function spUpdateMediaMetadata(title, artist, imageUrl, durationSec, positionSec) {
+      if (!spMsReady || typeof MediaMetadata === 'undefined') return;
+      try {
+        const artwork = imageUrl ? [{ src: new URL(imageUrl, window.location.href).href }] : [];
+        navigator.mediaSession.metadata = new MediaMetadata({ title: title || '', artist: artist || '', album: document.title || '', artwork });
+      } catch (_) {}
+      try {
+        if (!navigator.mediaSession.setPositionState) return;
+        if (durationSec > 0) {
+          const pos = Math.min(durationSec, Math.max(0, positionSec || 0));
+          navigator.mediaSession.setPositionState({ duration: durationSec, playbackRate: 1, position: pos });
+        } else {
+          navigator.mediaSession.setPositionState();
+        }
+      } catch (_) {}
     }
     let currentBuffer = null;     // AudioBuffer of currently-playing track
     let currentSource = null;     // AudioBufferSourceNode of currently playing
@@ -5669,6 +5783,8 @@
       if ('audioSession' in navigator) {
         try { navigator.audioSession.type = 'playback'; } catch {}
       }
+      // Media Session anchor: an <audio> element must start inside a tap.
+      try { spAnchorPlay(); } catch {}
       // If the show isn't currently playing, there's no audio to gate on.
       // Skip the location prompt entirely — just open the panel so the
       // user sees the "Show isn't playing" message. We'll ask for location
@@ -6327,6 +6443,7 @@
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (keepAwakeStopTimer) { clearTimeout(keepAwakeStopTimer); keepAwakeStopTimer = null; }
       keepAliveSrc = null;
+      try { spAnchorStop(); } catch (_) {}
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       rateTrim = 0; rateTrimLastCtx = 0;
       currentBuffer = null;
@@ -6552,6 +6669,7 @@
             setupMarquee(titleEl, titleWrap);
             setupMarquee(artistEl, artistWrap);
           }
+          spUpdateMediaMetadata(titleEl.textContent, artistEl.textContent, art, 0, 0);
           // Song changes are noticed by name; forget the last one so a song
           // with audio after this one loads normally.
           if (data.playing && data.sequenceName) { currentSequence = null; }
@@ -6687,6 +6805,7 @@
       setupMarquee(titleEl, titleWrap);
       setupMarquee(artistEl, artistWrap);
       setCover(data.imageUrl);
+      spUpdateMediaMetadata(titleEl.textContent, artistEl.textContent, data.imageUrl, trackDuration, data.elapsedSec);
       // v0.33.246: listener paused — show the new song's details but don't
       // load or play it. Play rebuilds from scratch (currentSequence reset).
       if (userPaused) {

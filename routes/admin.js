@@ -925,10 +925,12 @@ router.get('/stats', requireAdmin, (req, res) => {
     WHERE played = 0 AND handed_off_at IS NULL
   `).get().n;
 
-  // Only count viewer-driven plays — not schedule fillers / resumes
+  // "Played by viewers": only plays viewers chose (votes and requests) — not
+  // schedule fillers / resumes, and not PSAs, which ShowPilot adds itself
+  // (v0.33.284-master.5).
   const totalPlays = db.prepare(`
     SELECT COUNT(*) AS n FROM play_history
-    WHERE source IN ('vote', 'request', 'psa')
+    WHERE source IN ('vote', 'request')
   `).get().n;
 
   const topSequences = db.prepare(`

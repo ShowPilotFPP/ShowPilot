@@ -118,7 +118,7 @@ Scenario: The Live player decorations are available and draw without errors
   And 6 seconds pass
   Then phone 1's player has the "newyear-live" decoration
 
-Scenario: Audio timing has Detect my delay (restored from the old beta)
+Scenario: Audio timing no longer has Detect my delay (turned off in v0.33.282)
   Given the show has songs "Halloween Lights" and "Alpha"
   And the setting "audio_gate_enabled" is off
   And the mode is Jukebox
@@ -126,4 +126,4 @@ Scenario: Audio timing has Detect my delay (restored from the old beta)
   When phone 1 opens the viewer page
   And phone 1 opens Listen on Phone
   And phone 1 opens Audio timing
-  Then phone 1 sees "Detect my delay"
+  Then phone 1 does not see "Detect my delay"

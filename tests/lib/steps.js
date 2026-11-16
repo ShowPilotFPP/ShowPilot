@@ -928,6 +928,55 @@ const STEPS = [
       const k = (me.cockpitLayout || []).filter(t => /^spacer\d+$/.test(t.id)).length;
       assert(k === Number(n), `the saved cockpit has ${k} spacers`);
     }) },
+  // ---- Cockpit Visitor Messages tile (v0.33.284-master.6) ----
+  { doc: 'visitors left the messages "Love the lights" and "Play Bravo please"   (oldest first, all unread)',
+    re: new RegExp(`^visitors left the messages ${LIST}$`, 'i'),
+    fn: async (ctx, list) => {
+      const ins = ctx.sp.db.prepare('INSERT INTO visitor_messages (name, message, is_read) VALUES (?, ?, 0)');
+      names(list).forEach((m) => ins.run('Scenario visitor', m));
+    } },
+  { doc: 'the cockpit messages tile lists "Play Bravo please" first',
+    re: new RegExp(`^the cockpit messages tile lists ${q} first$`, 'i'),
+    fn: async (ctx, text) => eventually(async () => {
+      const first = await pageOf(ctx, 'admin').evaluate(() => { const m = document.querySelector('.tile .msg .msg-text'); return m ? m.textContent : null; });
+      assert(first === text, `the first message on the cockpit is ${JSON.stringify(first)}`);
+    }) },
+  { doc: 'the cockpit messages tile shows N new   (unread messages with the "New" pill)',
+    re: /^the cockpit messages tile shows (\d+) new$/i,
+    fn: async (ctx, n) => eventually(async () => {
+      const k = await pageOf(ctx, 'admin').evaluate(() => document.querySelectorAll('.tile .msg.unread .msg-new').length);
+      assert(k === Number(n), `the cockpit shows ${k} new messages`);
+    }) },
+  { doc: 'the admin marks the message "X" read on the cockpit',
+    re: new RegExp(`^the admin marks the message ${q} read on the cockpit$`, 'i'),
+    fn: async (ctx, text) => {
+      const p = pageOf(ctx, 'admin');
+      const ok = await p.evaluate((text) => { const m = [...document.querySelectorAll('.tile .msg')].find(x => x.querySelector('.msg-text').textContent === text); const b = m && m.querySelector('[data-act="msgread"]'); if (!b) return false; b.click(); return true; }, text);
+      assert(ok, `no "${text}" message on the cockpit`);
+      await p.waitForTimeout(1000);
+    } },
+  { doc: 'the admin deletes the message "X" on the cockpit   (accepts the confirm)',
+    re: new RegExp(`^the admin deletes the message ${q} on the cockpit$`, 'i'),
+    fn: async (ctx, text) => {
+      const p = pageOf(ctx, 'admin');
+      p.once('dialog', (d) => d.accept());
+      const ok = await p.evaluate((text) => { const m = [...document.querySelectorAll('.tile .msg')].find(x => x.querySelector('.msg-text').textContent === text); const b = m && m.querySelector('[data-act="msgdel"]'); if (!b) return false; b.click(); return true; }, text);
+      assert(ok, `no "${text}" message on the cockpit`);
+      await p.waitForTimeout(1000);
+    } },
+  { doc: 'the message "X" is read | unread   (in the database)',
+    re: new RegExp(`^the message ${q} is (read|unread)$`, 'i'),
+    fn: async (ctx, text, want) => eventually(async () => {
+      const r = ctx.sp.db.prepare('SELECT is_read FROM visitor_messages WHERE message = ?').get(text);
+      assert(r, `no message "${text}"`);
+      assert((r.is_read === 1) === (want.toLowerCase() === 'read'), `the message "${text}" is ${r.is_read ? 'read' : 'unread'}`);
+    }) },
+  { doc: 'there is no message "X"   (in the database)',
+    re: new RegExp(`^there is no message ${q}$`, 'i'),
+    fn: async (ctx, text) => eventually(async () => {
+      const r = ctx.sp.db.prepare('SELECT id FROM visitor_messages WHERE message = ?').get(text);
+      assert(!r, `the message "${text}" is still there`);
+    }) },
   { doc: 'the admin goes to the Dashboard and back to the Viewer Page   (without reloading)',
     re: /^the admin goes to the dashboard and back to the viewer page$/i,
     fn: async (ctx) => {

@@ -133,6 +133,21 @@
     .fpp-table th { color: var(--text-muted); font-weight: 600; font-size: 13px; }
     .fpp-table td.n { font-family: var(--font-mono); }
 
+    /* Visitor Messages tile (v0.33.284-master.6). Unread messages get an accent edge and a "New" pill. */
+    .msg-sum { color: var(--text-muted); font-size: 14px; }
+    .msg-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+    .msg { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); }
+    .msg.unread { border-left: 4px solid var(--accent); }
+    .msg.read { opacity: .7; }
+    .msg-body { flex: 1; min-width: 0; }
+    .msg-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 2px; overflow-wrap: anywhere; }
+    .msg-new { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--accent-text); font-size: 12px; font-weight: 700; line-height: 20px; }
+    .msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.unread .msg-text { font-weight: 600; }
+    .msg-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }
+    .msg-acts button { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-hover); background: transparent; font-weight: 600; white-space: nowrap; }
+    .msg-acts .del { border-color: var(--status-danger); color: var(--status-danger); }
+
     /* Catalog drawer (edit mode) */
     .catalog { display: none; position: sticky; top: 14px; width: 320px; flex: 0 0 320px; max-height: calc(100vh - 40px); overflow-y: auto; padding: 14px; border-radius: 18px; border: 1px solid var(--border); background: var(--bg-elevated); }
     body.editing .catalog { display: block; }
@@ -188,7 +203,7 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/admin/shared.js"></script>
-<script src="/admin/cockpit-tiles.js?v=2"></script>
+<script src="/admin/cockpit-tiles.js?v=3"></script>
 <script>
 (function () {
   'use strict';
@@ -215,6 +230,7 @@
   function setLayout(next) {
     layout = next; saveLayout(); render();
     if (SPTiles.usesFpp(layout) && !ctx.fpp) loadFpp().then(() => { if (!dragging) render(); });
+    if (SPTiles.usesMessages(layout) && !ctx.msgs) loadMessages().then(() => { if (!dragging) render(); });
   }
   function defsById() {
     const m = {};
@@ -274,6 +290,7 @@
       case 'now': return nowHtml();
       case 'board': return boardHtml(d.board);
       case 'fpp': return fppHtml(d);
+      case 'messages': return messagesHtml();
     }
     return '';
   }
@@ -373,6 +390,41 @@
     if (r.ok && r.data) ctx.fpp = r.data;
   }
 
+  // ---------- Visitor Messages tile (v0.33.284-master.6) ----------
+  // GET /api/admin/messages (newest first), refreshed on the Cockpit's
+  // 5-second poll while the tile is on the layout. Mark read / unread and
+  // Delete use the same routes as the admin's Messages tab.
+  const MSG_LIMIT = 50;
+  function fmtMsgTime(utc) {
+    const d = new Date(String(utc || '').replace(' ', 'T') + 'Z');
+    if (isNaN(d)) return String(utc || '');
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  function messagesHtml() {
+    const m = ctx.msgs;
+    if (!m) return '<div class="empty">Loading messages…</div>';
+    const off = Number(ctx.cfg.visitor_messages_enabled) !== 1;
+    const list = m.messages || [];
+    const sum = m.total === 0 ? 'No messages yet.'
+      : m.total + ' message' + (m.total === 1 ? '' : 's') + ', ' + m.unread + ' unread. Newest first.' +
+        (m.total > list.length ? ' Showing the latest ' + list.length + '.' : '');
+    return '<div class="msg-sum">' + esc(sum) + (off ? ' Messages are turned off (Settings in the full admin).' : '') + '</div>' +
+      (list.length ? '<div class="msg-list">' + list.map(x => {
+        const unread = !x.is_read;
+        const meta = fmtMsgTime(x.created_at) + ' · ' + (x.name || 'No name') + (x.filtered ? ' · words hidden' : '');
+        return '<div class="msg ' + (unread ? 'unread' : 'read') + '" data-msg="' + esc(x.id) + '"><div class="msg-body">' +
+          '<div class="msg-meta">' + esc(meta) + (unread ? '<span class="msg-new">New</span>' : '') + '</div>' +
+          '<div class="msg-text">' + esc(x.message) + '</div></div>' +
+          '<div class="msg-acts"><button type="button" data-act="msgread" data-id="' + esc(x.id) + '" data-read="' + (unread ? 1 : 0) + '">' + (unread ? 'Mark read' : 'Mark unread') + '</button>' +
+          '<button type="button" class="del" data-act="msgdel" data-id="' + esc(x.id) + '">Delete</button></div></div>';
+      }).join('') + '</div>' : '');
+  }
+  async function loadMessages() {
+    if (!SPTiles.usesMessages(layout)) { ctx.msgs = null; return; }
+    const r = await SP.api('/messages?filter=all&limit=' + MSG_LIMIT);
+    if (r.ok && r.data) ctx.msgs = r.data;
+  }
+
   function info(name) {
     const s = ctx.seqs.find(x => x.name === name);
     return { title: (s && s.display_name) || name || '', artist: (s && s.artist) || '' };
@@ -442,7 +494,7 @@
       const on = d.kind === 'switch' && tileValue(d);
       const showLabel = d.kind !== 'now';
       return '<div class="tile s' + size + (on ? ' on' : '') + '" data-i="' + i + '" draggable="' + editing + '">' + strip +
-        (showLabel ? '<div class="tile-label">' + esc(d.label) + '</div>' + (d.hint && d.kind !== 'board' ? '<div class="tile-hint">' + esc(d.hint) + '</div>' : '') : '') +
+        (showLabel ? '<div class="tile-label">' + esc(d.label) + '</div>' + (d.hint && d.kind !== 'board' && d.kind !== 'messages' ?'<div class="tile-hint">' + esc(d.hint) + '</div>' : '') : '') +
         '<div class="tile-body">' + ctl(d) + '</div></div>';
     }).join('') + '<div class="drop-end" id="dropEnd">Drop a tile here</div>';
     grid.innerHTML = html;
@@ -454,7 +506,7 @@
     if (!editing) return;
     const used = new Set(layout.map(t => t.id));
     const all = SPTiles.catalog(ctx);
-    const kindLabel = { spacer: 'Empty space · any size', switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel', fpp: 'FPP panel' };
+    const kindLabel = { spacer: 'Empty space · any size', switch: 'On/off switch', seg: 'Choice', select: 'Choice (list)', step: 'Number', action: 'Button · asks to confirm', status: 'Status', now: 'Now playing panel', board: 'Live panel', fpp: 'FPP panel', messages: 'Message list' };
     $('catalogList').innerHTML = SPTiles.GROUPS.map(g => {
       const items = all.filter(d => d.group === g);
       if (!items.length) return '';
@@ -539,6 +591,20 @@
         setTimeout(() => loadFpp().then(() => { if (!dragging) render(); }), 2500);
         render();
       });
+    }
+    if (act === 'msgread') {
+      const read = el.dataset.read === '1';
+      return SP.post('/messages/read', { ids: [Number(el.dataset.id)], read }).then((r) => {
+        if (!(r && r.ok)) SP.toast('That did not work — try again', true);
+        return loadMessages();
+      }).then(() => { if (!dragging) render(); });
+    }
+    if (act === 'msgdel') {
+      if (!window.confirm('Delete this message?')) return;
+      return SP.post('/messages/delete', { ids: [Number(el.dataset.id)] }).then((r) => {
+        SP.toast(r && r.ok ? 'Message deleted' : 'That did not work — try again', !(r && r.ok));
+        return loadMessages();
+      }).then(() => { if (!dragging) render(); });
     }
     if (act === 'song') return run(SP.put('/sequences/' + encodeURIComponent(el.dataset.id), { visible: el.dataset.vis === '1' ? 0 : 1 })).then(loadSeqs).then(render);
   });
@@ -628,7 +694,7 @@
     if (busy) return;
     busy = true;
     try {
-      const [c, s, v, q] = await Promise.all([SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue'), loadFpp()]);
+      const [c, s, v, q] = await Promise.all([SP.api('/config'), SP.api('/stats'), SP.viewerState(), SP.api('/queue'), loadFpp(), loadMessages()]);
       if (c.ok && c.data) ctx.cfg = c.data;
       if (s.ok && s.data) ctx.stats = s.data;
       if (v) ctx.vstate = v;

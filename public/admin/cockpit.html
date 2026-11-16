@@ -499,10 +499,15 @@
       const on = d.kind === 'switch' && tileValue(d);
       const showLabel = d.kind !== 'now';
       return '<div class="tile s' + size + (on ? ' on' : '') + '" data-i="' + i + '" draggable="' + editing + '">' + strip +
-        (showLabel ? '<div class="tile-label">' + esc(d.label) + '</div>' + (d.hint && d.kind !== 'board' && d.kind !== 'messages' ?'<div class="tile-hint">' + esc(d.hint) + '</div>' : '') : '') +
+        (showLabel ? '<div class="tile-label">' + esc(d.label) + '</div>' + (d.hint && d.kind !== 'board' && d.kind !== 'messages' ? '<div class="tile-hint">' + esc(d.hint) + '</div>' : '') : '') +
         '<div class="tile-body">' + ctl(d) + '</div></div>';
     }).join('') + '<div class="drop-end" id="dropEnd">Drop a tile here</div>';
+    // The grid is redrawn on every 5-second poll; keep the Visitor Messages
+    // list where the user scrolled it (it jumped back to the top before).
+    const msgList = grid.querySelector('.msg-list');
+    const msgScroll = msgList ? msgList.scrollTop : 0;
     grid.innerHTML = html;
+    if (msgScroll) { const l = grid.querySelector('.msg-list'); if (l) l.scrollTop = msgScroll; }
     paintLive();
     renderCatalog(defs);
   }

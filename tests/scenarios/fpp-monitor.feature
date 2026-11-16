@@ -48,6 +48,17 @@ Scenario: Controls reach the show player and report back
   And the show player reports FPP idle
   Then the show player is told to stopNow
 
+Scenario: A playlist can be started on repeat
+  Given the show has songs "Alpha", "Bravo" and "Charlie"
+  When the show player reports FPP idle
+  And the admin asks FPP to start the playlist "Halloween" on repeat
+  Then it is accepted
+  When the show player reports FPP idle
+  Then the show player is told to startPlaylist "Halloween" on repeat
+  When the admin asks FPP to start the playlist "Christmas"
+  And the show player reports FPP idle
+  Then the show player is told to startPlaylist "Christmas" once
+
 Scenario: A control needs a name, and unknown controls are refused
   Given the show has songs "Alpha", "Bravo" and "Charlie"
   When the admin asks FPP to start the playlist ""

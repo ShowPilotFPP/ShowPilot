@@ -128,6 +128,8 @@
     .fpp-ctl { display: flex; gap: 8px; flex-wrap: wrap; }
     .fpp-ctl select { flex: 1; min-width: 140px; }
     .fpp-ctl .action { flex: 1; min-width: 120px; }
+    .fpp-repeat { display: inline-flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); font-weight: 600; cursor: pointer; }
+    .fpp-repeat input { width: 22px; height: 22px; accent-color: var(--accent); }
     .fpp-table { width: 100%; border-collapse: collapse; font-size: 15px; }
     .fpp-table th, .fpp-table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
     .fpp-table th { color: var(--text-muted); font-weight: 600; font-size: 13px; }
@@ -301,7 +303,7 @@
   // MultiSync systems hidden on the FPP Monitor page stay hidden here.
   const FPP_STATE = { playing: 'Playing', idle: 'Idle', paused: 'Paused', stopping: 'Stopping', testing: 'Test mode', unknown: 'Unknown' };
   const FPP_COLOR = { ok: 'var(--status-success)', warn: 'var(--status-warning)', bad: 'var(--status-danger)', unknown: 'var(--text-muted)' };
-  const fppPick = { playlist: '', preset: '' };
+  const fppPick = { playlist: '', preset: '', repeat: false };
   function fppHidden() {
     let raw = null;
     try { raw = (ctx.me && ctx.me.uiPrefs && ctx.me.uiPrefs.sp_fpp_hidden_remotes) || localStorage.getItem('sp_fpp_hidden_remotes'); } catch (_) { raw = null; }
@@ -363,7 +365,10 @@
       const btn = (a, label) => confirmId === d.id + ':' + a
         ? '<button type="button" class="action confirm" data-act="fppgo" data-a="' + a + '"' + dis + '>Tap again to confirm</button>'
         : '<button type="button" class="action" data-act="fpparm" data-a="' + a + '"' + dis + '>' + esc(label) + '</button>';
-      return '<div class="fpp-ctl">' + sel('playlist', pls, 'No playlists reported yet') + btn('startPlaylist', 'Start playlist') + '</div>' +
+      // Repeat (v0.33.284-master.6): start the playlist on repeat. Needs a
+      // ShowPilot plugin that reads the repeat flag; older ones start it once.
+      const rep = '<label class="fpp-repeat"><input type="checkbox" data-act="fpprepeat"' + (fppPick.repeat ? ' checked' : '') + dis + '> Repeat</label>';
+      return '<div class="fpp-ctl">' + sel('playlist', pls, 'No playlists reported yet') + rep + btn('startPlaylist', fppPick.repeat ? 'Start on repeat' : 'Start playlist') + '</div>' +
         '<div class="fpp-ctl">' + sel('preset', prs, 'No command presets') + btn('preset', 'Run preset') + '</div>' +
         '<div class="fpp-ctl">' + btn('stopGracefully', 'Stop gracefully') + btn('stopNow', 'Stop now') + btn('restartFppd', 'Restart FPPD') + '</div>' +
         (f.connected ? '' : '<div class="fpp-sub">Controls work while your show player is checking in.</div>');
@@ -586,7 +591,7 @@
       const a = el.dataset.a;
       const name = a === 'startPlaylist' ? fppPick.playlist : a === 'preset' ? fppPick.preset : '';
       if ((a === 'startPlaylist' || a === 'preset') && !name) { SP.toast(a === 'preset' ? 'Pick a command preset' : 'Pick a playlist', true); return render(); }
-      return SP.post('/fpp/command', { action: a, name }).then((r) => {
+      return SP.post('/fpp/command', { action: a, name, ...(a === 'startPlaylist' && fppPick.repeat ? { repeat: true } : {}) }).then((r) => {
         SP.toast(r && r.ok ? 'Sent to your show player' : ((r && r.data && r.data.error) || 'That did not work — try again'), !(r && r.ok));
         setTimeout(() => loadFpp().then(() => { if (!dragging) render(); }), 2500);
         render();
@@ -611,6 +616,8 @@
   $('grid').addEventListener('change', (e) => {
     const fs = e.target.closest('[data-act="fppsel"]');
     if (fs) { fppPick[fs.dataset.which] = fs.value; return; }
+    const fr = e.target.closest('[data-act="fpprepeat"]');
+    if (fr) { fppPick.repeat = fr.checked; if (!dragging) render(); return; }
     const el = e.target.closest('[data-act="select"]');
     if (!el || editing) return;
     const d = defsById()[layout[Number(el.closest('.tile').dataset.i)].id];

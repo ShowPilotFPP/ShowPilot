@@ -80,6 +80,18 @@ Scenario: Cockpit spacers take up space, any number of them, and only show while
   And the admin adds a Spacer on the cockpit
   Then the saved cockpit has 3 spacers
 
+Scenario: The Visitor Messages tile on the Cockpit lists messages and marks them read or deletes them
+  Given visitors left the messages "Love the lights" and "Play Bravo please"
+  And the admin's cockpit has the tiles "messages" and "sWatching"
+  When the admin opens the Cockpit
+  Then the cockpit messages tile lists "Play Bravo please" first
+  And the cockpit messages tile shows 2 new
+  When the admin marks the message "Play Bravo please" read on the cockpit
+  Then the message "Play Bravo please" is read
+  And the cockpit messages tile shows 1 new
+  When the admin deletes the message "Love the lights" on the cockpit
+  Then there is no message "Love the lights"
+
 Scenario: An old FPP plugin gets an update banner on the Dashboard, and the plugin is told
   Given the show has songs "Alpha", "Bravo" and "Charlie"
   And the show player is the FPP plugin version "0.14.18"

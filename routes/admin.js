@@ -995,12 +995,13 @@ router.get('/stats', requireAdmin, (req, res) => {
 router.get('/fpp', requireAdmin, (req, res) => {
   res.json(require('../lib/fpp-monitor').adminState(getConfig(), { watch: req.query.watch !== '0' }));
 });
-// POST { action: startPlaylist|stopGracefully|stopNow|preset|restartFppd, name? }
+// POST { action: startPlaylist|stopGracefully|stopNow|preset|restartFppd, name?, repeat? }
+// repeat: true (startPlaylist only) starts the playlist on repeat.
 router.post('/fpp/command', requireAdmin, (req, res) => {
   const b = req.body || {};
-  const r = require('../lib/fpp-monitor').command(String(b.action || ''), b.name, req.user && req.user.username);
+  const r = require('../lib/fpp-monitor').command(String(b.action || ''), b.name, req.user && req.user.username, { repeat: b.repeat === true });
   if (r.error) return res.status(400).json(r);
-  console.log(`[fpp] ${req.user && req.user.username} asked the show player to ${b.action}${b.name ? ' "' + String(b.name).slice(0, 100) + '"' : ''}`);
+  console.log(`[fpp] ${req.user && req.user.username} asked the show player to ${b.action}${b.name ? ' "' + String(b.name).slice(0, 100) + '"' : ''}${b.action === 'startPlaylist' && b.repeat === true ? ' on repeat' : ''}`);
   res.json(r);
 });
 

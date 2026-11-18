@@ -8,6 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
+const { getNextStartAt } = require('../lib/next-start');
 const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, getSequenceLabel, listDisplayMode, castTiebreakVote, logVote, logVoteChange, getNextUp,
         addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader, setBaselineNext , updateConfig } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
@@ -1127,6 +1128,7 @@ router.get('/now-playing-audio', (req, res) => {
       imageUrl: (seq && bustCoverUrl(seq.image_url)) || null,
       nextScheduled,
       nextStreamUrl,
+      nextStartsAtMs: nextScheduled ? getNextStartAt(nextScheduled) : null,
       ...visualConfig,
     });
   }
@@ -1202,6 +1204,9 @@ router.get('/now-playing-audio', (req, res) => {
     streamUrl: `/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`,
     nextScheduled,
     nextStreamUrl,
+    // Server time when the next song starts, from FPP's playlist (plugin
+    // v0.14.30+); null when unknown. Players start it on time with this.
+    nextStartsAtMs: nextScheduled ? getNextStartAt(nextScheduled) : null,
     publicStreamUrl: cfg.public_base_url
       ? `${String(cfg.public_base_url).replace(/\/+$/, '')}/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`
       : '',

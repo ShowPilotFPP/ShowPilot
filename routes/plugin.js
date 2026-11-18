@@ -971,12 +971,14 @@ router.post('/position', (req, res) => {
 // POST /api/plugin/next
 // ============================================================
 router.post('/next', (req, res) => {
-  const { sequence, exact } = req.body || {};
+  const { sequence, exact, startsInMs, rttMs } = req.body || {};
   const name = (sequence || '').trim();
 
   // exact: the plugin/Player read this from the live play order (shuffle
   // included), so an empty value is the truth, not "unknown".
   setNextScheduled(name || null, exact === true);
+  // When it starts (plugin v0.14.30+), so phones can start it on time.
+  require('../lib/next-start').setNextStart(name, startsInMs, rttMs);
 
   // Interrupt-mode detection: cfg.interrupt_schedule may not be set when the
   // FPP plugin manages its own interrupt flag independently. Instead, detect

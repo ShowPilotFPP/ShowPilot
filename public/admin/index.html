@@ -1515,6 +1515,8 @@
     .seq-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
     .seq-dot.on { background: var(--status-success, #22c55e); box-shadow: 0 0 0 3px var(--status-success-soft, rgba(34,197,94,.18)); }
     .seq-dot.off { background: var(--status-danger, #ef4444); box-shadow: 0 0 0 3px var(--status-danger-soft, rgba(239,68,68,.18)); }
+    /* Lead-in / lead-out song: plays, audio for phones only, hidden from viewers. */
+    .seq-dot.audio { background: var(--status-info, #3b82f6); box-shadow: 0 0 0 3px var(--status-info-soft, rgba(59,130,246,.18)); }
     tr.seq-inactive td:not(.col-status):not(.col-check):not(.col-actions) { opacity: 0.6; }
     /* Narrow columns shrink to their content so the text columns get the room. */
     #sequencesTable th.col-tight, #sequencesTable td.col-tight { width: 1%; white-space: nowrap; }
@@ -2112,7 +2114,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.284-master.8</span>
+        <span class="app-version">v0.33.284-master.9</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -9111,9 +9113,12 @@
       sequencesCache = r.data;
       { const h = document.getElementById('seqCooldownUnitHead'); if (h) h.textContent = cooldownUnit === 'songs' ? '(songs)' : '(min)'; }
       {
-        const inactive = r.data.filter(s => s.active === 0).length;
-        document.getElementById('sequenceCount').textContent = inactive
-          ? `(${r.data.length - inactive} active, ${inactive} inactive)` : `(${r.data.length})`;
+        const inactive = r.data.filter(s => s.active === 0 && !s.audio_only).length;
+        const leadSongs = r.data.filter(s => s.audio_only).length;
+        const parts = [`${r.data.length - inactive - leadSongs} active`];
+        if (leadSongs) parts.push(`${leadSongs} lead-in/out`);
+        if (inactive) parts.push(`${inactive} inactive`);
+        document.getElementById('sequenceCount').textContent = parts.length > 1 ? `(${parts.join(', ')})` : `(${r.data.length})`;
       }
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
@@ -9172,20 +9177,26 @@
       const art = seq.image_url
         ? `<div class="art-wrap" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Change cover art"><img class="art-thumb" src="${escapeAttr(seq.image_url)}" alt="" /><span class="art-edit" aria-hidden="true">✎</span></div>`
         : `<div class="art-placeholder" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Add cover art">+</div>`;
+      const leadSong = !!seq.audio_only;
       const inactive = seq.active === 0;
       if (inactive) tr.classList.add('seq-inactive');
+      const dot = leadSong
+        ? { cls: 'audio', label: 'Lead-in or lead-out', title: 'Lead-in or lead-out song: it plays in your show, and phones listening get its audio, but viewers can\'t see, vote for or request it.' }
+        : inactive
+          ? { cls: 'off', label: 'Inactive', title: 'Inactive — no longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again when the playlist lists it.' }
+          : { cls: 'on', label: 'Active', title: 'Active — in your show player\'s playlist' };
 
       tr.innerHTML = `
         <td class="col-tight col-check"><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
         <td class="col-tight drag-handle" title="Drag to reorder">⋮⋮</td>
-        <td class="col-tight col-status" style="text-align:center;"><span class="seq-dot ${inactive ? 'off' : 'on'}" role="img"
-              aria-label="${inactive ? 'Inactive' : 'Active'}"
-              title="${inactive ? 'Inactive — no longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again when the playlist lists it.' : 'Active — in your show player\'s playlist'}"></span></td>
+        <td class="col-tight col-status" style="text-align:center;"><span class="seq-dot ${dot.cls}" role="img"
+              aria-label="${dot.label}"
+              title="${dot.title}"></span></td>
         <td class="col-tight col-art">${art}</td>
         <td class="col-display"><span class="editable" contenteditable="true" title="${escapeAttr(seq.display_name)}"
                   onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
         <td class="col-seqname"><code title="${escapeAttr(seq.name)}">${escapeHtml(seq.name)}</code></td>
-        <td class="col-tight col-index" title="${inactive ? 'Not in the current playlist' : 'Position in your show player\'s playlist'}">${!inactive && seq.sort_order ? seq.sort_order : '—'}</td>
+        <td class="col-tight col-index" title="${leadSong ? 'Lead-in or lead-out: not offered to viewers' : inactive ? 'Not in the current playlist' : 'Position in your show player\'s playlist'}">${!inactive && seq.sort_order ? seq.sort_order : '—'}</td>
         <td class="col-artist"><span class="editable" contenteditable="true" title="${escapeAttr(seq.artist || '')}"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
         <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
@@ -9522,7 +9533,7 @@
 
     function seqMatchesFilter(seq, q) {
       if (_seqFilter === 'active' && seq.active === 0) return false;
-      if (_seqFilter === 'inactive' && seq.active !== 0) return false;
+      if (_seqFilter === 'inactive' && (seq.active !== 0 || seq.audio_only)) return false;
       if (_seqFilter === 'hidden' && seq.visible) return false;
       if (_seqCategoryFilter === SEQ_UNCATEGORIZED) { if (String(seq.category || '').trim()) return false; }
       else if (_seqCategoryFilter && String(seq.category || '').trim().toLowerCase() !== _seqCategoryFilter.trim().toLowerCase()) return false;

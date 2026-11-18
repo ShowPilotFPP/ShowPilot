@@ -129,6 +129,54 @@ const STEPS = [
       await ctx.player.sync(songs);
       ctx.sp.db.prepare(`UPDATE sequences SET visible = 1, votable = 1, jukeboxable = 1, cooldown_minutes = 0 WHERE name IN (${songs.map(() => '?').join(',')})`).run(...songs);
     } },
+  { doc: 'the show has the lead-in song "Intro" with audio   (sent by the show player as audio-only: phones get it, viewers don\'t; a song already in the playlist moves there)',
+    re: new RegExp(`^the show has the lead-in song ${q} with audio$`, 'i'),
+    fn: async (ctx, name) => {
+      const main = ctx.player.playlist.filter((n) => n !== name);
+      ctx.player.playlist = main;
+      const media = name + '.mp3';
+      const r = await ctx.player.call('POST', '/sync-sequences', {
+        playlistName: 'Show',
+        sequences: main.map((n, i) => ({ name: n, playlistIndex: i + 1 })),
+        audioOnly: [{ name, mediaName: media, durationSeconds: 30 }],
+      });
+      assert(r.audioOnly === 1, `the server didn't take the lead-in song: ${JSON.stringify(r)}`);
+      const bytes = Buffer.from('ID3 lead-in test audio for ' + name);
+      const hash = require('crypto').createHash('sha256').update(bytes).digest('hex');
+      const up = await fetch(`${ctx.sp.base}/api/plugin/audio-cache/upload?hash=${hash}&mediaName=${encodeURIComponent(media)}`, {
+        method: 'POST', headers: { authorization: 'Bearer ' + ctx.sp.showToken, 'content-type': 'application/octet-stream' }, body: bytes,
+      });
+      assert(up.status < 400, `audio upload → HTTP ${up.status}: ${(await up.text()).slice(0, 200)}`);
+    } },
+  { doc: 'the show player syncs its playlist again   (the same songs, no lead-in)',
+    re: /^the show player syncs its playlist again$/i,
+    fn: async (ctx) => { await ctx.player.sync(ctx.player.playlist); } },
+  { doc: '"A" is offered to viewers | "A" is not offered to viewers   (the viewer page\'s song list)',
+    re: new RegExp(`^${q} is (not )?offered to viewers$`, 'i'),
+    fn: async (ctx, name, not) => eventually(async () => {
+      const st = await state(ctx);
+      const has = (st.sequences || []).some((x) => x.name === name);
+      assert(not ? !has : has, not ? `"${name}" is on the viewer page` : `"${name}" is not on the viewer page`);
+    }) },
+  { doc: 'the Sequences page marks "A" as lead-in or lead-out   (blue status dot)',
+    re: new RegExp(`^the sequences page marks ${q} as lead-in or lead-out$`, 'i'),
+    fn: async (ctx, name) => {
+      const page = await openAdmin(ctx, 'sequences');
+      await eventually(async () => {
+        const cls = await page.evaluate((n) => {
+          const row = [...document.querySelectorAll('#sequencesBody tr')].find((tr) => (tr.querySelector('.col-seqname code') || {}).textContent === n);
+          const dot = row && row.querySelector('.seq-dot');
+          return dot ? dot.className + ' | ' + dot.getAttribute('aria-label') : null;
+        }, name);
+        assert(cls && /\baudio\b/.test(cls) && /lead-in/i.test(cls), `"${name}" status: ${cls}`);
+      });
+    } },
+  { doc: 'the phone player is sent the audio of "A"   (Listen on Phone)',
+    re: new RegExp(`^the phone player is sent the audio of ${q}$`, 'i'),
+    fn: async (ctx, name) => eventually(async () => {
+      const r = await http(ctx, 'GET', '/api/now-playing-audio', { cookie: ctx.sp.viewerCookie('player') });
+      assert(r.body.playing && r.body.hasAudio === true && r.body.sequenceName === name, `expected the audio of "${name}", got ${JSON.stringify(r.body).slice(0, 200)}`);
+    }) },
   { doc: '"A" is a PSA',
     re: new RegExp(`^${q} is a PSA$`, 'i'),
     fn: async (ctx, name) => { await adminOk(ctx, 'PATCH', '/sequences/' + seqId(ctx, name), { is_psa: 1 }); } },

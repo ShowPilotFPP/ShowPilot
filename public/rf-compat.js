@@ -6673,6 +6673,16 @@
           // Song changes are noticed by name; forget the last one so a song
           // with audio after this one loads normally.
           if (data.playing && data.sequenceName) { currentSequence = null; }
+          // A sequence without audio (a gap between songs): download the next
+          // song now so it starts on time, not seconds late (v0.33.284-master.7+).
+          if (data.playing && data.nextStreamUrl) {
+            let nk = data.nextStreamUrl;
+            if (selectedLang && selectedLang !== 'default') {
+              nk += (nk.includes('?') ? '&' : '?') + 'lang=' + encodeURIComponent(selectedLang);
+            }
+            if (nk !== nextStreamKey) { nextStreamKey = nk; pruneBufferCache(); }
+            prefetchAudio(nk);
+          }
           setupMarquee(titleEl, titleWrap);
           setupMarquee(artistEl, artistWrap);
           statusEl.textContent = '';

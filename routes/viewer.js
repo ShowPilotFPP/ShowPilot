@@ -1102,12 +1102,31 @@ router.get('/now-playing-audio', (req, res) => {
     // No audio for this sequence: still send its name, artist and cover so
     // the phone player shows the right song instead of the last one's art
     // (or a broken image) (v0.33.249+).
+    // Also the next song with audio, so players can download it during this
+    // sequence (a gap or lights-only sequence between songs). Without it the
+    // next song was only fetched once it had started, and listeners missed
+    // its first seconds.
+    const silentName = liveOverride ? seq.name : np.sequence_name;
+    let nextScheduled = null;
+    let nextStreamUrl = null;
+    try {
+      const nextName = getNextUp(cfg, silentName);
+      const nextSeq = nextName ? getSequenceByName(nextName) : null;
+      if (nextSeq && nextSeq.media_name && nextSeq.name !== silentName) {
+        nextScheduled = nextSeq.name;
+        nextStreamUrl = `/api/audio-stream/${encodeURIComponent(nextSeq.name)}${audioVersionParam(nextSeq.name)}`;
+      }
+    } catch (_) {
+      // Non-fatal — the player just loads the next song when it starts.
+    }
     return res.json({
       playing: true, hasAudio: false,
-      sequenceName: liveOverride ? seq.name : np.sequence_name,
-      displayName: (seq && seq.display_name) || (liveOverride ? seq.name : np.sequence_name),
+      sequenceName: silentName,
+      displayName: (seq && seq.display_name) || silentName,
       artist: (seq && seq.artist) || '',
       imageUrl: (seq && bustCoverUrl(seq.image_url)) || null,
+      nextScheduled,
+      nextStreamUrl,
       ...visualConfig,
     });
   }

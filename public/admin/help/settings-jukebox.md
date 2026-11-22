@@ -32,6 +32,23 @@ Viewers can't request the song that's on right now; they get "That song is playi
 
 Viewers can't request the song that's next to play: the first song in the request queue or, if the queue is empty, the next song in your show player's schedule. They get "That song is already up next. Try another." On by default. It keeps the front of the queue from filling up with duplicates.
 
+## Let visitors remove their own requests
+
+When ticked, visitors can take back a request they made. Each visitor sees a **Remove** button next to their own requests in the queue list on the viewer page, and only their own. Off by default. It works in **Jukebox** mode only; in **Listen only** the buttons are hidden and nothing can be removed.
+
+A request can be removed until it's sent to your show player. ShowPilot sends requests one at a time, when the show player asks for the next one, so only the request that's about to play is locked; everything behind it can still be removed. On FPP, when the show player asks depends on the plugin's settings:
+
+- With **Interrupt Schedule** off, the plugin asks in the last few seconds of the song that's playing (its **Request/Vote Fetch Time**, 3 seconds by default). Visitors can remove even the next request until then.
+- With **Interrupt Schedule** on, the plugin asks straight away, so the next request is locked almost as soon as it reaches the front of the queue.
+
+If a visitor taps **Remove** just as the request is being sent, the show player gets it and the visitor is told "Too late to remove it: that song is already on its way to the show." A request is never both removed and played.
+
+When a request is removed, the visitor's slot under **Limit each viewer to …** opens again, and the request no longer counts toward a PSA set to play every few requests.
+
+ShowPilot recognises a visitor by their phone's browser, the same way as for the request limit. Someone who clears their browser's data, or opens the page in another browser, can't remove requests they made before.
+
+If you design your own template, put the `{JUKEBOX_QUEUE}` placeholder on your page to get the buttons. The button has the class `queue-cancel`, and the visitor's own entries in the queue list have the class `showpilot-mine`, so you can style both. If your page has a `<div id="cancelSuccessful">`, ShowPilot shows it when a request is removed; otherwise your `requestSuccessful` message shows "Your request was removed." See [Viewer page templates](help:templates).
+
 ## Hide song from the request list after it plays
 
 When ticked, the song that's playing drops off the viewers' list, and can't be requested or voted for, until the next song starts. Off by default.

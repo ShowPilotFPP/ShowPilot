@@ -3669,6 +3669,11 @@
               <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide song from the request list after it plays</label>
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">The song that's playing drops off the viewer's request list until the next song starts. For a longer wait, use the song cooldown below.</p>
+            <div class="row" style="margin-top: 0.5rem;">
+              <input type="checkbox" id="cfg_jukebox_viewer_cancel" onchange="saveSetting('jukebox_viewer_cancel', this.checked ? 1 : 0)" />
+              <label for="cfg_jukebox_viewer_cancel" style="margin: 0;">Let visitors remove their own requests</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Each visitor gets a Remove button on their own requests in the queue list, until the request is sent to the show player. Not in Listen Only. To style it yourself, the button is <code>.queue-cancel</code> and the visitor's own queue entries have the class <code>showpilot-mine</code>; a <code>&lt;div id="cancelSuccessful"&gt;</code> on your page is used for the "removed" message.</p>
 
             <!-- Song cooldown (v0.33.258, tiered: show-wide → category → song; GitHub issue #41) -->
             <div class="cooldown-box">
@@ -6970,6 +6975,7 @@
       // (older installs that haven't migrated yet).
       setChk('cfg_block_request_currently_playing', c.block_request_currently_playing == null ? 1 : c.block_request_currently_playing);
       setChk('cfg_block_request_next_up',          c.block_request_next_up          == null ? 1 : c.block_request_next_up);
+      setChk('cfg_jukebox_viewer_cancel', c.jukebox_viewer_cancel === 1);
       setChk('cfg_block_vote_currently_playing',   c.block_vote_currently_playing   == null ? 1 : c.block_vote_currently_playing);
       setChk('cfg_block_vote_next_up',             c.block_vote_next_up             == null ? 1 : c.block_vote_next_up);
       setChk('cfg_prevent_multiple_votes', c.prevent_multiple_votes);

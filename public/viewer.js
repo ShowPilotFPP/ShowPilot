@@ -84,6 +84,7 @@
     state.uncategorizedLabel = data.uncategorizedLabel || 'Other';
     state.voteCounts = Object.fromEntries((data.voteCounts || []).map(v => [v.sequence_name, v.count]));
     state.queue = data.queue || [];
+    state.viewerCancel = data.viewerCancel === true;
     state.allowVoteChange = data.allowVoteChange === true;
     state.serverRequirements = { requiresLocation: data.requiresLocation === true };
 
@@ -195,7 +196,19 @@
     state.queue.forEach(entry => {
       const seq = state.sequences.find(s => s.name === entry.sequence_name);
       const li = document.createElement('li');
-      li.textContent = seq ? seq.display_name : entry.sequence_name;
+      const name = seq ? seq.display_name : entry.sequence_name;
+      li.textContent = name;
+      // The visitor's own request, removable until it's handed to the show player.
+      if (entry.mine) li.classList.add('showpilot-mine');
+      if (state.viewerCancel && entry.mine && !entry.handed_off_at && entry.id) {
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'queue-cancel';
+        rm.textContent = 'Remove';
+        rm.setAttribute('aria-label', 'Remove my request for ' + name);
+        rm.onclick = () => cancelRequest(entry.id, rm);
+        li.appendChild(rm);
+      }
       q.appendChild(li);
     });
   }
@@ -292,6 +305,23 @@
     } else {
       toast(data.error || 'Failed to add');
     }
+  }
+
+  async function cancelRequest(queueId, btn) {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/jukebox/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ queueId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      toast(res.ok ? 'Your request was removed.' : (data.error || 'Couldn\'t remove it'));
+    } catch {
+      toast('Couldn\'t remove it');
+    }
+    fetchState();
   }
 
   async function heartbeat() {

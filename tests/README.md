@@ -74,6 +74,7 @@ it and reports back. The scenario then stays in the suite.
   "A" has a cover
   "A" has a cooldown of N minutes
   the category "Kids" has "A" and "B"
+  the viewer page is the built-in Default template
   the viewer page uses the test template (Remote Falcon style)
   there is also a viewer page "Name"   (a copy of the test template with that name in its title)
   the template's draft is the file "name.html"   (from tests/templates)
@@ -107,6 +108,10 @@ it and reports back. The scenario then stays in the suite.
   phone 1 votes for "A"
   N phones vote for "A"
   phone 1 requests "A"
+  phone 1 removes its request for "A"   (no browser)
+  phone 2 tries to remove phone 1's request for "A"
+  phone 1 removes its request for "A" just as the show player takes it   (both at the same moment)
+  the request for "A" was either removed or handed to the show player, never both or neither
   N phones are listening   (Listen on Phone open)
   phone 1 opens the viewer page [as an iPhone | in Facebook's browser]
   phone 1 opens Listen on Phone   (taps the headphones button)
@@ -123,6 +128,8 @@ it and reports back. The scenario then stays in the suite.
   the template's draft has a script that never finishes
   "A" has N votes
   the queue is "A" and "B" | the queue is empty
+  Up Next is "A"   (what the viewer page shows as up next)
+  the PSA count is N   (votes and requests counted toward the next PSA)
   "A" plays next | "A" plays next as a vote | request | PSA
   the show player is not given a song   (it follows its own schedule)
   no PSA is handed out
@@ -134,6 +141,8 @@ it and reports back. The scenario then stays in the suite.
   phone 1 sees "text"
   phone 1 does not see "text"
   phone 1 gets the message "text"   (the pop-up after a tap)
+  on phone 1, the request for "A" has a Remove button | has no Remove button   (in the queue list)
+  phone 1 taps Remove on "A"   (the Remove button in the queue list)
   on phone 1, "A" is marked as queued [#N] | is not marked as queued
   on phone 1, "A" shows the badge "New" fully
   phone 1 shows the cover of "A" for Now Playing | Up Next

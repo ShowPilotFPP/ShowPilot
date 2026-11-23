@@ -188,6 +188,8 @@ router.get('/page-stats', (req, res) => {
 });
 
 router.get('/state', (req, res) => {
+  // Per visitor (each queue entry's `mine`), so no cache in between may keep it.
+  res.set('Cache-Control', 'no-store');
   const cfg = getConfig();
   const nowPlaying = getNowPlaying();
   const activeViewers = getActiveViewerCount();

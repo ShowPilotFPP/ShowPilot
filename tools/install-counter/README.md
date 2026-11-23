@@ -59,7 +59,7 @@ manage users. The page and its API stay off (404) until a user exists.
 | Path | What |
 |---|---|
 | `POST /ping` | Check-in from an install (204, no body) |
-| `GET /` | Stats page: totals, ShowPilot vs Lite, versions, map, countries, states, towns, trend |
+| `GET /` | Stats page: totals, ShowPilot vs Lite, versions, map, countries, states, towns, trend; a green "New" pill (or "2 new") marks rows with installs whose first check-in was in the last 48 hours (`NEW_HOURS` in `server.js`) |
 | `GET /api/stats` | The same numbers as JSON |
 | `GET /api/live` | Live updates for the stats page (Server-Sent Events; pushes new numbers whenever an install checks in) |
 | `POST /api/shows/checkin` | Listed show's once-a-minute check-in (directory) |

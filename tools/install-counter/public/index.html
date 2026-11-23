@@ -41,6 +41,7 @@ svg text{fill:var(--muted);font-size:11px}
 .bump{animation:bump 1.2s ease-out}
 @keyframes bump{0%{color:var(--accent);transform:scale(1.15)}100%{color:inherit;transform:scale(1)}}
 .kpi .value{display:inline-block;transform-origin:left center}
+.pill{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#16a34a;color:#fff;font-size:.7rem;font-weight:600;line-height:1.4;vertical-align:1px;white-space:nowrap}
 @media (prefers-reduced-motion: reduce){.live.on i,.bump{animation:none}}
 </style>
 </head>
@@ -53,6 +54,7 @@ svg text{fill:var(--muted);font-size:11px}
     <div class="card kpi"><div class="label">ShowPilot</div><div class="value" id="kMain">–</div><div class="note">full version</div></div>
     <div class="card kpi"><div class="label">ShowPilot-Lite</div><div class="value" id="kLite">–</div><div class="note">no audio</div></div>
     <div class="card kpi"><div class="label">Last 7 days</div><div class="value" id="k7">–</div><div class="note">checked in this week</div></div>
+    <div class="card kpi"><div class="label">New</div><div class="value" id="kNew">–</div><div class="note" id="kNewNote">first check-in in the last 48 hours</div></div>
   </div>
   <div class="card" style="margin-bottom:16px">
     <h2>Trend</h2>
@@ -80,6 +82,9 @@ svg text{fill:var(--muted);font-size:11px}
   const names = (typeof Intl !== 'undefined' && Intl.DisplayNames) ? new Intl.DisplayNames(['en'], { type: 'region' }) : null;
   const cname = c => { try { return names ? names.of(c) : c; } catch { return c; } };
   const $ = id => document.getElementById(id);
+  // "New" pill for a row with installs that first checked in recently.
+  let newHours = 48;
+  const pill = k => k ? ' <span class="pill" title="' + k + (k === 1 ? ' install' : ' installs') + ' new in the last ' + newHours + ' hours">' + (k === 1 ? 'New' : k + ' new') + '</span>' : '';
   let map = null, mapKey = '';
 
   // Set a number; briefly highlight it when it changes (not on first load).
@@ -103,7 +108,7 @@ svg text{fill:var(--muted);font-size:11px}
         // Light to dark blue by installs (square-root so small countries still show).
         // ZZ is not a real region: it pins the low end of the scale at 0.
         visualizeData: { scale: ['#bfdbfe', '#1d4ed8'], values: Object.assign({ ZZ: 0 }, Object.fromEntries(entries.map(([c, n]) => [c, Math.sqrt(n)]))) },
-        markers: s.towns.map(t => ({ name: t.city + (t.region ? ', ' + t.region : '') + ' — ' + t.n + (t.n === 1 ? ' install' : ' installs'), coords: [t.lat, t.lon] })),
+        markers: s.towns.map(t => ({ name: t.city + (t.region ? ', ' + t.region : '') + ' — ' + t.n + (t.n === 1 ? ' install' : ' installs') + (t.nNew ? ' (' + (t.nNew === 1 ? 'new' : t.nNew + ' new') + ')' : ''), coords: [t.lat, t.lon] })),
         markerStyle: { initial: { fill: css('--accent2'), stroke: css('--card'), strokeWidth: 1.5, r: 5 }, hover: { fill: css('--accent2'), stroke: css('--text') } },
         onRegionTooltipShow(e, tip, code) { tip.text(tip.text() + ' — ' + (values[code] || 0) + ((values[code] || 0) === 1 ? ' install' : ' installs')); },
       });
@@ -134,16 +139,20 @@ svg text{fill:var(--muted);font-size:11px}
     setNum('kMain', s.products['showpilot'] || 0, first);
     setNum('kLite', s.products['showpilot-lite'] || 0, first);
     setNum('k7', s.activeLast7Days, first);
+    if (s.newHours) newHours = s.newHours;
+    setNum('kNew', s.newInstalls || 0, first);
+    $('kNewNote').textContent = 'first check-in in the last ' + newHours + ' hours';
+    const cNew = s.countriesNew || {};
 
     const entries = Object.entries(s.countries).sort((a,b)=>b[1]-a[1]);
     const shared = entries.reduce((a,[,n])=>a+n,0);
     $('countryNote').textContent = shared + ' of ' + s.active + (s.active === 1 ? ' install shares its location' : ' installs share their location') + (s.countryHidden ? ' (' + s.countryHidden + ' keep it private).' : '.') + (s.towns.length ? ' Dots are towns.' : '');
     const cb = document.querySelector('#tCountry tbody');
-    cb.innerHTML = (entries.length ? entries.map(([c,n]) => '<tr><td>' + esc(cname(c)) + '</td><td class="n">' + n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a country yet.</td></tr>')
+    cb.innerHTML = (entries.length ? entries.map(([c,n]) => '<tr><td>' + esc(cname(c)) + pill(cNew[c]) + '</td><td class="n">' + n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a country yet.</td></tr>')
       + (s.countryHidden ? '<tr><td class="muted">Not shared</td><td class="n muted">' + s.countryHidden + '</td></tr>' : '');
-    document.querySelector('#tRegion tbody').innerHTML = s.regions.length ? s.regions.map(r => '<tr><td>' + esc(r.region) + ', ' + esc(r.country) + '</td><td class="n">' + r.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a state yet.</td></tr>';
-    document.querySelector('#tTown tbody').innerHTML = s.towns.length ? s.towns.map(t => '<tr><td>' + esc(t.city) + (t.region ? ', ' + esc(t.region) : '') + ', ' + esc(t.country) + '</td><td class="n">' + t.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a town yet.</td></tr>';
-    document.querySelector('#tVersion tbody').innerHTML = s.versions.length ? s.versions.map(v => '<tr><td>' + (v.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + '</td><td>' + esc(v.version) + '</td><td class="n">' + v.n + '</td></tr>').join('') : '<tr><td colspan="3" class="muted">No installs yet.</td></tr>';
+    document.querySelector('#tRegion tbody').innerHTML = s.regions.length ? s.regions.map(r => '<tr><td>' + esc(r.region) + ', ' + esc(r.country) + pill(r.nNew) + '</td><td class="n">' + r.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a state yet.</td></tr>';
+    document.querySelector('#tTown tbody').innerHTML = s.towns.length ? s.towns.map(t => '<tr><td>' + esc(t.city) + (t.region ? ', ' + esc(t.region) : '') + ', ' + esc(t.country) + pill(t.nNew) + '</td><td class="n">' + t.n + '</td></tr>').join('') : '<tr><td colspan="2" class="muted">No one has shared a town yet.</td></tr>';
+    document.querySelector('#tVersion tbody').innerHTML = s.versions.length ? s.versions.map(v => '<tr><td>' + (v.product === 'showpilot-lite' ? 'Lite' : 'ShowPilot') + '</td><td>' + esc(v.version) + pill(v.nNew) + '</td><td class="n">' + v.n + '</td></tr>').join('') : '<tr><td colspan="3" class="muted">No installs yet.</td></tr>';
 
     drawMap(s, entries);
     drawTrend(s);

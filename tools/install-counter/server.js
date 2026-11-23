@@ -40,6 +40,9 @@ const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,5}(-[0-9A-Za-z.]{1,20})?$/;
 const DAY = 86400;
 const ACTIVE_DAYS = 30;
+// An install counts as new for this long after its first check-in (the page
+// shows a "New" pill on its country, state, town and version rows).
+const NEW_HOURS = 48;
 const FORGET_AFTER_DAYS = 400; // seasonal shows come back each year; forget after ~13 months
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -114,11 +117,14 @@ function snapshot() {
 function getStats() {
   const now = Math.floor(Date.now() / 1000);
   const since30 = now - ACTIVE_DAYS * DAY;
+  const sinceNew = now - NEW_HOURS * 3600;
+  // Per row: how many of its installs first checked in within NEW_HOURS.
+  const NEW = 'SUM(CASE WHEN first_seen >= @sinceNew THEN 1 ELSE 0 END) AS nNew';
   const products = Object.fromEntries(PRODUCTS.map(p => [p, 0]));
   for (const r of db.prepare('SELECT product, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY product').all(since30)) products[r.product] = r.n;
-  const countries = {}; let countryHidden = 0;
-  for (const r of db.prepare("SELECT COALESCE(country, '') AS country, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY country ORDER BY n DESC").all(since30)) {
-    if (r.country) countries[r.country] = r.n; else countryHidden += r.n;
+  const countries = {}; const countriesNew = {}; let countryHidden = 0;
+  for (const r of db.prepare(`SELECT COALESCE(country, '') AS country, COUNT(*) AS n, ${NEW} FROM installs WHERE last_seen >= @since30 GROUP BY country ORDER BY n DESC`).all({ since30, sinceNew })) {
+    if (r.country) { countries[r.country] = r.n; if (r.nNew) countriesNew[r.country] = r.nNew; } else countryHidden += r.n;
   }
   return {
     generatedAt: new Date(now * 1000).toISOString(),
@@ -126,12 +132,15 @@ function getStats() {
     active: Object.values(products).reduce((a, b) => a + b, 0),
     activeLast7Days: db.prepare('SELECT COUNT(*) AS n FROM installs WHERE last_seen >= ?').get(now - 7 * DAY).n,
     seenThisYear: db.prepare('SELECT COUNT(*) AS n FROM installs').get().n,
+    newHours: NEW_HOURS,
+    newInstalls: db.prepare('SELECT COUNT(*) AS n FROM installs WHERE first_seen >= ? AND last_seen >= ?').get(sinceNew, since30).n,
     products,
-    versions: db.prepare("SELECT product, COALESCE(version, 'unknown') AS version, COUNT(*) AS n FROM installs WHERE last_seen >= ? GROUP BY product, version ORDER BY n DESC").all(since30),
+    versions: db.prepare(`SELECT product, COALESCE(version, 'unknown') AS version, COUNT(*) AS n, ${NEW} FROM installs WHERE last_seen >= @since30 GROUP BY product, version ORDER BY n DESC`).all({ since30, sinceNew }),
     countries,
+    countriesNew,
     countryHidden,
-    regions: db.prepare('SELECT country, region, COUNT(*) AS n FROM installs WHERE last_seen >= ? AND region IS NOT NULL GROUP BY country, region ORDER BY n DESC').all(since30),
-    towns: db.prepare('SELECT country, region, city, ROUND(AVG(lat), 1) AS lat, ROUND(AVG(lon), 1) AS lon, COUNT(*) AS n FROM installs WHERE last_seen >= ? AND city IS NOT NULL AND lat IS NOT NULL GROUP BY country, region, city ORDER BY n DESC').all(since30),
+    regions: db.prepare(`SELECT country, region, COUNT(*) AS n, ${NEW} FROM installs WHERE last_seen >= @since30 AND region IS NOT NULL GROUP BY country, region ORDER BY n DESC`).all({ since30, sinceNew }),
+    towns: db.prepare(`SELECT country, region, city, ROUND(AVG(lat), 1) AS lat, ROUND(AVG(lon), 1) AS lon, COUNT(*) AS n, ${NEW} FROM installs WHERE last_seen >= @since30 AND city IS NOT NULL AND lat IS NOT NULL GROUP BY country, region, city ORDER BY n DESC`).all({ since30, sinceNew }),
     trend: db.prepare('SELECT day, product, active FROM daily WHERE day >= ? ORDER BY day').all(new Date((now - 365 * DAY) * 1000).toISOString().slice(0, 10)),
     appShows: directory.counts(),
   };

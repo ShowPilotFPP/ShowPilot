@@ -45,6 +45,8 @@ If a visitor taps **Remove** just as the request is being sent, the show player 
 
 When a request is removed, the visitor's slot under **Limit each viewer to …** opens again, and the request no longer counts toward a PSA set to play every few requests.
 
+A visitor can remove up to 20 requests a minute, far more than anyone needs; it only stops a script from adding and removing requests over and over.
+
 ShowPilot recognises a visitor by their phone's browser, the same way as for the request limit. Someone who clears their browser's data, or opens the page in another browser, can't remove requests they made before.
 
 If you design your own template, put the `{JUKEBOX_QUEUE}` placeholder on your page to get the buttons. The button has the class `queue-cancel`, and the visitor's own entries in the queue list have the class `showpilot-mine`, so you can style both. If your page has a `<div id="cancelSuccessful">`, ShowPilot shows it when a request is removed; otherwise your `requestSuccessful` message shows "Your request was removed." See [Viewer page templates](help:templates).

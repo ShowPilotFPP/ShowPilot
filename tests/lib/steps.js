@@ -397,6 +397,16 @@ const STEPS = [
     fn: async (ctx, phone, name) => {
       ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/cancel', { cookie: ctx.sp.viewerCookie(phone), body: { queueId: requestId(ctx, phone, name) } });
     } },
+  { doc: 'phone 1 requests and removes "A" N times   (no browser; the last removal is checked with "it is …")',
+    re: new RegExp(`^phone (\\w+) requests and removes ${q} (\\d+) times$`, 'i'),
+    fn: async (ctx, phone, name, n) => {
+      for (let i = 1; i <= Number(n); i++) {
+        const a = await http(ctx, 'POST', '/api/jukebox/add', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { sequenceName: name }) });
+        assert(a.status < 400, `request ${i} refused: ${JSON.stringify(a.body)}`);
+        ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/cancel', { cookie: ctx.sp.viewerCookie(phone), body: { queueId: requestId(ctx, phone, name) } });
+        if (i < Number(n)) assert(ctx.last.answer.status === 200, `removal ${i} refused: ${JSON.stringify(ctx.last.answer.body)}`);
+      }
+    } },
   { doc: 'phone 2 tries to remove phone 1\'s request for "A"',
     re: new RegExp(`^phone (\\w+) tries to remove phone (\\w+)'s request for ${q}$`, 'i'),
     fn: async (ctx, phone, owner, name) => {

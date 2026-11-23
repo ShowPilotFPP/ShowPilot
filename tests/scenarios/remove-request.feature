@@ -56,6 +56,36 @@ Scenario: Removing at the moment the show player takes the request: removed or p
   And phone 1 removes its request for "Charlie" just as the show player takes it
   Then the request for "Charlie" was either removed or handed to the show player, never both or neither
 
+# A second visitor's copy of a song stays listed (and removable) while the
+# first visitor's copy plays: it plays again afterwards.
+Scenario: A second request for the song that's playing stays in the queue list
+  Given the show has songs "Alpha", "Bravo", "Charlie", "Delta" and "Echo"
+  And the setting "jukebox_viewer_cancel" is on
+  And the mode is Jukebox
+  And the show player plays "Alpha"
+  When phone 3 requests "Charlie"
+  And phone 1 requests "Delta"
+  And phone 2 requests "Delta"
+  And "Charlie" plays next as a request
+  And "Delta" plays next as a request
+  Then the queue is "Delta"
+  When phone 2 removes its request for "Delta"
+  Then it is accepted
+  And the queue is empty
+
+Scenario: A visitor can remove at most 20 requests a minute
+  Given the show has songs "Alpha", "Bravo", "Charlie" and "Delta"
+  And the setting "jukebox_viewer_cancel" is on
+  And the mode is Jukebox
+  And the show player plays "Alpha"
+  When phone 1 requests and removes "Charlie" 20 times
+  Then it is accepted
+  When phone 1 requests and removes "Charlie" 1 times
+  Then it is refused with "very quickly"
+  When phone 2 requests "Delta"
+  And phone 2 removes its request for "Delta"
+  Then it is accepted
+
 Scenario: Removing is off unless the show turns it on
   Given the show has songs "Alpha", "Bravo", "Charlie" and "Delta"
   And the mode is Jukebox

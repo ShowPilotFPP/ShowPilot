@@ -242,14 +242,16 @@ router.get('/state', (req, res) => {
     WHERE played = 0 ORDER BY requested_at ASC, id ASC
   `).all();
 
-  // Filter out the currently-playing entry from the queue display.
+  // Filter out the currently-playing entry from the queue display: only the
+  // request handed to the show player, not other waiting requests for the
+  // same song (a second visitor's copy plays later and stays listed).
   // Each entry says whether it's the caller's own request (`mine`, for the
   // remove button); the token itself never leaves the server. The cookie is
   // only read here, never created: a phone without one has no requests.
   const nowPlayingName = nowPlaying.sequence_name || null;
   const callerToken = req.cookies[config.sessionCookieName + '_viewer'] || null;
   const queue = queueAll
-    .filter(q => q.sequence_name !== nowPlayingName)
+    .filter(q => !(q.sequence_name === nowPlayingName && q.handed_off_at))
     .map(({ viewer_token, ...rest }) => ({ ...rest, mine: !!callerToken && viewer_token === callerToken }));
 
   const nextUp = getNextUp(cfg, nowPlayingName);
@@ -901,6 +903,13 @@ function viewerCancelOpen(cfg) {
   return cfg.jukebox_viewer_cancel === 1 && cfg.viewer_control_mode === 'JUKEBOX';
 }
 
+// At most CANCEL_LIMIT removals per visitor per minute. Far more than a
+// person taking back their own requests; it only stops a script looping
+// request + remove, which would otherwise never hit the request limits.
+const CANCEL_LIMIT = 20;
+const CANCEL_WINDOW_MS = 60_000;
+const recentCancels = new Map(); // viewer token → ms of their removals in the window
+
 router.post('/jukebox/cancel', (req, res) => {
   const cfg = getConfig();
   if (cfg.jukebox_viewer_cancel !== 1) {
@@ -917,6 +926,11 @@ router.post('/jukebox/cancel', (req, res) => {
   const id = parseInt((req.body || {}).queueId, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Missing queueId' });
   const token = req.cookies[config.sessionCookieName + '_viewer'] || null;
+  const now = Date.now();
+  const recent = token ? (recentCancels.get(token) || []).filter(t => now - t < CANCEL_WINDOW_MS) : [];
+  if (recent.length >= CANCEL_LIMIT) {
+    return res.status(429).json({ error: 'You\'re removing requests very quickly. Please wait a minute and try again.', tooMany: true });
+  }
 
   const result = db.transaction(() => {
     const row = db.prepare(
@@ -960,6 +974,9 @@ router.post('/jukebox/cancel', (req, res) => {
     const { status, ...body } = result;
     return res.status(status).json(body);
   }
+  recent.push(now);
+  recentCancels.set(token, recent);
+  if (recentCancels.size > 500) for (const [k, ts] of recentCancels) if (!ts.some(t => now - t < CANCEL_WINDOW_MS)) recentCancels.delete(k);
   console.log(`[queue] visitor removed their request "${result.sequenceName}" token=${token.slice(0, 8)}`);
 
   const io = req.app.get('io');

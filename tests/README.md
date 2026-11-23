@@ -109,6 +109,7 @@ it and reports back. The scenario then stays in the suite.
   N phones vote for "A"
   phone 1 requests "A"
   phone 1 removes its request for "A"   (no browser)
+  phone 1 requests and removes "A" N times   (no browser; the last removal is checked with "it is …")
   phone 2 tries to remove phone 1's request for "A"
   phone 1 removes its request for "A" just as the show player takes it   (both at the same moment)
   the request for "A" was either removed or handed to the show player, never both or neither

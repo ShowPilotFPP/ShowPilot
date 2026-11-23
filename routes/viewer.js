@@ -188,6 +188,8 @@ router.get('/page-stats', (req, res) => {
 });
 
 router.get('/state', (req, res) => {
+  // Per visitor (each queue entry's `mine`), so no cache in between may keep it.
+  res.set('Cache-Control', 'no-store');
   const cfg = getConfig();
   const nowPlaying = getNowPlaying();
   const activeViewers = getActiveViewerCount();
@@ -238,13 +240,21 @@ router.get('/state', (req, res) => {
   // played=0). The currently-playing viewer request will be the first such
   // entry; everything after it is genuinely "queued behind."
   const queueAll = db.prepare(`
-    SELECT sequence_name, requested_at, handed_off_at FROM jukebox_queue
+    SELECT id, sequence_name, requested_at, handed_off_at, viewer_token FROM jukebox_queue
     WHERE played = 0 ORDER BY requested_at ASC, id ASC
   `).all();
 
-  // Filter out the currently-playing entry from the queue display
+  // Filter out the currently-playing entry from the queue display: only the
+  // request handed to the show player, not other waiting requests for the
+  // same song (a second visitor's copy plays later and stays listed).
+  // Each entry says whether it's the caller's own request (`mine`, for the
+  // remove button); the token itself never leaves the server. The cookie is
+  // only read here, never created: a phone without one has no requests.
   const nowPlayingName = nowPlaying.sequence_name || null;
-  const queue = queueAll.filter(q => q.sequence_name !== nowPlayingName);
+  const callerToken = req.cookies[config.sessionCookieName + '_viewer'] || null;
+  const queue = queueAll
+    .filter(q => !(q.sequence_name === nowPlayingName && q.handed_off_at))
+    .map(({ viewer_token, ...rest }) => ({ ...rest, mine: !!callerToken && viewer_token === callerToken }));
 
   const nextUp = getNextUp(cfg, nowPlayingName);
 
@@ -319,6 +329,9 @@ router.get('/state', (req, res) => {
     // devices background-suspend or briefly drop network. Without it,
     // "You've already voted" persists across rounds until manual refresh.
     currentVotingRound: cfg.current_voting_round,
+    // Visitors can remove their own waiting requests right now: the setting
+    // is on and the show is taking requests (not Listen Only).
+    viewerCancel: viewerCancelOpen(cfg),
     // Tiebreak state (v0.24.0+) — viewers use this to render the
     // tiebreak banner when reconnecting mid-tiebreak (e.g. someone
     // opened the page after the tiebreakStarted socket event already
@@ -868,6 +881,114 @@ router.post('/jukebox/add', (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+// ============================================================
+// POST /api/jukebox/cancel   { queueId }
+// A visitor removes one of their own requests (setting "Let visitors remove
+// their own requests", config.jukebox_viewer_cancel). Allowed while the
+// request waits in ShowPilot; once it has been handed to the show player
+// (handed_off_at set) it is already in the show player's queue and will
+// play, so it's locked. Ownership is the viewer cookie /jukebox/add stamped
+// on the row.
+//
+// A tap can arrive just as the show player asks for the next request. The
+// DELETE repeats every condition (owner, unplayed, not handed off), so
+// whichever of the two the server handles first wins: either the request is
+// removed and never handed out, or it was handed out and the visitor is told
+// it's on its way. It can't be both, and it can't be neither.
+//
+// The location checks (GPS / access code) don't apply: the visitor already
+// passed them to make the request, and the cookie proves it's theirs.
+// ============================================================
+function viewerCancelOpen(cfg) {
+  return cfg.jukebox_viewer_cancel === 1 && cfg.viewer_control_mode === 'JUKEBOX';
+}
+
+// At most CANCEL_LIMIT removals per visitor per minute. Far more than a
+// person taking back their own requests; it only stops a script looping
+// request + remove, which would otherwise never hit the request limits.
+const CANCEL_LIMIT = 20;
+const CANCEL_WINDOW_MS = 60_000;
+const recentCancels = new Map(); // viewer token → ms of their removals in the window
+
+router.post('/jukebox/cancel', (req, res) => {
+  const cfg = getConfig();
+  if (cfg.jukebox_viewer_cancel !== 1) {
+    return res.status(403).json({ error: 'Removing requests is turned off for this show.', cancelOff: true });
+  }
+  if (cfg.viewer_control_mode === 'LISTEN') {
+    return res.status(400).json({ error: 'Requests are closed for now, so they can\'t be removed.', listenOnly: true });
+  }
+  if (cfg.viewer_control_mode !== 'JUKEBOX') {
+    return res.status(400).json({ error: 'Requests are closed for now, so they can\'t be removed.' });
+  }
+  if (ipIsBlocked(cfg, getClientIp(req))) return res.status(403).json({ error: 'Your IP has been blocked' });
+
+  const id = parseInt((req.body || {}).queueId, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Missing queueId' });
+  const token = req.cookies[config.sessionCookieName + '_viewer'] || null;
+  const now = Date.now();
+  const recent = token ? (recentCancels.get(token) || []).filter(t => now - t < CANCEL_WINDOW_MS) : [];
+  if (recent.length >= CANCEL_LIMIT) {
+    return res.status(429).json({ error: 'You\'re removing requests very quickly. Please wait a minute and try again.', tooMany: true });
+  }
+
+  const result = db.transaction(() => {
+    const row = db.prepare(
+      `SELECT id, sequence_name, viewer_token, requested_at, played, handed_off_at FROM jukebox_queue WHERE id = ?`
+    ).get(id);
+    if (!row || row.played) return { status: 404, error: 'That request is no longer in the queue.', gone: true };
+    if (!token || row.viewer_token !== token) return { status: 403, error: 'You can only remove your own requests.', notYours: true };
+    if (row.handed_off_at) return { status: 409, error: 'Too late to remove it: that song is already on its way to the show.', locked: true };
+
+    const del = db.prepare(`
+      DELETE FROM jukebox_queue
+      WHERE id = ? AND viewer_token = ? AND played = 0 AND handed_off_at IS NULL
+    `).run(id, token);
+    if (del.changes === 0) return { status: 409, error: 'Too late to remove it: that song is already on its way to the show.', locked: true };
+
+    // PSA count ("every N interactions"): a request that's taken back wasn't
+    // really an interaction, like a vote that's only changed. Give its count
+    // back, unless a PSA has started since the request was made (the count
+    // was reset then, so this request is no longer part of it).
+    const psaSince = db.prepare(`
+      SELECT 1 FROM play_history ph JOIN sequences s ON s.name = ph.sequence_name
+      WHERE s.is_psa = 1 AND ph.played_at >= ? LIMIT 1
+    `).get(row.requested_at);
+    if (!psaSince) {
+      db.prepare(`UPDATE config SET interactions_since_last_psa = MAX(0, interactions_since_last_psa - 1) WHERE id = 1`).run();
+    }
+
+    // /jukebox/add saved the show's return point for "Up Next". With no
+    // request left, and no request or PSA playing right now, nothing is going
+    // to interrupt the show, so drop it (in interrupt mode it's the song
+    // that's playing now, which would otherwise show as up next).
+    const left = db.prepare(`SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`).get().n;
+    if (left === 0) {
+      const last = db.prepare(`SELECT source FROM play_history ORDER BY id DESC LIMIT 1`).get();
+      if (!last || (last.source !== 'request' && last.source !== 'psa')) setBaselineNext(null);
+    }
+    return { status: 200, sequenceName: row.sequence_name };
+  })();
+
+  if (result.status !== 200) {
+    const { status, ...body } = result;
+    return res.status(status).json(body);
+  }
+  recent.push(now);
+  recentCancels.set(token, recent);
+  if (recentCancels.size > 500) for (const [k, ts] of recentCancels) if (!ts.some(t => now - t < CANCEL_WINDOW_MS)) recentCancels.delete(k);
+  console.log(`[queue] visitor removed their request "${result.sequenceName}" token=${token.slice(0, 8)}`);
+
+  const io = req.app.get('io');
+  if (io) {
+    io.emit('queueUpdated');
+    const np = getNowPlaying();
+    const nextUp = getNextUp(cfg, np ? np.sequence_name : null);
+    if (nextUp) io.emit('nextScheduled', { sequenceName: nextUp });
+  }
+  res.json({ ok: true, removed: result.sequenceName });
 });
 
 // ============================================================

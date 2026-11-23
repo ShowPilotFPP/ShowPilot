@@ -20,6 +20,8 @@ A request that has been sent can't be removed from here.
 
 Click **Remove** next to a request that hasn't been sent yet to take it out of the queue. You're asked to confirm.
 
+Visitors can remove their own requests too, if you turn on **Let visitors remove their own requests** in [Settings › Jukebox](help:settings-jukebox#let-visitors-remove-their-own-requests).
+
 > **Tip:** The Dashboard's **Request queue** panel shows the same list, with an **×** to remove a request, so you don't have to leave the Dashboard during a show.
 
 ## Clear Queue

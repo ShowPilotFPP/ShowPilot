@@ -66,6 +66,13 @@ function phoneBody(ctx, phone, extra) {
   return loc ? { ...extra, viewerLat: loc.lat, viewerLng: loc.lng } : extra;
 }
 const state = (ctx) => http(ctx, 'GET', '/api/state', { cookie: ctx.sp.viewerCookie('state-check') }).then(r => r.body);
+// A phone's newest waiting request for a song (its queue id).
+function requestId(ctx, phone, name) {
+  const token = ctx.sp.viewerCookie(phone).split('=')[1];
+  const row = ctx.sp.db.prepare('SELECT id FROM jukebox_queue WHERE viewer_token = ? AND sequence_name = ? AND played = 0 ORDER BY id DESC LIMIT 1').get(token, name);
+  assert(row, `phone ${phone} has no waiting request for "${name}"`);
+  return row.id;
+}
 
 // ---- Browser helpers -----------------------------------------------------
 async function openPhone(ctx, phone, how = '') {
@@ -94,9 +101,21 @@ function pageOf(ctx, who) {
 // A song tile in the song list that's showing (not the queue list).
 const tileSel = (name) => `[data-showpilot-container]:not([hidden]) .sequence-item[data-seq="${name.replace(/"/g, '\\"')}"]`;
 async function visibleText(page) { return page.evaluate(() => document.body.innerText); }
+// The visible Remove button on a song's entry in the queue list (the Remote
+// Falcon style list or the built-in page's list), or null.
+async function removeButton(page, name) {
+  for (const btn of await page.$$('.queue-cancel')) {
+    const match = await btn.evaluate((b, n) => {
+      const row = b.closest('.queue-item, li');
+      return !!row && b.offsetParent !== null && (row.getAttribute('data-seq') === n || row.textContent.trim().startsWith(n));
+    }, name);
+    if (match) return btn;
+  }
+  return null;
+}
 async function shownMessage(page) {
   return page.evaluate(() => {
-    const ids = ['requestSuccessful', 'voteSuccessful', 'requestFailed', 'invalidLocation', 'invalidLocationCode', 'alreadyVoted', 'requestPlaying', 'queueFull', 'songPlaying', 'songNextUp'];
+    const ids = ['requestSuccessful', 'voteSuccessful', 'cancelSuccessful', 'requestFailed', 'invalidLocation', 'invalidLocationCode', 'alreadyVoted', 'requestPlaying', 'queueFull', 'songPlaying', 'songNextUp'];
     return ids.map(id => document.getElementById(id)).filter(el => el && getComputedStyle(el).display !== 'none').map(el => el.textContent.trim()).join(' | ');
   });
 }
@@ -200,6 +219,12 @@ const STEPS = [
     fn: async (ctx, cat, list) => {
       await admin(ctx, 'POST', '/categories', { name: cat });
       for (const n of names(list)) await adminOk(ctx, 'PATCH', '/sequences/' + seqId(ctx, n), { category: cat });
+    } },
+  { doc: 'the viewer page is the built-in Default template',
+    re: /^the viewer page is the built-in default template$/i,
+    fn: async (ctx) => {
+      const n = ctx.sp.db.prepare("UPDATE viewer_page_templates SET is_active = (name = 'Default (ShowPilot)')").run().changes;
+      assert(ctx.sp.db.prepare("SELECT 1 FROM viewer_page_templates WHERE name = 'Default (ShowPilot)' AND is_active = 1").get(), `no built-in Default template (${n} templates)`);
     } },
   { doc: 'the viewer page uses the test template (Remote Falcon style)',
     re: /^the viewer page uses the test template$/i,
@@ -367,6 +392,52 @@ const STEPS = [
   { doc: 'phone 1 requests "A"',
     re: new RegExp(`^phone (\\w+) requests ${q}$`, 'i'),
     fn: async (ctx, phone, name) => { ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/add', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { sequenceName: name }) }); } },
+  { doc: 'phone 1 removes its request for "A"   (no browser)',
+    re: new RegExp(`^phone (\\w+) removes (?:its|their) request for ${q}$`, 'i'),
+    fn: async (ctx, phone, name) => {
+      ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/cancel', { cookie: ctx.sp.viewerCookie(phone), body: { queueId: requestId(ctx, phone, name) } });
+    } },
+  { doc: 'phone 1 requests and removes "A" N times   (no browser; the last removal is checked with "it is …")',
+    re: new RegExp(`^phone (\\w+) requests and removes ${q} (\\d+) times$`, 'i'),
+    fn: async (ctx, phone, name, n) => {
+      for (let i = 1; i <= Number(n); i++) {
+        const a = await http(ctx, 'POST', '/api/jukebox/add', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { sequenceName: name }) });
+        assert(a.status < 400, `request ${i} refused: ${JSON.stringify(a.body)}`);
+        ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/cancel', { cookie: ctx.sp.viewerCookie(phone), body: { queueId: requestId(ctx, phone, name) } });
+        if (i < Number(n)) assert(ctx.last.answer.status === 200, `removal ${i} refused: ${JSON.stringify(ctx.last.answer.body)}`);
+      }
+    } },
+  { doc: 'phone 2 tries to remove phone 1\'s request for "A"',
+    re: new RegExp(`^phone (\\w+) tries to remove phone (\\w+)'s request for ${q}$`, 'i'),
+    fn: async (ctx, phone, owner, name) => {
+      ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/cancel', { cookie: ctx.sp.viewerCookie(phone), body: { queueId: requestId(ctx, owner, name) } });
+    } },
+  { doc: 'phone 1 removes its request for "A" just as the show player takes it   (both at the same moment)',
+    re: new RegExp(`^phone (\\w+) removes (?:its|their) request for ${q} just as the show player takes it$`, 'i'),
+    fn: async (ctx, phone, name) => {
+      const id = requestId(ctx, phone, name);
+      const [answer, taken] = await Promise.all([
+        http(ctx, 'POST', '/api/jukebox/cancel', { cookie: ctx.sp.viewerCookie(phone), body: { queueId: id } }),
+        ctx.player.takeAll(),
+      ]);
+      ctx.last.answer = answer;
+      ctx.last.taken = taken;
+      ctx.last.raceId = id;
+    } },
+  { doc: 'the request for "A" was either removed or handed to the show player, never both or neither',
+    re: new RegExp(`^the request for ${q} was either removed or handed to the show player, never both or neither$`, 'i'),
+    fn: async (ctx, name) => {
+      const a = ctx.last.answer;
+      const removed = a.status === 200;
+      const handed = (ctx.last.taken || []).includes(name);
+      const row = ctx.sp.db.prepare('SELECT handed_off_at FROM jukebox_queue WHERE id = ?').get(ctx.last.raceId);
+      assert(removed !== handed, `removed: ${removed} (HTTP ${a.status} ${JSON.stringify(a.body)}), handed to the show player: ${handed}`);
+      if (removed) assert(!row, 'the request was removed but is still in the queue');
+      else {
+        assert(a.status === 409 && /already on its way/.test(a.body && a.body.error), `refused with HTTP ${a.status} ${JSON.stringify(a.body)}, expected "already on its way"`);
+        assert(row && row.handed_off_at, 'the request was neither removed nor handed over');
+      }
+    } },
   { doc: 'N phones are listening   (Listen on Phone open)',
     re: /^(\d+) phones? (?:are|is) listening$/i,
     fn: async (ctx, n) => {
@@ -650,6 +721,18 @@ const STEPS = [
       const want = /^empty$/i.test(what) ? [] : names(what);
       assert(JSON.stringify(got) === JSON.stringify(want), `queue is [${got.join(', ')}], expected [${want.join(', ')}]`);
     }) },
+  { doc: 'Up Next is "A"   (what the viewer page shows as up next)',
+    re: new RegExp(`^up next is ${q}$`, 'i'),
+    fn: async (ctx, name) => eventually(async () => {
+      const st = await state(ctx);
+      assert(st.nextScheduled === name, `Up Next is "${st.nextScheduled}", expected "${name}"`);
+    }) },
+  { doc: 'the PSA count is N   (votes and requests counted toward the next PSA)',
+    re: /^the psa count is (\d+)$/i,
+    fn: async (ctx, n) => {
+      const c = ctx.sp.db.prepare('SELECT interactions_since_last_psa AS n FROM config WHERE id = 1').get().n;
+      assert(c === Number(n), `the PSA count is ${c}, expected ${n}`);
+    } },
   { doc: '"A" plays next | "A" plays next as a vote | request | PSA | race winner',
     re: new RegExp(`^${q} plays next(?: as an? (vote|request|psa|race winner))?$`, 'i'),
     fn: async (ctx, name, why) => {
@@ -719,6 +802,22 @@ const STEPS = [
       const m = await shownMessage(pageOf(ctx, 'phone ' + phone));
       assert(m.toLowerCase().includes(text.toLowerCase()), `phone ${phone} shows "${m || 'no message'}"`);
     }, { timeout: 5000 }) },
+  { doc: 'on phone 1, the request for "A" has a Remove button | has no Remove button   (in the queue list)',
+    re: new RegExp(`^on phone (\\w+), the request for ${q} has (a|no) remove button$`, 'i'),
+    fn: async (ctx, phone, name, which) => eventually(async () => {
+      const has = !!(await removeButton(pageOf(ctx, 'phone ' + phone), name));
+      if (which.toLowerCase() === 'a') assert(has, `phone ${phone} has no Remove button for "${name}"`);
+      else assert(!has, `phone ${phone} has a Remove button for "${name}"`);
+    }) },
+  { doc: 'phone 1 taps Remove on "A"   (the Remove button in the queue list)',
+    re: new RegExp(`^phone (\\w+) taps remove on ${q}$`, 'i'),
+    browser: true,
+    fn: async (ctx, phone, name) => {
+      const page = pageOf(ctx, 'phone ' + phone);
+      const btn = await eventually(async () => (await removeButton(page, name)) || false);
+      await btn.click();
+      await page.waitForTimeout(1200);
+    } },
   { doc: 'on phone 1, "A" is marked as queued [#N] | is not marked as queued',
     re: new RegExp(`^on phone (\\w+), ${q} is (not )?marked as queued(?: #(\\d+))?$`, 'i'),
     fn: async (ctx, phone, name, not, pos) => eventually(async () => {

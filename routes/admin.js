@@ -306,6 +306,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'viewer_request_limit',
     'block_request_currently_playing',
     'block_request_next_up',
+    'jukebox_viewer_cancel',
     // Voting safeguards
     'prevent_multiple_votes',
     'allow_vote_change',
@@ -499,6 +500,8 @@ router.put('/config', requireAdmin, (req, res) => {
   }
   if ('show_timezone' in updates) require('../lib/template-schedule').recomputeAll();
   if (Object.keys(updates).some(k => k.startsWith('show_buttons_'))) pushShowButtons(req);
+  // Remove buttons appear or go at once on open pages, not at the next poll.
+  if ('jukebox_viewer_cancel' in updates) { const io = req.app.get('io'); if (io) io.emit('queueUpdated'); }
   // Install count (v0.33.267+): when the owner answers the notice or changes
   // the setting, check in now so the stats page reflects it right away.
   if ('install_count_enabled' in updates || 'install_count_location' in updates || 'install_count_notice_seen' in updates) {

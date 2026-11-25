@@ -4389,7 +4389,13 @@
         return localStorage.getItem(LT_CHIRP_KEY) === '1';
       } catch (_) { return false; }
     })();
-    const ltChirpOk = (ltChirpTest || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.beepCalibration === true)) &&
+    // beta.7: not on iPhone/iPad. When a web page opens the mic, iOS puts
+    // the audio in phone-call mode; in a car (CarPlay / car Bluetooth) the
+    // beeps then play over the hands-free call channel, not the music
+    // channel, and the result is wrong (field test: 61 ms measured, sync
+    // badly off). Android avoids it by opening the phone's own mic; iOS
+    // switches anyway. Test mode (?calibrate=1) still shows it, with a warning.
+    const ltChirpOk = (ltChirpTest || (!IS_IOS && !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.beepCalibration === true))) &&
       !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     const LT_CHIRP_COUNT = 8, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
     let ltChirpLast = null, ltChirpReport = null;
@@ -4734,7 +4740,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'beta-6', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'beta-7', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };
@@ -4931,6 +4937,7 @@
           '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
         (ltChirpOk ? '<div class="sp-lt-auto">' +
           '<button type="button" class="sp-lt-detect sp-lt-chirp">\ud83d\udd0a Calibrate with beeps <small>(beta)</small></button>' +
+          (IS_IOS ? '<p style="font-size:13px;color:#fbbf24">Test only on iPhone: iPhones switch to phone-call audio when the microphone is on, so in a car or on Bluetooth the result is usually wrong.</p>' : '') +
           '<p style="font-size:13px">Pauses the song, plays ' + LT_CHIRP_COUNT + ' short beeps and listens through the microphone to measure your Bluetooth, car or headphone delay. Keep the volume up.</p>' +
           '<div class="sp-lt-auto-msg sp-lt-chirp-msg" aria-live="polite"></div>' +
           (ltChirpTest ? '<div class="sp-lt-chirp-report" hidden><textarea readonly rows="5" style="width:100%;box-sizing:border-box;font:11px ui-monospace,monospace;background:#0e1320;color:#cfd5e2;border:1px solid rgba(255,255,255,.15);border-radius:8px"></textarea>' +

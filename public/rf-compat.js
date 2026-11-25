@@ -4354,6 +4354,7 @@
     })() && !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     const LT_CHIRP_COUNT = 6, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
     let ltChirpLast = null, ltChirpReport = null;
+    try { if (ltChirpOk) ltChirpReport = localStorage.getItem('sp_calibrate_last_report'); } catch (_) {}
     function ltChirpMsg(html) {
       ltChirpLast = html;
       const el = ltSheet && ltSheet.querySelector('.sp-lt-chirp-msg');
@@ -4370,6 +4371,45 @@
         measuredMs: measured,
       };
     }
+    // Is the audio clock actually moving? A context can say 'running' while
+    // the phone has parked its output on a call channel (Android Auto when
+    // the mic opens): then currentTime stops or crawls.
+    async function ltCtxAdvancing(ms) {
+      const ctx = audioCtx;
+      if (!ctx || ctx.state !== 'running') return false;
+      const a = ctx.currentTime;
+      await new Promise(r => setTimeout(r, ms));
+      return ctx === audioCtx && ctx.state === 'running' && (ctx.currentTime - a) > (ms / 1000) * 0.5;
+    }
+    // Recovery after the mic closes (calibrate-test-2). Android stays in call
+    // mode for a moment after the mic is released; a player rebuilt inside
+    // that moment opens its output on the call channel and stays silent
+    // (seen on Android Auto). So: wait, rebuild, check the clock moves, and
+    // rebuild once more if it doesn't. Last resort: a tap rebuilds it.
+    async function ltChirpRestore(info) {
+      const rebuild = () => {
+        try { stopAudio(); } catch (_) {}
+        try { teardown(); } catch (_) {}
+        if (panelMode === 'closed' || _showNotPlaying) return false;
+        try { startup(); } catch (_) {}
+        return true;
+      };
+      const steps = [];
+      for (const waitMs of [1500, 2500]) {
+        await new Promise(r => setTimeout(r, waitMs));
+        if (!rebuild()) { steps.push('player closed'); break; }
+        await new Promise(r => setTimeout(r, 1500));
+        const ok = await ltCtxAdvancing(600);
+        steps.push('rebuilt after ' + waitMs + ' ms: ' + (ok ? 'sound running' : 'still stuck (' + (audioCtx ? audioCtx.state : 'no context') + ')'));
+        if (ok) break;
+      }
+      if (info) info.restore = steps;
+      if (steps.length && !/sound running|player closed/.test(steps[steps.length - 1])) {
+        const tapFix = () => { document.removeEventListener('pointerdown', tapFix, true); rebuild(); };
+        document.addEventListener('pointerdown', tapFix, true);
+        ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">The sound didn\'t come back on its own. Tap anywhere on the page to restart it.</div>');
+      }
+    }
     async function ltChirp() {
       if (ltDetectBusy) return;
       if (!audioCtx || !gainNode || audioCtx.state !== 'running') {
@@ -4381,7 +4421,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'calibrate-test-1', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'calibrate-test-2', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };
@@ -4404,6 +4444,13 @@
         info.afterMic = ltDelaySnapshot();
         if (audioCtx.state !== 'running') { try { await audioCtx.resume(); } catch (_) {} }
         info.afterResume = audioCtx.state;
+        info.clockMoving = await ltCtxAdvancing(400);
+        if (!info.clockMoving) {
+          info.result = { ok: false, reason: 'audio stopped when the microphone opened' };
+          info.routeChanged = true;
+          ltChirpMsg('<b>Stopped:</b> turning on the microphone made this phone stop playing audio (it switched to phone-call mode — common with Android Auto and car Bluetooth). No beeps were played. Bringing the sound back…');
+          return;
+        }
         gainNode.gain.value = 0; // silence the song while the beeps play
         const sr = audioCtx.sampleRate;
         const chirp = window.SPMicCore.makeChirp(sr, LT_CHIRP_LEN, 800, 5000);
@@ -4460,9 +4507,15 @@
         if (stream) stream.getTracks().forEach(t => t.stop());
         try { if (bus) bus.disconnect(); } catch (_) {}
         try { if (gainNode) gainNode.gain.value = isMuted ? 0 : 1; } catch (_) {}
-        if (micOpened) ltRestoreAudio();
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        if (micOpened) { try { await ltChirpRestore(info); } catch (_) {} }
+        if (info.restore && /sound running/.test(info.restore[info.restore.length - 1] || '') && /Bringing the sound back/.test(ltChirpLast || '')) {
+          ltChirpMsg(ltChirpLast.replace('Bringing the sound back…', 'The sound is back.'));
+        }
         ltDetectBusy = false;
         ltChirpReport = JSON.stringify(info, null, 1);
+        // Kept on the phone so it survives a reload if the sound broke.
+        try { localStorage.setItem('sp_calibrate_last_report', ltChirpReport); } catch (_) {}
         console.log('[ShowPilot] beep calibration:', JSON.stringify(info));
         const b2 = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
         if (b2) b2.disabled = false;

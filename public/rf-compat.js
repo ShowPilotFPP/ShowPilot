@@ -4191,8 +4191,25 @@
       // it back to 'playback' when the mic closes, so normal listening is
       // unchanged. Feature-detected: a no-op outside Safari. (Thanks jddocea, #71)
       try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (_) {}
-      let stream = await navigator.mediaDevices.getUserMedia({ audio: base });
-      let devices = [];
+      let stream = null, devices = [], direct = null;
+      // calibrate-test-3: with mic permission already granted, labels are
+      // readable before opening anything, so go straight to the phone's own
+      // mic. Opening the default first picks the car's hands-free mic, which
+      // can switch the phone to call mode before we ever switch away.
+      try {
+        const perm = navigator.permissions && await navigator.permissions.query({ name: 'microphone' });
+        if (perm && perm.state === 'granted') {
+          const ins = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+          const usable = ins.filter(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.label && !LT_BT_RE.test(d.label));
+          direct = usable.find(d => /built-?in|speakerphone|phone|bottom|back|internal/i.test(d.label)) || usable[0] || null;
+          if (direct) stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, base, { deviceId: { exact: direct.deviceId } }) });
+        }
+      } catch (_) { stream = null; }
+      if (stream) {
+        const all = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(d => d.kind === 'audioinput');
+        return { stream, devices: all.map(d => d.label || '?'), direct: direct.label };
+      }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: base });
       try {
         devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
         const cur = stream.getAudioTracks()[0];
@@ -4405,8 +4422,23 @@
       }
       if (info) info.restore = steps;
       if (steps.length && !/sound running|player closed/.test(steps[steps.length - 1])) {
-        const tapFix = () => { document.removeEventListener('pointerdown', tapFix, true); rebuild(); };
-        document.addEventListener('pointerdown', tapFix, true);
+        // 'click' counts as a user activation on Android; pointerdown from a
+        // finger doesn't. The new context is made inside the tap, the same
+        // way the Listen button does it.
+        const tapFix = () => {
+          document.removeEventListener('click', tapFix, true);
+          try { stopAudio(); } catch (_) {}
+          try { teardown(); } catch (_) {}
+          try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+          try { _pendingGestureAudioCtx = spNewAudioContext(); _pendingGestureAudioCtx.resume().catch(() => {}); } catch (_) {}
+          if (panelMode !== 'closed' && !_showNotPlaying) { try { startup(); } catch (_) {} }
+          setTimeout(async () => {
+            const ok = await ltCtxAdvancing(600);
+            console.log('[ShowPilot] beep calibration: tap restart ' + (ok ? 'worked' : 'did not bring the sound back'));
+            if (!ok) ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Still no sound. Close the player and open it again, or reload the page.</div>');
+          }, 2500);
+        };
+        document.addEventListener('click', tapFix, true);
         ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">The sound didn\'t come back on its own. Tap anywhere on the page to restart it.</div>');
       }
     }
@@ -4421,7 +4453,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'calibrate-test-2', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'calibrate-test-3', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };
@@ -4436,7 +4468,7 @@
         const st = (track && track.getSettings) ? track.getSettings() : {};
         const reportedIn = Number(st.latency);
         const inSec = (isFinite(reportedIn) && reportedIn > 0 && reportedIn < 0.5) ? reportedIn : LT_MIC_ASSUMED_SEC;
-        info.mic = track ? track.label : ''; info.inputs = got.devices;
+        info.mic = track ? track.label : ''; info.inputs = got.devices; info.micOpenedDirect = got.direct || null;
         info.micMs = Math.round(inSec * 1000); info.micReported = inSec !== LT_MIC_ASSUMED_SEC;
         // Give the phone a moment to re-route (if it's going to), then look.
         ltChirpMsg('Getting ready…');

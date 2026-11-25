@@ -4474,9 +4474,14 @@
       let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
       if (m === null) return;
       const repMs = Math.round(m * 1000);
+      ltSpkNowMs = repMs;
+      if (ltSheet && ltChirpTest) { const n = ltSheet.querySelector('.sp-lt-spk-now'); if (n) n.textContent = repMs + ' ms'; }
       if (ltSpkLastCtx === audioCtx && ltSpkLastRep !== null && Math.abs(repMs - ltSpkLastRep) <= 60) return;
       ltSpkLastCtx = audioCtx; ltSpkLastRep = repMs;
       const near = list.map(e => ({ e, d: Math.abs(e.rep - repMs) })).sort((a, b) => a.d - b.d);
+      console.log('[ShowPilot] speakers check: phone reports ' + repMs + ' ms; saved ' +
+        near.map(x => '"' + x.e.name + '" ' + x.e.rep + ' ms').join(', ') + '; in use: ' +
+        ((list.find(e => e.id === ltSpkActive) || {}).name || 'none'));
       if (near[0].d > LT_SPK_MATCH_MS) {
         // Left the saved speaker that was in use (e.g. got out of the car):
         // its timing no longer fits, so go back to no adjustment.
@@ -4495,6 +4500,51 @@
       ltSpkUse(near[0].e.id, true);
     }
     setInterval(() => { try { ltSpkAutoCheck(); } catch (_) {} }, 2000);
+    let ltSpkNowMs = null;
+    // beta.2: when the phone switches speakers (Bluetooth on/off), Chrome on
+    // Android can keep reporting the old speaker's delay for the running
+    // audio context. On a device change: drop the old readings, and if the
+    // reported delay hasn't moved after a few seconds, restart the player
+    // once so it reads the new speaker's delay, then check again.
+    let ltSpkDevTimer = 0;
+    function ltSpkOnDeviceChange(why) {
+      if (!audioCtx || ltDetectBusy || !ltSpkList().some(e => isFinite(e.rep))) return;
+      const before = ltSpkNowMs;
+      console.log('[ShowPilot] audio device changed (' + why + '); phone reported ' + before + ' ms before');
+      clearTimeout(ltSpkDevTimer);
+      ltSpkDevTimer = setTimeout(() => {
+        try { outDelaySamples.length = 0; } catch (_) {}
+        ltSpkLastRep = null;
+        setTimeout(() => {
+          let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
+          const now = m === null ? null : Math.round(m * 1000);
+          if (ltDetectBusy || !audioCtx || panelMode === 'closed' || _showNotPlaying) return;
+          if (now !== null && before !== null && Math.abs(now - before) > 25) {
+            console.log('[ShowPilot] speaker delay after the change: ' + now + ' ms'); ltSpkAutoCheck(); return;
+          }
+          console.log('[ShowPilot] speaker delay looks unchanged (' + now + ' ms): restarting the player to read the new speaker');
+          try { stopAudio(); } catch (_) {}
+          try { teardown(); } catch (_) {}
+          try { startup(); } catch (_) {}
+          ltSpkLastRep = null; // the next settled reading is evaluated fresh
+        }, 3000);
+      }, 800);
+    }
+    // Speakers without a microphone may not fire devicechange; a jump in the
+    // delay the browser reports for this context also counts.
+    let ltSpkLastOL = null, ltSpkLastOLCtx = null;
+    setInterval(() => {
+      if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.outputLatency !== 'number') return;
+      const ol = Math.round(audioCtx.outputLatency * 1000);
+      if (ltSpkLastOLCtx !== audioCtx) { ltSpkLastOLCtx = audioCtx; ltSpkLastOL = ol; return; }
+      if (ltSpkLastOL !== null && Math.abs(ol - ltSpkLastOL) > 25) ltSpkOnDeviceChange('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms');
+      ltSpkLastOL = ol;
+    }, 1000);
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+        navigator.mediaDevices.addEventListener('devicechange', () => ltSpkOnDeviceChange('devicechange'));
+      }
+    } catch (_) {}
     function ltSpkRender() {
       if (!ltSheet) return;
       const box = ltSheet.querySelector('.sp-lt-spk');
@@ -4509,6 +4559,8 @@
           '<button type="button" class="sp-lt-spk-del" data-lt-spk-del="' + e.id + '" aria-label="Forget ' + ltSpkEsc(e.name) + '">×</button></span>').join('') + '</div>'
           : '<p style="font-size:13px">Save this timing under a name, like “My car”, to switch back to it later. It’s picked automatically when this phone connects to it again.</p>') +
         (active ? '<p style="font-size:13px">Using <b>' + ltSpkEsc(active.name) + '</b>' + (ltSpkAuto ? ' (picked automatically)' : '') + '.</p>' : '') +
+        (ltChirpTest ? '<p class="sp-lt-auto-detail">Test info: phone reports <span class="sp-lt-spk-now">' + (ltSpkNowMs === null ? 'not settled' : ltSpkNowMs + ' ms') + '</span> now; saved: ' +
+          (list.length ? list.map(e => ltSpkEsc(e.name) + ' ' + (isFinite(e.rep) ? e.rep + ' ms' : 'no reading')).join(', ') : 'none') + '.</p>' : '') +
         '<form class="sp-lt-spk-form"><input type="text" maxlength="40" placeholder="Name, e.g. My car" aria-label="Name for this timing" value="' + ltSpkEsc(active ? active.name : '') + '">' +
         '<button type="submit">Save this timing</button></form>';
     }

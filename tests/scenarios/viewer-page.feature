@@ -169,3 +169,15 @@ Scenario: A listener saves a timing as "My car" and it is still there after a re
   And phone 1 opens Listen on Phone
   And phone 1 opens Audio timing
   Then phone 1 sees "My car +50 ms"
+
+Scenario: Beep calibration isn't offered on iPhone, even with the owner's switch on
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the setting "listener_beep_calibration" is on
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page as an iPhone
+  And phone 1 opens Listen on Phone
+  And phone 1 opens Audio timing
+  Then phone 1 does not see "Calibrate with beeps"
+  And phone 1 sees "My speakers"

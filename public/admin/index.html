@@ -2114,7 +2114,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.285-beta.6</span>
+        <span class="app-version">v0.33.285-beta.7</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3985,7 +3985,9 @@
               Adds a "Calibrate with beeps" button to the timing sheet. The player pauses the song, plays a few short beeps
               and listens through the phone's own microphone to measure how late the car, Bluetooth speaker or headphones play,
               then sets the timing. Listeners can save the result under a name (like "My car") and switch between saved speakers.
-              Needs the microphone and the https:// page. Tested on Android (Bluetooth speakers and Android Auto); iPhone not yet confirmed.
+              Needs the microphone and the https:// page. Android only: on iPhone the button doesn't appear, because iPhones switch to
+              phone-call audio when a web page uses the microphone, which measures the wrong path in a car or on Bluetooth.
+              iPhone listeners still get the timing buttons and saved speakers.
             </p>
 
             <div id="cfg_audio_subsection" style="margin-top: 1.5rem;">

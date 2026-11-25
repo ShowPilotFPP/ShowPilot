@@ -4142,6 +4142,7 @@
       listenerOffsetSec = ms / 1000;
       try { if (ms) localStorage.setItem(LT_KEY, String(ms)); else localStorage.removeItem(LT_KEY); } catch (_) {}
       ltUpdateUi();
+      try { ltSpkOnManualChange(); } catch (_) {}
       console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
     }
     // ---- Detect my delay (v0.33.238-beta) ----
@@ -4361,17 +4362,22 @@
     // beeps. If those disagree, opening the mic moved the audio (Android
     // call mode / Bluetooth hands-free) and the number can't be trusted.
     const LT_CHIRP_KEY = 'sp_calibrate_test';
-    const ltChirpOk = (() => {
+    // v0.33.285-beta.1: the show owner's switch (listener_beep_calibration)
+    // offers it to everyone; ?calibrate=1 still turns it on for one phone
+    // and also shows the report box (for testing).
+    const ltChirpTest = (() => {
       try {
         const q = new URLSearchParams(window.location.search).get('calibrate');
         if (q === '0') localStorage.removeItem(LT_CHIRP_KEY);
         else if (q !== null) localStorage.setItem(LT_CHIRP_KEY, '1');
         return localStorage.getItem(LT_CHIRP_KEY) === '1';
       } catch (_) { return false; }
-    })() && !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    })();
+    const ltChirpOk = (ltChirpTest || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.beepCalibration === true)) &&
+      !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     const LT_CHIRP_COUNT = 6, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
     let ltChirpLast = null, ltChirpReport = null;
-    try { if (ltChirpOk) ltChirpReport = localStorage.getItem('sp_calibrate_last_report'); } catch (_) {}
+    try { if (ltChirpTest) ltChirpReport = localStorage.getItem('sp_calibrate_last_report'); } catch (_) {}
     function ltChirpMsg(html) {
       ltChirpLast = html;
       const el = ltSheet && ltSheet.querySelector('.sp-lt-chirp-msg');
@@ -4387,6 +4393,142 @@
         baseLatencyMs: audioCtx ? ms(audioCtx.baseLatency) : null,
         measuredMs: measured,
       };
+    }
+    // ---- Saved speakers (v0.33.285-beta.1) ----
+    // A listener can save the current timing under a name ("My car",
+    // "Kitchen speaker") and switch between them. Kept on this phone in
+    // localStorage (per show site), like the timing itself. Each entry also
+    // keeps the speaker delay the phone itself reported when it was saved
+    // ('rep', ms); when the player sees that delay again and no other saved
+    // speaker is close, it picks that entry by itself (connect to the car →
+    // the car's timing). Never overrides a timing the listener just changed
+    // by hand unless the reported delay moves (a different speaker).
+    const LT_SPK_KEY = 'sp_lt_speakers', LT_SPK_ACTIVE = 'sp_lt_speaker_active';
+    const LT_SPK_MATCH_MS = 15, LT_SPK_APART_MS = 40, LT_SPK_MAX = 8;
+    function ltSpkList() {
+      try {
+        const a = JSON.parse(localStorage.getItem(LT_SPK_KEY) || '[]');
+        return Array.isArray(a) ? a.filter(e => e && typeof e.name === 'string' && isFinite(e.ms)).slice(0, LT_SPK_MAX) : [];
+      } catch (_) { return []; }
+    }
+    function ltSpkSave(list) { try { localStorage.setItem(LT_SPK_KEY, JSON.stringify(list.slice(0, LT_SPK_MAX))); } catch (_) {} }
+    let ltSpkActive = (() => { try { return localStorage.getItem(LT_SPK_ACTIVE) || null; } catch (_) { return null; } })();
+    let ltSpkAuto = false; // the active entry was picked by itself
+    function ltSpkSetActive(id, auto) {
+      ltSpkActive = id || null; ltSpkAuto = !!(id && auto);
+      try { if (id) localStorage.setItem(LT_SPK_ACTIVE, id); else localStorage.removeItem(LT_SPK_ACTIVE); } catch (_) {}
+    }
+    // The phone's own reported speaker delay right now (no listener offset).
+    function ltSpkRepMs() {
+      const v = getOutputLatencySec() - listenerOffsetSec;
+      return isFinite(v) && v > 0 ? Math.round(v * 1000) : null;
+    }
+    function ltSpkEsc(t) { return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function ltSpkStore(name) {
+      name = String(name || '').trim().slice(0, 40);
+      if (!name) return null;
+      const list = ltSpkList();
+      const ms = Math.round(listenerOffsetSec * 1000), repMs = ltSpkRepMs();
+      let e = list.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (e) { e.name = name; e.ms = ms; if (repMs !== null) e.rep = repMs; }
+      else {
+        if (list.length >= LT_SPK_MAX) list.shift();
+        e = { id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, ms, rep: repMs };
+        list.push(e);
+      }
+      ltSpkSave(list);
+      ltSpkSetActive(e.id, false);
+      console.log('[ShowPilot] saved speaker "' + name + '": ' + ms + ' ms (phone reported ' + repMs + ' ms)');
+      return e;
+    }
+    function ltSpkUse(id, auto) {
+      const e = ltSpkList().find(x => x.id === id);
+      if (!e) return;
+      ltSpkApplying = true;
+      try { setListenerOffsetMs(e.ms); } finally { ltSpkApplying = false; }
+      ltSpkSetActive(e.id, auto);
+      ltSpkRender();
+      console.log('[ShowPilot] using saved speaker "' + e.name + '" (' + e.ms + ' ms)' + (auto ? ', picked automatically' : ''));
+    }
+    function ltSpkDelete(id) {
+      ltSpkSave(ltSpkList().filter(x => x.id !== id));
+      if (ltSpkActive === id) ltSpkSetActive(null);
+      ltSpkRender();
+    }
+    let ltSpkApplying = false;
+    // Called by setListenerOffsetMs: a hand change means no saved speaker
+    // is exactly in use any more.
+    function ltSpkOnManualChange() {
+      if (ltSpkApplying || !ltSpkActive) return;
+      ltSpkSetActive(null);
+      ltSpkRender();
+    }
+    // Automatic pick: once the phone's delay readings settle, and again
+    // whenever the reported delay jumps (switched speakers).
+    let ltSpkLastRep = null, ltSpkLastCtx = null;
+    function ltSpkAutoCheck() {
+      if (!audioCtx || audioCtx.state !== 'running' || ltDetectBusy) return;
+      const list = ltSpkList().filter(e => isFinite(e.rep));
+      if (!list.length) return;
+      // Only trust settled, measured readings for this.
+      let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
+      if (m === null) return;
+      const repMs = Math.round(m * 1000);
+      if (ltSpkLastCtx === audioCtx && ltSpkLastRep !== null && Math.abs(repMs - ltSpkLastRep) <= 60) return;
+      ltSpkLastCtx = audioCtx; ltSpkLastRep = repMs;
+      const near = list.map(e => ({ e, d: Math.abs(e.rep - repMs) })).sort((a, b) => a.d - b.d);
+      if (near[0].d > LT_SPK_MATCH_MS) {
+        // Left the saved speaker that was in use (e.g. got out of the car):
+        // its timing no longer fits, so go back to no adjustment.
+        const act = list.find(e => e.id === ltSpkActive);
+        if (act && Math.abs(act.rep - repMs) > 60) {
+          ltSpkApplying = true;
+          try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
+          ltSpkSetActive(null);
+          ltSpkRender();
+          console.log('[ShowPilot] speaker changed (phone reports ' + repMs + ' ms, "' + act.name + '" was ' + act.rep + ' ms): timing back to 0');
+        }
+        return;
+      }
+      if (near[1] && near[1].d - near[0].d < LT_SPK_APART_MS) return; // two saved speakers look alike: let the listener pick
+      if (ltSpkActive === near[0].e.id && Math.round(listenerOffsetSec * 1000) === near[0].e.ms) return;
+      ltSpkUse(near[0].e.id, true);
+    }
+    setInterval(() => { try { ltSpkAutoCheck(); } catch (_) {} }, 2000);
+    function ltSpkRender() {
+      if (!ltSheet) return;
+      const box = ltSheet.querySelector('.sp-lt-spk');
+      if (!box) return;
+      const list = ltSpkList();
+      const active = list.find(e => e.id === ltSpkActive);
+      box.innerHTML =
+        '<div class="sp-lt-presets-label">My speakers</div>' +
+        (list.length ? '<div class="sp-lt-presets">' + list.map(e =>
+          '<span class="sp-lt-spk-item"><button type="button" data-lt-spk="' + e.id + '" aria-pressed="' + (e.id === ltSpkActive) + '">' +
+            ltSpkEsc(e.name) + ' <small>' + (e.ms > 0 ? '+' : '') + e.ms + ' ms</small></button>' +
+          '<button type="button" class="sp-lt-spk-del" data-lt-spk-del="' + e.id + '" aria-label="Forget ' + ltSpkEsc(e.name) + '">×</button></span>').join('') + '</div>'
+          : '<p style="font-size:13px">Save this timing under a name, like “My car”, to switch back to it later. It’s picked automatically when this phone connects to it again.</p>') +
+        (active ? '<p style="font-size:13px">Using <b>' + ltSpkEsc(active.name) + '</b>' + (ltSpkAuto ? ' (picked automatically)' : '') + '.</p>' : '') +
+        '<form class="sp-lt-spk-form"><input type="text" maxlength="40" placeholder="Name, e.g. My car" aria-label="Name for this timing" value="' + ltSpkEsc(active ? active.name : '') + '">' +
+        '<button type="submit">Save this timing</button></form>';
+    }
+    function ltSpkBind() {
+      const box = ltSheet && ltSheet.querySelector('.sp-lt-spk');
+      if (!box) return;
+      box.addEventListener('click', (e) => {
+        const del = e.target.closest('[data-lt-spk-del]');
+        if (del) { ltSpkDelete(del.dataset.ltSpkDel); return; }
+        const b = e.target.closest('[data-lt-spk]');
+        if (b) ltSpkUse(b.dataset.ltSpk, false);
+      });
+      box.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const inp = box.querySelector('input');
+        if (!inp.value.trim()) { inp.focus(); return; }
+        ltSpkStore(inp.value);
+        ltSpkRender();
+      });
+      ltSpkRender();
     }
     // Is the audio clock actually moving? A context can say 'running' while
     // the phone has parked its output on a call channel (Android Auto when
@@ -4453,7 +4595,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'calibrate-test-3', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'beta-1', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };
@@ -4528,7 +4670,9 @@
         ltChirpMsg((Math.abs(needMs) < 30
             ? 'Already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
             : 'Your speakers play <b>' + Math.abs(needMs) + ' ms ' + (needMs > 0 ? 'late' : 'early') + '</b>. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.') +
-          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>');
+          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>' +
+          '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Give it a name under <b>My speakers</b> to keep it for next time.</div>');
+        setTimeout(() => { const i = ltSheet && ltSheet.querySelector('.sp-lt-spk-form input'); if (i && !i.value) i.focus(); }, 50);
       } catch (e) {
         try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
         info.error = (e && (e.name + ': ' + e.message)) || String(e);
@@ -4552,7 +4696,7 @@
         const b2 = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
         if (b2) b2.disabled = false;
         const rep = ltSheet && ltSheet.querySelector('.sp-lt-chirp-report');
-        if (rep) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
+        if (rep && ltChirpTest) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
       }
     }
     function ltEnsureStyles() {
@@ -4597,6 +4741,15 @@
         '#sp-lt-sheet .sp-lt-auto-msg b{color:#fff;font-weight:800}' +
         '#sp-lt-sheet .sp-lt-undo{margin-left:6px;padding:2px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:transparent;font-size:13px;font-weight:600}' +
         '#sp-lt-sheet .sp-lt-auto-detail{margin-top:4px;font-size:12px;color:#7d8699;overflow-wrap:anywhere}' +
+        '#sp-lt-sheet .sp-lt-spk{display:flex;flex-direction:column;gap:10px}' +
+        '#sp-lt-sheet .sp-lt-spk-item{display:inline-flex;align-items:stretch}' +
+        '#sp-lt-sheet [data-lt-spk]{min-height:40px;padding:0 12px;border-radius:999px 0 0 999px;border:1px solid rgba(255,255,255,.2);border-right:0;background:transparent;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-spk] small{color:#9aa3b5;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-spk][aria-pressed="true"]{border-color:var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.18)}' +
+        '#sp-lt-sheet .sp-lt-spk-del{min-width:36px;border-radius:0 999px 999px 0;border:1px solid rgba(255,255,255,.2);background:transparent;color:#9aa3b5;font-size:18px;line-height:1}' +
+        '#sp-lt-sheet .sp-lt-spk-form{display:flex;gap:8px}' +
+        '#sp-lt-sheet .sp-lt-spk-form input{flex:1;min-width:0;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font:inherit}' +
+        '#sp-lt-sheet .sp-lt-spk-form button{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.08);font-weight:700;white-space:nowrap}' +
         '#sp-lt-sheet :focus-visible,#sp-lt-btn:focus-visible{outline:2px solid var(--sp-lt-accent,#60a5fa);outline-offset:2px}';
       document.head.appendChild(st);
     }
@@ -4636,13 +4789,14 @@
           '<p style="font-size:13px">Listens through the microphone for about ' + LT_DETECT_SECS + ' seconds to hear how late your Bluetooth, car or headphones play the music, then fixes it. Keep the volume up.</p>' +
           '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
         (ltChirpOk ? '<div class="sp-lt-auto">' +
-          '<button type="button" class="sp-lt-detect sp-lt-chirp">\ud83d\udd0a Calibrate with beeps <small>(test)</small></button>' +
+          '<button type="button" class="sp-lt-detect sp-lt-chirp">\ud83d\udd0a Calibrate with beeps <small>(beta)</small></button>' +
           '<p style="font-size:13px">Pauses the song, plays ' + LT_CHIRP_COUNT + ' short beeps and listens through the microphone to measure your Bluetooth, car or headphone delay. Keep the volume up.</p>' +
           '<div class="sp-lt-auto-msg sp-lt-chirp-msg" aria-live="polite"></div>' +
-          '<div class="sp-lt-chirp-report" hidden><textarea readonly rows="5" style="width:100%;box-sizing:border-box;font:11px ui-monospace,monospace;background:#0e1320;color:#cfd5e2;border:1px solid rgba(255,255,255,.15);border-radius:8px"></textarea>' +
-          '<button type="button" class="sp-lt-undo sp-lt-chirp-copy" style="margin:6px 0 0">Copy report</button></div></div>' : '') +
+          (ltChirpTest ? '<div class="sp-lt-chirp-report" hidden><textarea readonly rows="5" style="width:100%;box-sizing:border-box;font:11px ui-monospace,monospace;background:#0e1320;color:#cfd5e2;border:1px solid rgba(255,255,255,.15);border-radius:8px"></textarea>' +
+          '<button type="button" class="sp-lt-undo sp-lt-chirp-copy" style="margin:6px 0 0">Copy report</button></div>' : '') + '</div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
+        '<div class="sp-lt-spk"></div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
       ltSheet.querySelector('.sp-lt-done').addEventListener('click', ltClose);
       ltSheet.querySelectorAll('[data-lt-nudge]').forEach(b => b.addEventListener('click', () =>
@@ -4674,14 +4828,16 @@
           ltChirpMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
         });
         const rep = ltSheet.querySelector('.sp-lt-chirp-report');
-        if (ltChirpReport) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
-        ltSheet.querySelector('.sp-lt-chirp-copy').addEventListener('click', (e) => {
+        if (rep && ltChirpReport) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
+        const copyBtn = ltSheet.querySelector('.sp-lt-chirp-copy');
+        if (copyBtn) copyBtn.addEventListener('click', (e) => {
           const ta = rep.querySelector('textarea');
           const done = () => { e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy report'; }, 1500); };
           try { navigator.clipboard.writeText(ta.value).then(done, () => { ta.select(); document.execCommand('copy'); done(); }); }
           catch (_) { ta.select(); try { document.execCommand('copy'); done(); } catch (__) {} }
         });
       }
+      ltSpkBind();
       ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
       document.body.appendChild(ltBackdrop);
       document.body.appendChild(ltSheet);
@@ -8149,6 +8305,25 @@
     // theme changes or animations are off.
     let liveOn = false, liveRaf = 0, liveAnalyser = null, liveBuf = null, liveBands = null;
     let liveEls = [], liveLvls = [], livePeaks = [], liveMeans = [], liveQueue = [], liveLastT = 0;
+    // v0.33.280: the live lights change only the glow elements' own opacity
+    // and transform (each on its own GPU layer), never a CSS variable on a
+    // parent. A variable on the bulb (or on #of-deco) restyled the whole
+    // subtree including the bulbs' SVG gradients 30 times a second, and on
+    // iPhone/iPad that memory piled up until iOS killed the page (~1.9 GB,
+    // page reload a few minutes in). Apple touch devices also update a bit
+    // less often (~20/s instead of ~30/s).
+    let liveTargets = [];      // bands: [{ halo, hot }] per bulb; party: { halo, glint, spots }
+    const LIVE_MIN_MS = (/iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) ? 48 : 30;
+    function liveClearInline() {
+      const clear = (el) => { if (el) { el.style.removeProperty('opacity'); el.style.removeProperty('transform'); } };
+      if (Array.isArray(liveTargets)) liveTargets.forEach(t => { clear(t.halo); clear(t.hot); });
+      else if (liveTargets) { clear(liveTargets.halo); clear(liveTargets.glint); clear(liveTargets.spots); }
+    }
+    function liveOff() {
+      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      liveClearInline();
+    }
     // Modes: 'bands' (christmas-live: one band per bulb) and 'party'
     // (newyear-live, v0.33.226-beta: bass/mid/treble + energy -> --beat,
     // --energy, --treble on #of-deco, plus confetti bursts on big jumps).
@@ -8159,11 +8334,16 @@
       liveEls = (liveMode === 'bands' && decoLayer) ? Array.from(decoLayer.querySelectorAll('.ofd-lb'))
         : (liveMode === 'party' && decoLayer && decoLayer.querySelector('.ofd-nyball')) ? [0, 1, 2] : [];
       liveParty = liveMode === 'party' ? { beat: 0, treble: 0, energy: 0, ePeak: 0.05, eSlow: -1, lastBurst: 0 } : null;
+      liveTargets = liveMode === 'bands'
+        ? liveEls.map(b => ({ halo: b.querySelector('.ofd-halo'), hot: b.querySelector('.ofd-hot') }))
+        : liveMode === 'party' && decoLayer
+          ? { halo: decoLayer.querySelector('.ofd-nyball .ofd-nyhalo'), glint: decoLayer.querySelector('.ofd-nyball .ofd-nyglint'), spots: decoLayer.querySelector('.ofd-nyspots') }
+          : [];
       liveLvls = liveEls.map(() => 0);
       livePeaks = liveEls.map(() => 0);
       liveMeans = liveEls.map(() => -1);
       liveQueue = []; liveBands = null;
-      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      liveOff();
       // In the ShowPilot app (master.21), ask the app for the levels of
       // these ranges; it plays the audio, so it has the analyser's job.
       if (isAppMode()) {
@@ -8216,7 +8396,7 @@
       liveRaf = 0;
       if (!liveOn) return;
       liveRaf = requestAnimationFrame(liveFrame);
-      if (t - liveLastT < 30) return;
+      if (t - liveLastT < LIVE_MIN_MS) return;
       liveLastT = t;
       // In the ShowPilot app the frames arrive from the app (already timed for
       // when they're heard) instead of from an analyser.
@@ -8225,7 +8405,7 @@
         ? (appLivePlaying && !isMuted && document.visibilityState === 'visible')
         : !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
       if (!playing || !liveEls.length || (!app && !liveEnsureAnalyser())) {
-        if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+        liveOff();
         liveQueue = [];
         return;
       }
@@ -8260,9 +8440,10 @@
         P.energy = P.energy * 0.85 + Math.min(1, overall / P.ePeak) * 0.15;
         P.eSlow = P.eSlow < 0 ? overall : P.eSlow * 0.985 + overall * 0.015;
         if (overall > P.eSlow * 1.6 && overall > 0.15 && now - P.lastBurst > 4000) { P.lastBurst = now; liveConfettiBurst(); }
-        decoLayer.style.setProperty('--beat', P.beat.toFixed(3));
-        decoLayer.style.setProperty('--treble', P.treble.toFixed(3));
-        decoLayer.style.setProperty('--energy', P.energy.toFixed(3));
+        const T = liveTargets;
+        if (T.halo) { T.halo.style.opacity = (0.12 + P.beat * 0.88).toFixed(3); T.halo.style.transform = 'scale(' + (0.85 + P.beat * 0.45).toFixed(3) + ')'; }
+        if (T.glint) T.glint.style.opacity = (0.3 + P.treble * 0.7).toFixed(3);
+        if (T.spots) T.spots.style.opacity = (0.18 + P.energy * 0.55 + P.beat * 0.27).toFixed(3);
         return;
       }
       for (let i = 0; i < liveEls.length; i++) {
@@ -8276,7 +8457,9 @@
         livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
         const v = x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
         liveLvls[i] = Math.max(v, liveLvls[i] * 0.84);
-        liveEls[i].style.setProperty('--lvl', liveLvls[i].toFixed(3));
+        const L = liveLvls[i], T = liveTargets[i];
+        if (T && T.halo) { T.halo.style.opacity = (0.14 + L * 0.86).toFixed(3); T.halo.style.transform = 'scale(' + (0.72 + L * 0.62).toFixed(3) + ')'; }
+        if (T && T.hot) T.hot.style.opacity = (0.03 + L * 0.52).toFixed(3);
       }
     }
 
@@ -8511,8 +8694,9 @@
         @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
         @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
         /* "Live": while music plays, each bulb follows its frequency band (--lvl, set by the player). */
-        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity: calc(.14 + var(--lvl) * .86); transform: scale(calc(.72 + var(--lvl) * .62)); }
-        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity: calc(.03 + var(--lvl) * .52); }
+        /* (opacity/transform set per frame on the elements themselves; see liveFrame) */
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity:.14; transform:scale(.72); will-change: opacity, transform; }
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity:.03; }
       </style>
       <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
         <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
@@ -8979,9 +9163,10 @@
         #of-deco .ofd-nyspots.ofd-anim .ofd-nyspots-in { animation: ofdNySpots 16s linear infinite; }
         @keyframes ofdNySpots { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         /* Live: the music drives the light (variables set by the player). */
-        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity: calc(.12 + var(--beat, 0) * .88); transform: scale(calc(.85 + var(--beat, 0) * .45)); }
-        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity: calc(.3 + var(--treble, 0) * .7); }
-        #of-deco.ofd-live-on .ofd-nyspots { opacity: calc(.18 + var(--energy, 0) * .55 + var(--beat, 0) * .27); }
+        /* (opacity/transform set per frame on the elements themselves; see liveFrame) */
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity:.12; transform:scale(.85); will-change: opacity, transform; }
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity:.3; }
+        #of-deco.ofd-live-on .ofd-nyspots { opacity:.18; will-change: opacity; }
         #of-deco .ofd-nyburst .ofdny-bit { animation-iteration-count: 1 !important; }
       </style>
       <div class="ofd ofd-nyspots${A}"><div class="ofd-nyspots-in">${spots}</div></div>

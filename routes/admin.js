@@ -390,6 +390,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'listener_timing_min_ms',
     'listener_timing_max_ms',
     'listener_timing_tip',
+    'listener_beep_calibration',
     'player_tall_layout',
     'debug_sync_probe',
     'debug_mic_measure',

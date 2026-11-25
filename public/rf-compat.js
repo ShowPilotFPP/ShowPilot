@@ -4178,7 +4178,7 @@
       if (window.SPMicCore && window.SPMicCore.roundTrip && window.SPMicCore.chirpLags) return Promise.resolve();
       return new Promise((resolve, reject) => {
         const sc = document.createElement('script');
-        sc.src = '/sp-mic.js?v=5';
+        sc.src = '/sp-mic.js?v=6';
         sc.onload = () => (window.SPMicCore && window.SPMicCore.roundTrip ? resolve() : reject(new Error('measurement code missing')));
         sc.onerror = () => reject(new Error('could not load the measurement code'));
         document.head.appendChild(sc);
@@ -4375,7 +4375,7 @@
     })();
     const ltChirpOk = (ltChirpTest || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.beepCalibration === true)) &&
       !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    const LT_CHIRP_COUNT = 6, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
+    const LT_CHIRP_COUNT = 8, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
     let ltChirpLast = null, ltChirpReport = null;
     try { if (ltChirpTest) ltChirpReport = localStorage.getItem('sp_calibrate_last_report'); } catch (_) {}
     function ltChirpMsg(html) {
@@ -4405,6 +4405,12 @@
     // by hand unless the reported delay moves (a different speaker).
     const LT_SPK_KEY = 'sp_lt_speakers', LT_SPK_ACTIVE = 'sp_lt_speaker_active';
     const LT_SPK_MATCH_MS = 15, LT_SPK_APART_MS = 40, LT_SPK_MAX = 8;
+    // beta.3: a speaker whose saved delay looks like the phone's own speaker
+    // (under 60 ms) doesn't tell the phone its delay (a JBL read 22 ms, same
+    // as the phone speaker, yet added ~410 ms). It can't be recognized, so
+    // it's never picked or dropped automatically: the listener taps it.
+    const LT_SPK_AUTO_MIN_MS = 60;
+    const ltSpkCanAuto = (e) => isFinite(e.rep) && e.rep >= LT_SPK_AUTO_MIN_MS;
     function ltSpkList() {
       try {
         const a = JSON.parse(localStorage.getItem(LT_SPK_KEY) || '[]');
@@ -4468,7 +4474,8 @@
     let ltSpkLastRep = null, ltSpkLastCtx = null;
     function ltSpkAutoCheck() {
       if (!audioCtx || audioCtx.state !== 'running' || ltDetectBusy) return;
-      const list = ltSpkList().filter(e => isFinite(e.rep));
+      const all = ltSpkList();
+      const list = all.filter(ltSpkCanAuto);
       if (!list.length) return;
       // Only trust settled, measured readings for this.
       let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
@@ -4481,7 +4488,7 @@
       const near = list.map(e => ({ e, d: Math.abs(e.rep - repMs) })).sort((a, b) => a.d - b.d);
       console.log('[ShowPilot] speakers check: phone reports ' + repMs + ' ms; saved ' +
         near.map(x => '"' + x.e.name + '" ' + x.e.rep + ' ms').join(', ') + '; in use: ' +
-        ((list.find(e => e.id === ltSpkActive) || {}).name || 'none'));
+        ((all.find(e => e.id === ltSpkActive) || {}).name || 'none'));
       if (near[0].d > LT_SPK_MATCH_MS) {
         // Left the saved speaker that was in use (e.g. got out of the car):
         // its timing no longer fits, so go back to no adjustment.
@@ -4508,7 +4515,7 @@
     // once so it reads the new speaker's delay, then check again.
     let ltSpkDevTimer = 0;
     function ltSpkOnDeviceChange(why) {
-      if (!audioCtx || ltDetectBusy || !ltSpkList().some(e => isFinite(e.rep))) return;
+      if (!audioCtx || ltDetectBusy || !ltSpkList().some(ltSpkCanAuto)) return;
       const before = ltSpkNowMs;
       console.log('[ShowPilot] audio device changed (' + why + '); phone reported ' + before + ' ms before');
       clearTimeout(ltSpkDevTimer);
@@ -4555,9 +4562,10 @@
         '<div class="sp-lt-presets-label">My speakers</div>' +
         (list.length ? '<div class="sp-lt-presets">' + list.map(e =>
           '<span class="sp-lt-spk-item"><button type="button" data-lt-spk="' + e.id + '" aria-pressed="' + (e.id === ltSpkActive) + '">' +
-            ltSpkEsc(e.name) + ' <small>' + (e.ms > 0 ? '+' : '') + e.ms + ' ms</small></button>' +
+            ltSpkEsc(e.name) + ' <small>' + (e.ms > 0 ? '+' : '') + e.ms + ' ms' + (ltSpkCanAuto(e) ? ' · auto' : '') + '</small></button>' +
           '<button type="button" class="sp-lt-spk-del" data-lt-spk-del="' + e.id + '" aria-label="Forget ' + ltSpkEsc(e.name) + '">×</button></span>').join('') + '</div>'
-          : '<p style="font-size:13px">Save this timing under a name, like “My car”, to switch back to it later. It’s picked automatically when this phone connects to it again.</p>') +
+          : '<p style="font-size:13px">Save this timing under a name, like “My car”, to switch back to it later.</p>') +
+        (list.length ? '<p style="font-size:12px;color:#7d8699">Tap a name to use it. Ones marked “auto” are picked by themselves when this phone connects to them (usually cars); most Bluetooth speakers don’t tell the phone they’re connected, so tap those.</p>' : '') +
         (active ? '<p style="font-size:13px">Using <b>' + ltSpkEsc(active.name) + '</b>' + (ltSpkAuto ? ' (picked automatically)' : '') + '.</p>' : '') +
         (ltChirpTest ? '<p class="sp-lt-auto-detail">Test info: phone reports <span class="sp-lt-spk-now">' + (ltSpkNowMs === null ? 'not settled' : ltSpkNowMs + ' ms') + '</span> now; saved: ' +
           (list.length ? list.map(e => ltSpkEsc(e.name) + ' ' + (isFinite(e.rep) ? e.rep + ' ms' : 'no reading')).join(', ') : 'none') + '.</p>' : '') +
@@ -4647,7 +4655,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'beta-1', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'beta-3', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };
@@ -4697,7 +4705,7 @@
         ltChirpMsg('Working it out…');
         await new Promise(r => setTimeout(r, 30));
         const r = window.SPMicCore.chirpLags(cap.mic, cap.tap, cap.sr, chirp);
-        info.result = { ok: r.ok, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs, strengths: r.strengths, sent: r.sent };
+        info.result = { ok: r.ok, split: !!r.split, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs, strengths: r.strengths, sent: r.sent };
         // Did opening the mic move the audio? Compare the delay the player
         // saw before the mic with what it saw while beeping.
         const pick = (snap) => snap.measuredMs !== null ? snap.measuredMs : snap.outputLatencyMs;
@@ -4723,7 +4731,9 @@
             ? 'Already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
             : 'Your speakers play <b>' + Math.abs(needMs) + ' ms ' + (needMs > 0 ? 'late' : 'early') + '</b>. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.') +
           ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>' +
-          '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Give it a name under <b>My speakers</b> to keep it for next time.</div>');
+          (r.split ? '<div class="sp-lt-auto-detail">Your speaker shifted its delay during the test (' + r.runs.join(', ') + ' ms); the later beeps were used.</div>' : '') +
+          '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Give it a name under <b>My speakers</b> to keep it for next time.' +
+          (covered * 1000 < 60 && needMs > 150 ? ' This speaker doesn\'t tell the phone it\'s connected, so tap its name when you use it.' : '') + '</div>');
         setTimeout(() => { const i = ltSheet && ltSheet.querySelector('.sp-lt-spk-form input'); if (i && !i.value) i.focus(); }, 50);
       } catch (e) {
         try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}

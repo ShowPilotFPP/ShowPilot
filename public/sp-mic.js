@@ -306,12 +306,14 @@
     const good = each.filter(e => e.ok);
     if (!onsets.length) return Object.assign(base, { ok: false, reason: 'the beeps never played (the phone may have paused the audio when the microphone turned on)' });
     if (good.length < 3) return Object.assign(base, { ok: false, reason: 'the microphone could not hear the beeps clearly — turn the volume up' });
-    const lags = good.map(e => e.lagSec).sort((a, b) => a - b);
-    const med = lags[lags.length >> 1];
-    const agree = good.filter(e => Math.abs(e.lagSec - med) <= CH_AGREE_SEC);
+    // Some Bluetooth speakers settle their buffer partway through (seen:
+    // 432, 432, 432, 472, 472, 472 ms on a JBL). The later beeps are what
+    // the speaker keeps doing, so agree on the LAST good beep's group.
+    const last = good[good.length - 1].lagSec;
+    const agree = good.filter(e => Math.abs(e.lagSec - last) <= CH_AGREE_SEC);
     if (agree.length < 3) return Object.assign(base, { ok: false, reason: 'the beeps disagreed (' + runs.join(', ') + ' ms) — keep still and try again' });
     const mean = agree.reduce((a, e) => a + e.lagSec, 0) / agree.length;
-    return Object.assign(base, { ok: true, lagSec: mean, agreed: agree.length });
+    return Object.assign(base, { ok: true, lagSec: mean, agreed: agree.length, split: agree.length < good.length });
   }
 
   root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2, roundTrip, roundTripWindow, makeChirp, chirpLags };

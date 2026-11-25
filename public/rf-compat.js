@@ -4508,6 +4508,32 @@
     }
     setInterval(() => { try { ltSpkAutoCheck(); } catch (_) {} }, 2000);
     let ltSpkNowMs = null;
+    // beta.5: what a speaker switch looks like on Android (JBL turned off):
+    // the audio clock stalls ~250 ms AND the reported delay jumps (43 → 317
+    // ms) within the same second or two; Chrome sent no devicechange. A
+    // stall alone is an ordinary hiccup and a jump alone is the delay
+    // settling later (317 → 58 ms, 22 s on): only the two together, or a
+    // devicechange, count as a speaker change.
+    let ltSpkStallAt = 0, ltSpkJumpAt = 0, ltSpkRouteAt = 0;
+    function ltSpkRouteChanged(why) {
+      const now = performance.now();
+      if (now - ltSpkRouteAt < 5000) return;   // one switch, one action
+      ltSpkRouteAt = now;
+      console.log('[ShowPilot] speaker changed (' + why + ')');
+      if (ltSheet && ltChirpTest) { const el = ltSheet.querySelector('.sp-lt-spk-sig'); if (el) el.textContent += ' \u2192 SPEAKER CHANGED'; }
+      if (ltDetectBusy) return;
+      // A tap-to-use speaker can't be recognized: it may be gone, so drop
+      // its timing (tap it again to use it).
+      const act = ltSpkList().find(e => e.id === ltSpkActive);
+      if (act && !ltSpkCanAuto(act)) {
+        ltSpkApplying = true;
+        try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
+        ltSpkSetActive(null);
+        ltSpkRender();
+        console.log('[ShowPilot] "' + act.name + '" may be off: timing back to 0');
+      }
+      ltSpkOnDeviceChange(why);
+    }
     const ltSpkSignals = [];   // recent speaker-change hints, for test mode
     function ltSpkSignal(what) {
       const t = new Date();
@@ -4527,7 +4553,11 @@
         const a = ctx.currentTime, pNow = performance.now() / 1000;
         if (lastCtx === ctx) {
           const lag = (pNow - lastP) - (a - lastA);
-          if (lag > 0.15) ltSpkSignal('audio clock stalled ' + Math.round(lag * 1000) + ' ms');
+          if (lag > 0.15) {
+            ltSpkSignal('audio clock stalled ' + Math.round(lag * 1000) + ' ms');
+            ltSpkStallAt = performance.now();
+            if (ltSpkStallAt - ltSpkJumpAt < 3000) ltSpkRouteChanged('clock stall + delay jump');
+          }
         }
         lastCtx = ctx; lastA = a; lastP = pNow;
       }, 250);
@@ -4568,26 +4598,18 @@
       if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.outputLatency !== 'number') return;
       const ol = Math.round(audioCtx.outputLatency * 1000);
       if (ltSpkLastOLCtx !== audioCtx) { ltSpkLastOLCtx = audioCtx; ltSpkLastOL = ol; return; }
-      if (ltSpkLastOL !== null && Math.abs(ol - ltSpkLastOL) > 25) { ltSpkSignal('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms'); ltSpkOnDeviceChange('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms'); }
+      if (ltSpkLastOL !== null && Math.abs(ol - ltSpkLastOL) > 25) {
+        ltSpkSignal('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms');
+        ltSpkJumpAt = performance.now();
+        if (ltSpkJumpAt - ltSpkStallAt < 3000) ltSpkRouteChanged('delay jump + clock stall');
+      }
       ltSpkLastOL = ol;
     }, 1000);
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
         navigator.mediaDevices.addEventListener('devicechange', () => {
           ltSpkSignal('devicechange');
-          // beta.4: a tap-to-use speaker (one that hides its delay) can't be
-          // recognized, but the phone changing audio devices means it may be
-          // gone (turned off): drop its timing back to 0. Picking it again
-          // is one tap. Auto speakers are re-checked below as before.
-          const act = ltSpkList().find(e => e.id === ltSpkActive);
-          if (act && !ltSpkCanAuto(act) && !ltDetectBusy) {
-            ltSpkApplying = true;
-            try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
-            ltSpkSetActive(null);
-            ltSpkRender();
-            console.log('[ShowPilot] audio devices changed: "' + act.name + '" may be off, timing back to 0');
-          }
-          ltSpkOnDeviceChange('devicechange');
+          ltSpkRouteChanged('devicechange');
         });
       }
     } catch (_) {}
@@ -4694,7 +4716,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'beta-4', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'beta-5', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };

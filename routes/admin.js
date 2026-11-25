@@ -306,6 +306,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'viewer_request_limit',
     'block_request_currently_playing',
     'block_request_next_up',
+    'jukebox_viewer_cancel',
     // Voting safeguards
     'prevent_multiple_votes',
     'allow_vote_change',
@@ -389,6 +390,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'listener_timing_min_ms',
     'listener_timing_max_ms',
     'listener_timing_tip',
+    'listener_beep_calibration',
     'player_tall_layout',
     'debug_sync_probe',
     'debug_mic_measure',
@@ -499,6 +501,8 @@ router.put('/config', requireAdmin, (req, res) => {
   }
   if ('show_timezone' in updates) require('../lib/template-schedule').recomputeAll();
   if (Object.keys(updates).some(k => k.startsWith('show_buttons_'))) pushShowButtons(req);
+  // Remove buttons appear or go at once on open pages, not at the next poll.
+  if ('jukebox_viewer_cancel' in updates) { const io = req.app.get('io'); if (io) io.emit('queueUpdated'); }
   // Install count (v0.33.267+): when the owner answers the notice or changes
   // the setting, check in now so the stats page reflects it right away.
   if ('install_count_enabled' in updates || 'install_count_location' in updates || 'install_count_notice_seen' in updates) {
@@ -925,10 +929,12 @@ router.get('/stats', requireAdmin, (req, res) => {
     WHERE played = 0 AND handed_off_at IS NULL
   `).get().n;
 
-  // Only count viewer-driven plays — not schedule fillers / resumes
+  // "Played by viewers": only plays viewers chose (votes and requests) — not
+  // schedule fillers / resumes, and not PSAs, which ShowPilot adds itself
+  // (v0.33.284-master.5).
   const totalPlays = db.prepare(`
     SELECT COUNT(*) AS n FROM play_history
-    WHERE source IN ('vote', 'request', 'psa')
+    WHERE source IN ('vote', 'request')
   `).get().n;
 
   const topSequences = db.prepare(`
@@ -993,12 +999,13 @@ router.get('/stats', requireAdmin, (req, res) => {
 router.get('/fpp', requireAdmin, (req, res) => {
   res.json(require('../lib/fpp-monitor').adminState(getConfig(), { watch: req.query.watch !== '0' }));
 });
-// POST { action: startPlaylist|stopGracefully|stopNow|preset|restartFppd, name? }
+// POST { action: startPlaylist|stopGracefully|stopNow|preset|restartFppd, name?, repeat? }
+// repeat: true (startPlaylist only) starts the playlist on repeat.
 router.post('/fpp/command', requireAdmin, (req, res) => {
   const b = req.body || {};
-  const r = require('../lib/fpp-monitor').command(String(b.action || ''), b.name, req.user && req.user.username);
+  const r = require('../lib/fpp-monitor').command(String(b.action || ''), b.name, req.user && req.user.username, { repeat: b.repeat === true });
   if (r.error) return res.status(400).json(r);
-  console.log(`[fpp] ${req.user && req.user.username} asked the show player to ${b.action}${b.name ? ' "' + String(b.name).slice(0, 100) + '"' : ''}`);
+  console.log(`[fpp] ${req.user && req.user.username} asked the show player to ${b.action}${b.name ? ' "' + String(b.name).slice(0, 100) + '"' : ''}${b.action === 'startPlaylist' && b.repeat === true ? ' on repeat' : ''}`);
   res.json(r);
 });
 

@@ -104,6 +104,10 @@
     alreadyVoted: 'alreadyVoted',
     songPlaying: 'songPlaying',
     songNextUp:  'songNextUp',
+    // A visitor removed their own request. Templates can add their own
+    // <div id="cancelSuccessful">; without one, #requestSuccessful shows
+    // "Your request was removed."
+    cancelSuccess: 'cancelSuccessful',
     // v0.33.258: a song that's cooling down. Templates can add their own
     // <div id="songCooldown">; an element inside it with
     // data-showpilot-cooldown-text gets "after 3 more songs". Without one,
@@ -1044,6 +1048,8 @@
   // Listen Only (v0.33.249+): picking is closed, the page and audio stay up.
   const LISTEN_MSG = 'Requests and voting are closed for now. You can still listen along!';
   let listenOnly = !!boot.listenOnly;
+  // Visitors may remove their own waiting requests (refreshed from /api/state).
+  let viewerCancel = !!boot.viewerCancel;
   function listenOnlyBlocked() {
     if (!listenOnly) return false;
     showMessage(MSG_IDS.failed, 4000, LISTEN_MSG, LISTEN_MSG);
@@ -1075,6 +1081,35 @@
   //      `request` / `vote`. We honor all of those.
   // Removing any alias would break user-facing templates with no warning,
   // so this list is append-only.
+  // Remove one of this visitor's own waiting requests (setting "Let visitors
+  // remove their own requests"). The queue list's Remove buttons call this;
+  // templates with their own queue markup can call it with an entry's id
+  // from /api/state (entries with mine: true and no handed_off_at).
+  // The server decides: a request handed to the show player a moment
+  // before the tap is refused with "already on its way", and the list
+  // refreshes either way.
+  const CANCEL_DONE_MSG = 'Your request was removed.';
+  window.ShowPilotCancel = async function (queueId) {
+    const result = await postJson('/api/jukebox/cancel', { queueId });
+    if (result.ok) {
+      if (document.getElementById(MSG_IDS.cancelSuccess)) showMessage(MSG_IDS.cancelSuccess);
+      else showMessage(MSG_IDS.success, undefined, CANCEL_DONE_MSG);
+    } else {
+      const err = (result.data && result.data.error) || 'That didn’t work. Please try again.';
+      showMessage(MSG_IDS.failed, 4500, err, err);
+    }
+    refreshState();
+    return result.ok;
+  };
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('.queue-cancel[data-queue-id]') : null;
+    if (!btn || btn.disabled) return;
+    e.preventDefault();
+    btn.disabled = true;
+    try { await window.ShowPilotCancel(Number(btn.getAttribute('data-queue-id'))); }
+    finally { btn.disabled = false; }
+  });
+
   window.OpenFalconRequest = window.ShowPilotRequest;
   window.OpenFalconVote = window.ShowPilotVote;
   window.RemoteFalconRequest = window.ShowPilotRequest;
@@ -1540,6 +1575,7 @@
     const queueSizeEls = document.querySelectorAll('[data-showpilot-queue-size], [data-openfalcon-queue-size]');
     queueSizeEls.forEach(el => { el.textContent = String((data.queue || []).length); });
 
+    if (typeof data.viewerCancel === 'boolean') viewerCancel = data.viewerCancel;
     const queueListEls = document.querySelectorAll('[data-showpilot-queue-list], [data-openfalcon-queue-list]');
     if (queueListEls.length) {
       const byName = Object.fromEntries((data.sequences || []).map(s => [s.name, s]));
@@ -1548,13 +1584,25 @@
         ? '<div class="queue-empty">Queue is empty.</div>'
         // Match the server-side renderQueue shape: each entry is its own
         // <div class="queue-item"> so RF Page Builder's `.queue-list > div`
-        // selector matches.
+        // selector matches. The visitor's own requests get showpilot-mine,
+        // and a Remove button while they can still be removed (not yet
+        // handed to the show player).
         : data.queue.map(e => {
             const seq = byName[e.sequence_name];
             const name = seq ? seq.display_name : e.sequence_name;
-            return `<div class="queue-item jukebox-queue" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}</div>`;
+            const removable = viewerCancel && e.mine && !e.handed_off_at && e.id;
+            const remove = removable
+              ? `<button type="button" class="queue-cancel" data-queue-id="${Number(e.id)}" aria-label="Remove my request for ${escapeAttr(name)}">Remove</button>`
+              : '';
+            return `<div class="queue-item jukebox-queue${e.mine ? ' showpilot-mine' : ''}" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}${remove}</div>`;
           }).join('');
-      queueListEls.forEach(el => { el.innerHTML = queueHtml; });
+      // Only touch the list when it changed, so a Remove button isn't
+      // replaced under a finger between polls.
+      queueListEls.forEach(el => {
+        if (el.__spQueueHtml === queueHtml) return;
+        el.innerHTML = queueHtml;
+        el.__spQueueHtml = queueHtml;
+      });
     }
 
     // --- Sequence list live rebuild (v0.33.6+) ---
@@ -1614,8 +1662,11 @@
     if (data.viewerControlMode && (data.viewerControlMode === 'RACE') !== _pageIsRace && !_swapInFlight) {
       _swapInFlight = swapModeMarkup().catch(() => {}).then(() => { _swapInFlight = null; refreshState(); });
     }
-    // Listen Only shows the last active mode's list (listDisplayMode).
-    const shownMode = data.listDisplayMode || data.viewerControlMode;
+    // Listen Only shows the last active mode's list (listDisplayMode),
+    // unless the template has its own Listen Only section (v0.33.281).
+    const hasListenSection = !!document.querySelector('[data-showpilot-container="listenonly"]');
+    const shownMode = (data.viewerControlMode === 'LISTEN' && hasListenSection)
+      ? 'NONE' : (data.listDisplayMode || data.viewerControlMode);
     document.querySelectorAll('[data-showpilot-container="jukebox"], [data-openfalcon-container="jukebox"]').forEach(el => {
       setVisible(el, shownMode === 'JUKEBOX');
     });
@@ -1630,6 +1681,15 @@
     document.querySelectorAll('[data-showpilot-container="afterhours"]').forEach(el => {
       setVisible(el, data.viewerControlMode === 'OFF');
     });
+    // Listen Only / show-on sections (v0.33.281, issue #70)
+    if (data.viewerControlMode) {
+      document.querySelectorAll('[data-showpilot-container="listenonly"]').forEach(el => {
+        setVisible(el, data.viewerControlMode === 'LISTEN');
+      });
+      document.querySelectorAll('[data-showpilot-container="showon"]').forEach(el => {
+        setVisible(el, data.viewerControlMode !== 'OFF');
+      });
+    }
     // Race mode container visibility (v0.33.155+)
     document.querySelectorAll('[data-showpilot-container="race"]').forEach(el => {
       setVisible(el, data.viewerControlMode === 'RACE');
@@ -3784,6 +3844,22 @@
       const refStartSec = Math.max(0, expected - 1.0);
       return { mic: cap.mic, ref: monoSlice(currentBuffer, refStartSec, cap.mic.length + Math.round(2.2 * sr)), refStartSec, expectedPosSec: expected };
     }
+    // iOS Safari refuses the mic while the audio session is 'playback'
+    // ("AudioSession category is not compatible with audio capture"), the
+    // same problem #71 found in Detect my delay. Measure sync and Compare
+    // devices switch to play-and-record only while the mic is open, then go
+    // back to 'playback' and rebuild the audio engine like Detect my delay
+    // does. Only where navigator.audioSession exists (Safari); elsewhere
+    // nothing changes.
+    function micSessionRecord() {
+      if (!navigator.audioSession) return false;
+      try { navigator.audioSession.type = 'play-and-record'; return true; } catch (_) { return false; }
+    }
+    function micSessionDone(switched) {
+      if (!switched) return;
+      try { navigator.audioSession.type = 'playback'; } catch (_) {}
+      try { ltRestoreAudio(); } catch (_) {}
+    }
     async function micMeasure() {
       if (micBusy) return;
       if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -3794,8 +3870,9 @@
       micBusy = true;
       const buf = currentBuffer;
       const wasMuted = isMuted;
-      let stream = null;
+      let stream = null, iosSwitched = false;
       try {
+        iosSwitched = micSessionRecord();
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
         if (gainNode) gainNode.gain.value = 1;
         micPanel('Step 1 of 2 — listening with the phone playing (5 s)… keep the phone\'s volume up and stay still.');
@@ -3834,6 +3911,7 @@
         micPanel(e && e.name === 'NotAllowedError' ? 'Microphone permission was denied.' : 'Measurement failed: ' + (e && e.message ? e.message : e));
       } finally {
         if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micSessionDone(iosSwitched);
         micBusy = false;
       }
     }
@@ -3903,8 +3981,9 @@
       micBusy = true;
       const buf = currentBuffer;
       const wasMuted = isMuted;
-      let stream = null;
+      let stream = null, iosSwitched = false;
       try {
+        iosSwitched = micSessionRecord();
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
         if (gainNode) gainNode.gain.value = 1;
         micPanel('Comparing — step 1 of 2: listening with this device playing (4 s)…');
@@ -3940,6 +4019,7 @@
         return fail(e && e.name === 'NotAllowedError' ? 'microphone permission was denied' : (e && e.message ? e.message : String(e)));
       } finally {
         if (stream) stream.getTracks().forEach(tr => tr.stop());
+        micSessionDone(iosSwitched);
         micBusy = false;
       }
     }
@@ -4062,6 +4142,7 @@
       listenerOffsetSec = ms / 1000;
       try { if (ms) localStorage.setItem(LT_KEY, String(ms)); else localStorage.removeItem(LT_KEY); } catch (_) {}
       ltUpdateUi();
+      try { ltSpkOnManualChange(); } catch (_) {}
       console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
     }
     // ---- Detect my delay (v0.33.238-beta) ----
@@ -4081,7 +4162,11 @@
     // call audio the moment a page opens the mic, which silenced the player
     // in the first real test — a browser can't play and listen at once there.
     // That measurement needs a native app.
-    const ltDetectOk = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
+    // Turned off everywhere in v0.33.282: a feature that can't work on every
+    // phone stays out of the web player. The code is kept; set this to true
+    // to bring the button back.
+    const LT_DETECT_ENABLED = false;
+    const ltDetectOk = LT_DETECT_ENABLED && !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
       !/Android/i.test(navigator.userAgent || '');
     let ltDetectBusy = false, ltDetectLast = null;
     function ltDetectMsg(html) {
@@ -4090,10 +4175,10 @@
       if (el) el.innerHTML = html;
     }
     function ltLoadMicCore() {
-      if (window.SPMicCore && window.SPMicCore.roundTrip) return Promise.resolve();
+      if (window.SPMicCore && window.SPMicCore.roundTrip && window.SPMicCore.chirpLags) return Promise.resolve();
       return new Promise((resolve, reject) => {
         const sc = document.createElement('script');
-        sc.src = '/sp-mic.js?v=4';
+        sc.src = '/sp-mic.js?v=5';
         sc.onload = () => (window.SPMicCore && window.SPMicCore.roundTrip ? resolve() : reject(new Error('measurement code missing')));
         sc.onerror = () => reject(new Error('could not load the measurement code'));
         document.head.appendChild(sc);
@@ -4107,8 +4192,25 @@
       // it back to 'playback' when the mic closes, so normal listening is
       // unchanged. Feature-detected: a no-op outside Safari. (Thanks jddocea, #71)
       try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (_) {}
-      let stream = await navigator.mediaDevices.getUserMedia({ audio: base });
-      let devices = [];
+      let stream = null, devices = [], direct = null;
+      // calibrate-test-3: with mic permission already granted, labels are
+      // readable before opening anything, so go straight to the phone's own
+      // mic. Opening the default first picks the car's hands-free mic, which
+      // can switch the phone to call mode before we ever switch away.
+      try {
+        const perm = navigator.permissions && await navigator.permissions.query({ name: 'microphone' });
+        if (perm && perm.state === 'granted') {
+          const ins = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+          const usable = ins.filter(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.label && !LT_BT_RE.test(d.label));
+          direct = usable.find(d => /built-?in|speakerphone|phone|bottom|back|internal/i.test(d.label)) || usable[0] || null;
+          if (direct) stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, base, { deviceId: { exact: direct.deviceId } }) });
+        }
+      } catch (_) { stream = null; }
+      if (stream) {
+        const all = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(d => d.kind === 'audioinput');
+        return { stream, devices: all.map(d => d.label || '?'), direct: direct.label };
+      }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: base });
       try {
         devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
         const cur = stream.getAudioTracks()[0];
@@ -4123,10 +4225,10 @@
       } catch (_) { /* keep the first stream */ }
       return { stream, devices: devices.map(d => d.label || '?') };
     }
-    function ltCapture(stream, secs, onTick) {
+    function ltCapture(stream, secs, onTick, tapNode) {
       return new Promise((resolve, reject) => {
         const sr = audioCtx.sampleRate, need = Math.round(secs * sr);
-        const tapFrom = gainNode;
+        const tapFrom = tapNode || gainNode;
         const src = audioCtx.createMediaStreamSource(stream);
         const merger = audioCtx.createChannelMerger(2);   // each input is mixed down to mono
         const proc = audioCtx.createScriptProcessor(4096, 2, 1);
@@ -4185,7 +4287,7 @@
       }
       if (isMuted) { ltDetectMsg('Unmute the player first — the microphone needs to hear the music.'); return; }
       ltDetectBusy = true;
-      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
       if (btn) btn.disabled = true;
       const prevMs = Math.round(listenerOffsetSec * 1000);
       let stream = null, micOpened = false;
@@ -4246,8 +4348,355 @@
         if (stream) stream.getTracks().forEach(t => t.stop());
         if (micOpened) ltRestoreAudio();
         ltDetectBusy = false;
-        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
         if (b2) b2.disabled = false;
+      }
+    }
+    // ---- Beep calibration (TEST BUILD, branch claude/web-calibrate-test) ----
+    // Shown only on a phone that opened the page once with ?calibrate=1
+    // (remembered on that phone; ?calibrate=0 turns it off). Every platform,
+    // Android included, so we can see what each phone really does.
+    // Differences from "Detect my delay": no song needed (the song is
+    // silenced and short beeps play instead), and it records a full report
+    // of the speaker delay before the mic opens, after, and during the
+    // beeps. If those disagree, opening the mic moved the audio (Android
+    // call mode / Bluetooth hands-free) and the number can't be trusted.
+    const LT_CHIRP_KEY = 'sp_calibrate_test';
+    // v0.33.285-beta.1: the show owner's switch (listener_beep_calibration)
+    // offers it to everyone; ?calibrate=1 still turns it on for one phone
+    // and also shows the report box (for testing).
+    const ltChirpTest = (() => {
+      try {
+        const q = new URLSearchParams(window.location.search).get('calibrate');
+        if (q === '0') localStorage.removeItem(LT_CHIRP_KEY);
+        else if (q !== null) localStorage.setItem(LT_CHIRP_KEY, '1');
+        return localStorage.getItem(LT_CHIRP_KEY) === '1';
+      } catch (_) { return false; }
+    })();
+    const ltChirpOk = (ltChirpTest || !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.beepCalibration === true)) &&
+      !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const LT_CHIRP_COUNT = 6, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
+    let ltChirpLast = null, ltChirpReport = null;
+    try { if (ltChirpTest) ltChirpReport = localStorage.getItem('sp_calibrate_last_report'); } catch (_) {}
+    function ltChirpMsg(html) {
+      ltChirpLast = html;
+      const el = ltSheet && ltSheet.querySelector('.sp-lt-chirp-msg');
+      if (el) el.innerHTML = html;
+    }
+    function ltDelaySnapshot() {
+      const ms = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 1000) : null;
+      let measured = null;
+      try { measured = ms(measuredOutputDelaySec()); } catch (_) {}
+      return {
+        state: audioCtx ? audioCtx.state : null,
+        outputLatencyMs: audioCtx ? ms(audioCtx.outputLatency) : null,
+        baseLatencyMs: audioCtx ? ms(audioCtx.baseLatency) : null,
+        measuredMs: measured,
+      };
+    }
+    // ---- Saved speakers (v0.33.285-beta.1) ----
+    // A listener can save the current timing under a name ("My car",
+    // "Kitchen speaker") and switch between them. Kept on this phone in
+    // localStorage (per show site), like the timing itself. Each entry also
+    // keeps the speaker delay the phone itself reported when it was saved
+    // ('rep', ms); when the player sees that delay again and no other saved
+    // speaker is close, it picks that entry by itself (connect to the car →
+    // the car's timing). Never overrides a timing the listener just changed
+    // by hand unless the reported delay moves (a different speaker).
+    const LT_SPK_KEY = 'sp_lt_speakers', LT_SPK_ACTIVE = 'sp_lt_speaker_active';
+    const LT_SPK_MATCH_MS = 15, LT_SPK_APART_MS = 40, LT_SPK_MAX = 8;
+    function ltSpkList() {
+      try {
+        const a = JSON.parse(localStorage.getItem(LT_SPK_KEY) || '[]');
+        return Array.isArray(a) ? a.filter(e => e && typeof e.name === 'string' && isFinite(e.ms)).slice(0, LT_SPK_MAX) : [];
+      } catch (_) { return []; }
+    }
+    function ltSpkSave(list) { try { localStorage.setItem(LT_SPK_KEY, JSON.stringify(list.slice(0, LT_SPK_MAX))); } catch (_) {} }
+    let ltSpkActive = (() => { try { return localStorage.getItem(LT_SPK_ACTIVE) || null; } catch (_) { return null; } })();
+    let ltSpkAuto = false; // the active entry was picked by itself
+    function ltSpkSetActive(id, auto) {
+      ltSpkActive = id || null; ltSpkAuto = !!(id && auto);
+      try { if (id) localStorage.setItem(LT_SPK_ACTIVE, id); else localStorage.removeItem(LT_SPK_ACTIVE); } catch (_) {}
+    }
+    // The phone's own reported speaker delay right now (no listener offset).
+    function ltSpkRepMs() {
+      const v = getOutputLatencySec() - listenerOffsetSec;
+      return isFinite(v) && v > 0 ? Math.round(v * 1000) : null;
+    }
+    function ltSpkEsc(t) { return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function ltSpkStore(name) {
+      name = String(name || '').trim().slice(0, 40);
+      if (!name) return null;
+      const list = ltSpkList();
+      const ms = Math.round(listenerOffsetSec * 1000), repMs = ltSpkRepMs();
+      let e = list.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (e) { e.name = name; e.ms = ms; if (repMs !== null) e.rep = repMs; }
+      else {
+        if (list.length >= LT_SPK_MAX) list.shift();
+        e = { id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, ms, rep: repMs };
+        list.push(e);
+      }
+      ltSpkSave(list);
+      ltSpkSetActive(e.id, false);
+      console.log('[ShowPilot] saved speaker "' + name + '": ' + ms + ' ms (phone reported ' + repMs + ' ms)');
+      return e;
+    }
+    function ltSpkUse(id, auto) {
+      const e = ltSpkList().find(x => x.id === id);
+      if (!e) return;
+      ltSpkApplying = true;
+      try { setListenerOffsetMs(e.ms); } finally { ltSpkApplying = false; }
+      ltSpkSetActive(e.id, auto);
+      ltSpkRender();
+      console.log('[ShowPilot] using saved speaker "' + e.name + '" (' + e.ms + ' ms)' + (auto ? ', picked automatically' : ''));
+    }
+    function ltSpkDelete(id) {
+      ltSpkSave(ltSpkList().filter(x => x.id !== id));
+      if (ltSpkActive === id) ltSpkSetActive(null);
+      ltSpkRender();
+    }
+    let ltSpkApplying = false;
+    // Called by setListenerOffsetMs: a hand change means no saved speaker
+    // is exactly in use any more.
+    function ltSpkOnManualChange() {
+      if (ltSpkApplying || !ltSpkActive) return;
+      ltSpkSetActive(null);
+      ltSpkRender();
+    }
+    // Automatic pick: once the phone's delay readings settle, and again
+    // whenever the reported delay jumps (switched speakers).
+    let ltSpkLastRep = null, ltSpkLastCtx = null;
+    function ltSpkAutoCheck() {
+      if (!audioCtx || audioCtx.state !== 'running' || ltDetectBusy) return;
+      const list = ltSpkList().filter(e => isFinite(e.rep));
+      if (!list.length) return;
+      // Only trust settled, measured readings for this.
+      let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
+      if (m === null) return;
+      const repMs = Math.round(m * 1000);
+      if (ltSpkLastCtx === audioCtx && ltSpkLastRep !== null && Math.abs(repMs - ltSpkLastRep) <= 60) return;
+      ltSpkLastCtx = audioCtx; ltSpkLastRep = repMs;
+      const near = list.map(e => ({ e, d: Math.abs(e.rep - repMs) })).sort((a, b) => a.d - b.d);
+      if (near[0].d > LT_SPK_MATCH_MS) {
+        // Left the saved speaker that was in use (e.g. got out of the car):
+        // its timing no longer fits, so go back to no adjustment.
+        const act = list.find(e => e.id === ltSpkActive);
+        if (act && Math.abs(act.rep - repMs) > 60) {
+          ltSpkApplying = true;
+          try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
+          ltSpkSetActive(null);
+          ltSpkRender();
+          console.log('[ShowPilot] speaker changed (phone reports ' + repMs + ' ms, "' + act.name + '" was ' + act.rep + ' ms): timing back to 0');
+        }
+        return;
+      }
+      if (near[1] && near[1].d - near[0].d < LT_SPK_APART_MS) return; // two saved speakers look alike: let the listener pick
+      if (ltSpkActive === near[0].e.id && Math.round(listenerOffsetSec * 1000) === near[0].e.ms) return;
+      ltSpkUse(near[0].e.id, true);
+    }
+    setInterval(() => { try { ltSpkAutoCheck(); } catch (_) {} }, 2000);
+    function ltSpkRender() {
+      if (!ltSheet) return;
+      const box = ltSheet.querySelector('.sp-lt-spk');
+      if (!box) return;
+      const list = ltSpkList();
+      const active = list.find(e => e.id === ltSpkActive);
+      box.innerHTML =
+        '<div class="sp-lt-presets-label">My speakers</div>' +
+        (list.length ? '<div class="sp-lt-presets">' + list.map(e =>
+          '<span class="sp-lt-spk-item"><button type="button" data-lt-spk="' + e.id + '" aria-pressed="' + (e.id === ltSpkActive) + '">' +
+            ltSpkEsc(e.name) + ' <small>' + (e.ms > 0 ? '+' : '') + e.ms + ' ms</small></button>' +
+          '<button type="button" class="sp-lt-spk-del" data-lt-spk-del="' + e.id + '" aria-label="Forget ' + ltSpkEsc(e.name) + '">×</button></span>').join('') + '</div>'
+          : '<p style="font-size:13px">Save this timing under a name, like “My car”, to switch back to it later. It’s picked automatically when this phone connects to it again.</p>') +
+        (active ? '<p style="font-size:13px">Using <b>' + ltSpkEsc(active.name) + '</b>' + (ltSpkAuto ? ' (picked automatically)' : '') + '.</p>' : '') +
+        '<form class="sp-lt-spk-form"><input type="text" maxlength="40" placeholder="Name, e.g. My car" aria-label="Name for this timing" value="' + ltSpkEsc(active ? active.name : '') + '">' +
+        '<button type="submit">Save this timing</button></form>';
+    }
+    function ltSpkBind() {
+      const box = ltSheet && ltSheet.querySelector('.sp-lt-spk');
+      if (!box) return;
+      box.addEventListener('click', (e) => {
+        const del = e.target.closest('[data-lt-spk-del]');
+        if (del) { ltSpkDelete(del.dataset.ltSpkDel); return; }
+        const b = e.target.closest('[data-lt-spk]');
+        if (b) ltSpkUse(b.dataset.ltSpk, false);
+      });
+      box.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const inp = box.querySelector('input');
+        if (!inp.value.trim()) { inp.focus(); return; }
+        ltSpkStore(inp.value);
+        ltSpkRender();
+      });
+      ltSpkRender();
+    }
+    // Is the audio clock actually moving? A context can say 'running' while
+    // the phone has parked its output on a call channel (Android Auto when
+    // the mic opens): then currentTime stops or crawls.
+    async function ltCtxAdvancing(ms) {
+      const ctx = audioCtx;
+      if (!ctx || ctx.state !== 'running') return false;
+      const a = ctx.currentTime;
+      await new Promise(r => setTimeout(r, ms));
+      return ctx === audioCtx && ctx.state === 'running' && (ctx.currentTime - a) > (ms / 1000) * 0.5;
+    }
+    // Recovery after the mic closes (calibrate-test-2). Android stays in call
+    // mode for a moment after the mic is released; a player rebuilt inside
+    // that moment opens its output on the call channel and stays silent
+    // (seen on Android Auto). So: wait, rebuild, check the clock moves, and
+    // rebuild once more if it doesn't. Last resort: a tap rebuilds it.
+    async function ltChirpRestore(info) {
+      const rebuild = () => {
+        try { stopAudio(); } catch (_) {}
+        try { teardown(); } catch (_) {}
+        if (panelMode === 'closed' || _showNotPlaying) return false;
+        try { startup(); } catch (_) {}
+        return true;
+      };
+      const steps = [];
+      for (const waitMs of [1500, 2500]) {
+        await new Promise(r => setTimeout(r, waitMs));
+        if (!rebuild()) { steps.push('player closed'); break; }
+        await new Promise(r => setTimeout(r, 1500));
+        const ok = await ltCtxAdvancing(600);
+        steps.push('rebuilt after ' + waitMs + ' ms: ' + (ok ? 'sound running' : 'still stuck (' + (audioCtx ? audioCtx.state : 'no context') + ')'));
+        if (ok) break;
+      }
+      if (info) info.restore = steps;
+      if (steps.length && !/sound running|player closed/.test(steps[steps.length - 1])) {
+        // 'click' counts as a user activation on Android; pointerdown from a
+        // finger doesn't. The new context is made inside the tap, the same
+        // way the Listen button does it.
+        const tapFix = () => {
+          document.removeEventListener('click', tapFix, true);
+          try { stopAudio(); } catch (_) {}
+          try { teardown(); } catch (_) {}
+          try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+          try { _pendingGestureAudioCtx = spNewAudioContext(); _pendingGestureAudioCtx.resume().catch(() => {}); } catch (_) {}
+          if (panelMode !== 'closed' && !_showNotPlaying) { try { startup(); } catch (_) {} }
+          setTimeout(async () => {
+            const ok = await ltCtxAdvancing(600);
+            console.log('[ShowPilot] beep calibration: tap restart ' + (ok ? 'worked' : 'did not bring the sound back'));
+            if (!ok) ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Still no sound. Close the player and open it again, or reload the page.</div>');
+          }, 2500);
+        };
+        document.addEventListener('click', tapFix, true);
+        ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">The sound didn\'t come back on its own. Tap anywhere on the page to restart it.</div>');
+      }
+    }
+    async function ltChirp() {
+      if (ltDetectBusy) return;
+      if (!audioCtx || !gainNode || audioCtx.state !== 'running') {
+        ltChirpMsg('Start listening first, then try this.'); return;
+      }
+      ltDetectBusy = true;
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
+      if (btn) btn.disabled = true;
+      const prevMs = Math.round(listenerOffsetSec * 1000);
+      const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
+      const info = {
+        build: 'beta-1', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
+        before: ltDelaySnapshot(),
+      };
+      let stream = null, micOpened = false, bus = null;
+      try {
+        await ltLoadMicCore();
+        ltChirpMsg('Allow the microphone if your phone asks…');
+        const got = await ltGetMic();
+        stream = got.stream;
+        micOpened = true;
+        const track = stream.getAudioTracks()[0];
+        const st = (track && track.getSettings) ? track.getSettings() : {};
+        const reportedIn = Number(st.latency);
+        const inSec = (isFinite(reportedIn) && reportedIn > 0 && reportedIn < 0.5) ? reportedIn : LT_MIC_ASSUMED_SEC;
+        info.mic = track ? track.label : ''; info.inputs = got.devices; info.micOpenedDirect = got.direct || null;
+        info.micMs = Math.round(inSec * 1000); info.micReported = inSec !== LT_MIC_ASSUMED_SEC;
+        // Give the phone a moment to re-route (if it's going to), then look.
+        ltChirpMsg('Getting ready…');
+        await new Promise(r => setTimeout(r, 700));
+        info.afterMic = ltDelaySnapshot();
+        if (audioCtx.state !== 'running') { try { await audioCtx.resume(); } catch (_) {} }
+        info.afterResume = audioCtx.state;
+        info.clockMoving = await ltCtxAdvancing(400);
+        if (!info.clockMoving) {
+          info.result = { ok: false, reason: 'audio stopped when the microphone opened' };
+          info.routeChanged = true;
+          ltChirpMsg('<b>Stopped:</b> turning on the microphone made this phone stop playing audio (it switched to phone-call mode — common with Android Auto and car Bluetooth). No beeps were played. Bringing the sound back…');
+          return;
+        }
+        gainNode.gain.value = 0; // silence the song while the beeps play
+        const sr = audioCtx.sampleRate;
+        const chirp = window.SPMicCore.makeChirp(sr, LT_CHIRP_LEN, 800, 5000);
+        const buf = audioCtx.createBuffer(1, chirp.length, sr);
+        buf.getChannelData(0).set(chirp);
+        bus = audioCtx.createGain(); bus.gain.value = 1; bus.connect(audioCtx.destination);
+        const secs = Math.ceil(0.8 + LT_CHIRP_COUNT * LT_CHIRP_GAP + 1.2);
+        const capP = ltCapture(stream, secs, (left) =>
+          ltChirpMsg('Beeping… ' + left + ' s. Keep the volume up and stay still.'), bus);
+        const t0 = audioCtx.currentTime + 0.8;
+        for (let i = 0; i < LT_CHIRP_COUNT; i++) {
+          const b = audioCtx.createBufferSource(); b.buffer = buf; b.connect(bus); b.start(t0 + i * LT_CHIRP_GAP);
+        }
+        const cap = await capP;
+        info.during = ltDelaySnapshot();
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltChirpMsg('Working it out…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.chirpLags(cap.mic, cap.tap, cap.sr, chirp);
+        info.result = { ok: r.ok, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs, strengths: r.strengths, sent: r.sent };
+        // Did opening the mic move the audio? Compare the delay the player
+        // saw before the mic with what it saw while beeping.
+        const pick = (snap) => snap.measuredMs !== null ? snap.measuredMs : snap.outputLatencyMs;
+        const a = pick(info.before), d = pick(info.during);
+        info.routeChanged = info.during.state !== 'running' || (a !== null && d !== null && Math.abs(a - d) > 40);
+        if (!r.ok) {
+          ltChirpMsg('<b>No result:</b> ' + r.reason + '.' + (info.routeChanged ? ' Opening the microphone changed how this phone plays audio.' : ''));
+          return;
+        }
+        // The speaker delay while beeping already includes whatever the
+        // player covered automatically at that moment; use the pre-mic
+        // "covered" so the offset matches normal listening.
+        const needMs = Math.round((r.lagSec - inSec - covered) * 1000);
+        info.neededMs = needMs;
+        if (info.routeChanged) {
+          ltChirpMsg('<b>Not applied:</b> opening the microphone changed how this phone plays audio (delay ' + a + ' ms before, ' + d + ' ms during), so the beeps measured a different path than normal listening. It would have set ' + needMs + ' ms.');
+          return;
+        }
+        setListenerOffsetMs(needMs);
+        const appliedMs = Math.round(listenerOffsetSec * 1000);
+        info.appliedMs = appliedMs;
+        ltChirpMsg((Math.abs(needMs) < 30
+            ? 'Already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
+            : 'Your speakers play <b>' + Math.abs(needMs) + ' ms ' + (needMs > 0 ? 'late' : 'early') + '</b>. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.') +
+          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>' +
+          '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Give it a name under <b>My speakers</b> to keep it for next time.</div>');
+        setTimeout(() => { const i = ltSheet && ltSheet.querySelector('.sp-lt-spk-form input'); if (i && !i.value) i.focus(); }, 50);
+      } catch (e) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        info.error = (e && (e.name + ': ' + e.message)) || String(e);
+        ltChirpMsg(e && e.name === 'NotAllowedError'
+          ? 'Microphone permission was denied.'
+          : '<b>No result:</b> ' + (e && e.message ? e.message : e) + '.');
+      } finally {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        try { if (bus) bus.disconnect(); } catch (_) {}
+        try { if (gainNode) gainNode.gain.value = isMuted ? 0 : 1; } catch (_) {}
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        if (micOpened) { try { await ltChirpRestore(info); } catch (_) {} }
+        if (info.restore && /sound running/.test(info.restore[info.restore.length - 1] || '') && /Bringing the sound back/.test(ltChirpLast || '')) {
+          ltChirpMsg(ltChirpLast.replace('Bringing the sound back…', 'The sound is back.'));
+        }
+        ltDetectBusy = false;
+        ltChirpReport = JSON.stringify(info, null, 1);
+        // Kept on the phone so it survives a reload if the sound broke.
+        try { localStorage.setItem('sp_calibrate_last_report', ltChirpReport); } catch (_) {}
+        console.log('[ShowPilot] beep calibration:', JSON.stringify(info));
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
+        if (b2) b2.disabled = false;
+        const rep = ltSheet && ltSheet.querySelector('.sp-lt-chirp-report');
+        if (rep && ltChirpTest) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
       }
     }
     function ltEnsureStyles() {
@@ -4292,6 +4741,15 @@
         '#sp-lt-sheet .sp-lt-auto-msg b{color:#fff;font-weight:800}' +
         '#sp-lt-sheet .sp-lt-undo{margin-left:6px;padding:2px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:transparent;font-size:13px;font-weight:600}' +
         '#sp-lt-sheet .sp-lt-auto-detail{margin-top:4px;font-size:12px;color:#7d8699;overflow-wrap:anywhere}' +
+        '#sp-lt-sheet .sp-lt-spk{display:flex;flex-direction:column;gap:10px}' +
+        '#sp-lt-sheet .sp-lt-spk-item{display:inline-flex;align-items:stretch}' +
+        '#sp-lt-sheet [data-lt-spk]{min-height:40px;padding:0 12px;border-radius:999px 0 0 999px;border:1px solid rgba(255,255,255,.2);border-right:0;background:transparent;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-spk] small{color:#9aa3b5;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-spk][aria-pressed="true"]{border-color:var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.18)}' +
+        '#sp-lt-sheet .sp-lt-spk-del{min-width:36px;border-radius:0 999px 999px 0;border:1px solid rgba(255,255,255,.2);background:transparent;color:#9aa3b5;font-size:18px;line-height:1}' +
+        '#sp-lt-sheet .sp-lt-spk-form{display:flex;gap:8px}' +
+        '#sp-lt-sheet .sp-lt-spk-form input{flex:1;min-width:0;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font:inherit}' +
+        '#sp-lt-sheet .sp-lt-spk-form button{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.08);font-weight:700;white-space:nowrap}' +
         '#sp-lt-sheet :focus-visible,#sp-lt-btn:focus-visible{outline:2px solid var(--sp-lt-accent,#60a5fa);outline-offset:2px}';
       document.head.appendChild(st);
     }
@@ -4330,15 +4788,22 @@
           '<button type="button" class="sp-lt-detect">\ud83c\udfa4 Detect my delay <small>(beta)</small></button>' +
           '<p style="font-size:13px">Listens through the microphone for about ' + LT_DETECT_SECS + ' seconds to hear how late your Bluetooth, car or headphones play the music, then fixes it. Keep the volume up.</p>' +
           '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
+        (ltChirpOk ? '<div class="sp-lt-auto">' +
+          '<button type="button" class="sp-lt-detect sp-lt-chirp">\ud83d\udd0a Calibrate with beeps <small>(beta)</small></button>' +
+          '<p style="font-size:13px">Pauses the song, plays ' + LT_CHIRP_COUNT + ' short beeps and listens through the microphone to measure your Bluetooth, car or headphone delay. Keep the volume up.</p>' +
+          '<div class="sp-lt-auto-msg sp-lt-chirp-msg" aria-live="polite"></div>' +
+          (ltChirpTest ? '<div class="sp-lt-chirp-report" hidden><textarea readonly rows="5" style="width:100%;box-sizing:border-box;font:11px ui-monospace,monospace;background:#0e1320;color:#cfd5e2;border:1px solid rgba(255,255,255,.15);border-radius:8px"></textarea>' +
+          '<button type="button" class="sp-lt-undo sp-lt-chirp-copy" style="margin:6px 0 0">Copy report</button></div>' : '') + '</div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
+        '<div class="sp-lt-spk"></div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
       ltSheet.querySelector('.sp-lt-done').addEventListener('click', ltClose);
       ltSheet.querySelectorAll('[data-lt-nudge]').forEach(b => b.addEventListener('click', () =>
         setListenerOffsetMs(Math.round(listenerOffsetSec * 1000) + Number(b.dataset.ltNudge))));
       ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.addEventListener('click', () => setListenerOffsetMs(Number(b.dataset.ltPreset))));
       ltSheet.querySelector('.sp-lt-reset').addEventListener('click', () => setListenerOffsetMs(0));
-      const det = ltSheet.querySelector('.sp-lt-detect');
+      const det = ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
       if (det) {
         det.addEventListener('click', () => ltDetect());
         if (ltDetectBusy) det.disabled = true;
@@ -4350,6 +4815,29 @@
           ltDetectMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
         });
       }
+      const chb = ltSheet.querySelector('.sp-lt-chirp');
+      if (chb) {
+        chb.addEventListener('click', () => ltChirp());
+        if (ltDetectBusy) chb.disabled = true;
+        const cm = ltSheet.querySelector('.sp-lt-chirp-msg');
+        if (ltChirpLast) cm.innerHTML = ltChirpLast;
+        cm.addEventListener('click', (e) => {
+          const u = e.target.closest('.sp-lt-undo');
+          if (!u) return;
+          setListenerOffsetMs(Number(u.dataset.prev) || 0);
+          ltChirpMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
+        });
+        const rep = ltSheet.querySelector('.sp-lt-chirp-report');
+        if (rep && ltChirpReport) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
+        const copyBtn = ltSheet.querySelector('.sp-lt-chirp-copy');
+        if (copyBtn) copyBtn.addEventListener('click', (e) => {
+          const ta = rep.querySelector('textarea');
+          const done = () => { e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy report'; }, 1500); };
+          try { navigator.clipboard.writeText(ta.value).then(done, () => { ta.select(); document.execCommand('copy'); done(); }); }
+          catch (_) { ta.select(); try { document.execCommand('copy'); done(); } catch (__) {} }
+        });
+      }
+      ltSpkBind();
       ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
       document.body.appendChild(ltBackdrop);
       document.body.appendChild(ltSheet);
@@ -4524,6 +5012,9 @@
         // a user gesture on iOS, which would break the resume-on-restart
         // flow.
         try { stopAudio(); } catch {}
+        // Stay awake for a while (a short stop between shows), then let
+        // the phone sleep.
+        try { scheduleKeepAwakeStop(); } catch {}
 
         // Hide the player content. notPlayingMsg has flex:1 so it takes
         // the textCol's place. Close (×) stays visible.
@@ -4546,6 +5037,7 @@
         minBtn.style.display = '';
         if (ltBtn) ltBtn.style.display = '';
         panel.classList.remove('sp-not-playing');
+        try { setKeepAwake(!userPaused); } catch {}
         // If the user has the panel open when the show resumes, get audio
         // going. If audioCtx already exists (panel was opened during a
         // prior playing window), a syncOnce() picks up the new track.
@@ -4642,6 +5134,162 @@
     let _pendingGestureAudioCtx = null;
     let gainNode = null;
     let isMuted = false;
+
+    // ---- Keep the page awake with the screen off (Android) ----
+    // Chrome slows or pauses the code of a page you can't see once the tab
+    // stops playing sound, and the silent gap between songs counts as not
+    // playing. The code that starts the next song then doesn't run until
+    // the screen is turned back on. The -80 dBFS keep-alive level below
+    // (which keeps the speaker stream open) is under the level Chrome counts
+    // as sound (about -72 dBFS), so while the player is open and not paused
+    // the same constant level is raised to -60 dBFS: still a steady DC level
+    // no speaker can reproduce, but enough for Chrome to keep the tab
+    // running. It drops back to -80 dBFS on Pause, and 10 minutes after the
+    // show stops, so a phone left on the page can sleep.
+    // ?keepawake=0 turns this off; ?keepawake=1 turns it on off Android.
+    const SP_KEEPALIVE_QUIET = 0.0001;  // -80 dBFS
+    const SP_KEEPALIVE_AWAKE = 0.001;   // -60 dBFS
+    const SP_KEEPAWAKE_AFTER_STOP_MS = 10 * 60 * 1000;
+    let keepAliveSrc = null;
+    let keepAwakeStopTimer = null;
+    function spKeepAwakeOn() {
+      let q = null;
+      try { q = new URLSearchParams(window.location.search).get('keepawake'); } catch (_) {}
+      if (q === '0') return false;
+      if (q === '1') return true;
+      return /Android/i.test(navigator.userAgent || '');
+    }
+    function setKeepAwake(on) {
+      if (keepAwakeStopTimer) { clearTimeout(keepAwakeStopTimer); keepAwakeStopTimer = null; }
+      try { if (on) spAnchorPlay(); else spAnchorPause(); } catch (_) {}
+      if (!keepAliveSrc || !audioCtx) return;
+      const level = (on && spKeepAwakeOn()) ? SP_KEEPALIVE_AWAKE : SP_KEEPALIVE_QUIET;
+      // A short ramp, so the level change can't click on analog outputs.
+      try { keepAliveSrc.offset.setTargetAtTime(level, audioCtx.currentTime, 0.05); }
+      catch (_) { try { keepAliveSrc.offset.value = level; } catch (_) {} }
+      try { if (spVerbose) console.log('[ShowPilot] keep awake:', level === SP_KEEPALIVE_AWAKE ? 'on (-60 dBFS)' : 'off (-80 dBFS)'); } catch (_) {}
+    }
+    // Let the phone sleep if the show stays stopped.
+    function scheduleKeepAwakeStop() {
+      if (keepAwakeStopTimer) clearTimeout(keepAwakeStopTimer);
+      keepAwakeStopTimer = setTimeout(() => {
+        keepAwakeStopTimer = null;
+        setKeepAwake(false);
+      }, SP_KEEPAWAKE_AFTER_STOP_MS);
+    }
+
+    // ---- Media Session: notification and lock-screen controls ----
+    // Browsers only show the media notification and lock-screen controls
+    // for a playing <audio>/<video> element. The player's sound comes from
+    // Web Audio, which doesn't count, so while listening a looping <audio>
+    // element of pure silence plays alongside it (the "anchor") and
+    // navigator.mediaSession carries the song's title, artist and cover,
+    // plus Play and Pause. The anchor carries no music, so sync is
+    // unchanged. It follows the keep-awake state: playing while listening,
+    // paused on Pause and 10 minutes after the show stops.
+    // On by default where the browser has Media Session, except iPhone and
+    // iPad for now (not tested there). ?mediasession=0 turns it off;
+    // ?mediasession=1 turns it on anywhere.
+    let spAnchor = null;
+    let spAnchorUrl = null;
+    let spMsReady = false;
+    function spMediaSessionOn() {
+      let q = null;
+      try { q = new URLSearchParams(window.location.search).get('mediasession'); } catch (_) {}
+      if (q === '0') return false;
+      const has = ('mediaSession' in navigator) && typeof Audio !== 'undefined';
+      if (q === '1') return has;
+      const ua = navigator.userAgent || '';
+      const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      return has && !ios;
+    }
+    // 10 s of 16-bit mono silence as a WAV, made once.
+    function spSilentWavUrl() {
+      if (spAnchorUrl) return spAnchorUrl;
+      const sr = 8000, n = sr * 10;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+      str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, n * 2, true);
+      spAnchorUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+      return spAnchorUrl;
+    }
+    // Pause from the notification / lock screen. Between songs nothing is
+    // playing, so the Pause button's own test would read it as Play; set
+    // the paused state directly instead.
+    function spPauseFromMediaSession() {
+      if (userPaused) { spAnchorPause(); return; }
+      if (currentSource || (htmlAudio && !htmlAudio.paused)) { playBtn.onclick(); return; }
+      userPaused = true;
+      trackChangeAt = 0;
+      setPlayIcon(false);
+      statusEl.textContent = _pt('Paused');
+      setKeepAwake(false);
+    }
+    function spSetupMediaSession() {
+      if (spMsReady) return;
+      spMsReady = true;
+      const set = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch (_) {} };
+      set('play', () => { if (userPaused) playBtn.onclick(); else spAnchorPlay(); });
+      set('pause', () => spPauseFromMediaSession());
+      // A live show: no seeking or skipping from the phone.
+      ['seekbackward', 'seekforward', 'seekto', 'previoustrack', 'nexttrack'].forEach((a) => set(a, null));
+    }
+    // Start (or keep) the anchor playing. The first start has to be inside a
+    // tap (the Listen button or Play); later starts are allowed because the
+    // page has been tapped.
+    function spAnchorPlay() {
+      if (!spMediaSessionOn() || isAppMode()) return;
+      try {
+        if (!spAnchor) {
+          spAnchor = new Audio();
+          spAnchor.loop = true;
+          spAnchor.preload = 'auto';
+          spAnchor.setAttribute('playsinline', '');
+          spAnchor.src = spSilentWavUrl();
+        }
+        if (spAnchor.paused) {
+          const p = spAnchor.play();
+          if (p && p.catch) p.catch((e) => { try { if (spVerbose) console.log('[ShowPilot] media session anchor:', e && e.name); } catch (_) {} });
+        }
+      } catch (_) {}
+      spSetupMediaSession();
+      try { navigator.mediaSession.playbackState = 'playing'; } catch (_) {}
+    }
+    function spAnchorPause() {
+      try { if (spAnchor && !spAnchor.paused) spAnchor.pause(); } catch (_) {}
+      if (spMsReady) { try { navigator.mediaSession.playbackState = 'paused'; } catch (_) {} }
+    }
+    // Player closed: stop and clear the notification.
+    function spAnchorStop() {
+      spAnchorPause();
+      if (spMsReady) {
+        try { navigator.mediaSession.metadata = null; } catch (_) {}
+        try { navigator.mediaSession.playbackState = 'none'; } catch (_) {}
+        try { if (navigator.mediaSession.setPositionState) navigator.mediaSession.setPositionState(); } catch (_) {}
+      }
+    }
+    // Song details for the notification. With a length, the notification's
+    // progress bar follows the song instead of the 10 s anchor.
+    function spUpdateMediaMetadata(title, artist, imageUrl, durationSec, positionSec) {
+      if (!spMsReady || typeof MediaMetadata === 'undefined') return;
+      try {
+        const artwork = imageUrl ? [{ src: new URL(imageUrl, window.location.href).href }] : [];
+        navigator.mediaSession.metadata = new MediaMetadata({ title: title || '', artist: artist || '', album: document.title || '', artwork });
+      } catch (_) {}
+      try {
+        if (!navigator.mediaSession.setPositionState) return;
+        if (durationSec > 0) {
+          const pos = Math.min(durationSec, Math.max(0, positionSec || 0));
+          navigator.mediaSession.setPositionState({ duration: durationSec, playbackRate: 1, position: pos });
+        } else {
+          navigator.mediaSession.setPositionState();
+        }
+      } catch (_) {}
+    }
     let currentBuffer = null;     // AudioBuffer of currently-playing track
     let currentSource = null;     // AudioBufferSourceNode of currently playing
     let currentSequence = null;
@@ -5060,7 +5708,7 @@
           measuredDelayMs: outDelayMs,
           rawTsGapMs: ts && ts.contextTime > 0 ? +((ctx.currentTime - ts.contextTime) * 1000).toFixed(1) : null,
           rawPerfAgeMs: ts && ts.performanceTime > 0 ? +(performance.now() - ts.performanceTime).toFixed(1) : null,
-          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', keepAlive: spFreshStreamOn(), state: ctx.state,
+          sampleRate: ctx.sampleRate, latencyHint: hint || (spAudioAlt === 'b' ? '12ms' : spAudioAlt === 'a' ? 'interactive' : 'default'), freshStream: spAudioAlt ? 'on (' + spAudioAlt + ')' : 'off', keepAlive: spFreshStreamOn(), keepAwake: spKeepAwakeOn(), state: ctx.state,
         });
       };
       tick();
@@ -5386,7 +6034,9 @@
 
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
-      let base = (l > 0 && l < 0.4) ? l : 0;
+      // Test build: cap raised from 0.4 to 0.8 s (same as the measured path);
+      // car stereos and some Bluetooth speakers really do report 400+ ms.
+      let base = (l > 0 && l < 0.8) ? l : 0;
       if (!outTimingForcedReported) {
         const m = measuredOutputDelaySec();
         if (m !== null) base = m;
@@ -5587,6 +6237,8 @@
       if ('audioSession' in navigator) {
         try { navigator.audioSession.type = 'playback'; } catch {}
       }
+      // Media Session anchor: an <audio> element must start inside a tap.
+      try { spAnchorPlay(); } catch {}
       // If the show isn't currently playing, there's no audio to gate on.
       // Skip the location prompt entirely — just open the panel so the
       // user sees the "Show isn't playing" message. We'll ask for location
@@ -5652,12 +6304,15 @@
       if (!userPaused && (currentSource || (htmlAudio && !htmlAudio.paused))) {
         userPaused = true;
         stopAudio();
+        setKeepAwake(false); // paused on purpose: let the phone sleep
         trackChangeAt = 0;
         setPlayIcon(false);
         statusEl.textContent = _pt('Paused');
         return;
       }
       userPaused = false;
+      setKeepAwake(true);
+      if (_showNotPlaying) scheduleKeepAwakeStop();
       // Resume inside the tap so iOS allows it.
       if (audioCtx && audioCtx.state === 'suspended') {
         try { audioCtx.resume().catch(() => {}); } catch {}
@@ -5858,14 +6513,27 @@
         // report, and the switch makes the audio clock jump. A tiny constant
         // level (-80 dBFS DC, which speakers can't reproduce) means the
         // output is never silent, so the stream stays up all show.
-        if (spFreshStreamOn() && audioCtx.createConstantSource) {
+        // The same source keeps the page awake with the screen off while
+        // listening (see setKeepAwake). An earlier one is stopped first, so
+        // a second startup() on the same context doesn't stack levels.
+        if (keepAliveSrc) {
+          try { keepAliveSrc.stop(); } catch (_) {}
+          try { keepAliveSrc.disconnect(); } catch (_) {}
+          keepAliveSrc = null;
+        }
+        if ((spFreshStreamOn() || spKeepAwakeOn()) && audioCtx.createConstantSource) {
           try {
             const keepAlive = audioCtx.createConstantSource();
-            keepAlive.offset.value = 0.0001;
+            keepAlive.offset.value = SP_KEEPALIVE_QUIET;
             keepAlive.connect(audioCtx.destination);
             keepAlive.start();
+            keepAliveSrc = keepAlive;
           } catch (_) {}
         }
+        // Opened before the show starts: stay awake for a while so the
+        // first song can start with the screen off.
+        setKeepAwake(!userPaused);
+        if (_showNotPlaying) scheduleKeepAwakeStop();
         // v0.33.203: log device-driven state changes (e.g. Android pausing
         // audio on a Bluetooth route/focus change) and try to recover.
         try {
@@ -6227,6 +6895,9 @@
       }
 
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
+      if (keepAwakeStopTimer) { clearTimeout(keepAwakeStopTimer); keepAwakeStopTimer = null; }
+      keepAliveSrc = null;
+      try { spAnchorStop(); } catch (_) {}
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       rateTrim = 0; rateTrimLastCtx = 0;
       currentBuffer = null;
@@ -6452,9 +7123,20 @@
             setupMarquee(titleEl, titleWrap);
             setupMarquee(artistEl, artistWrap);
           }
+          spUpdateMediaMetadata(titleEl.textContent, artistEl.textContent, art, 0, 0);
           // Song changes are noticed by name; forget the last one so a song
           // with audio after this one loads normally.
           if (data.playing && data.sequenceName) { currentSequence = null; }
+          // A sequence without audio (a gap between songs): download the next
+          // song now so it starts on time, not seconds late (v0.33.284-master.7+).
+          if (data.playing && data.nextStreamUrl) {
+            let nk = data.nextStreamUrl;
+            if (selectedLang && selectedLang !== 'default') {
+              nk += (nk.includes('?') ? '&' : '?') + 'lang=' + encodeURIComponent(selectedLang);
+            }
+            if (nk !== nextStreamKey) { nextStreamKey = nk; pruneBufferCache(); }
+            prefetchAudio(nk);
+          }
           setupMarquee(titleEl, titleWrap);
           setupMarquee(artistEl, artistWrap);
           statusEl.textContent = '';
@@ -6587,6 +7269,7 @@
       setupMarquee(titleEl, titleWrap);
       setupMarquee(artistEl, artistWrap);
       setCover(data.imageUrl);
+      spUpdateMediaMetadata(titleEl.textContent, artistEl.textContent, data.imageUrl, trackDuration, data.elapsedSec);
       // v0.33.246: listener paused — show the new song's details but don't
       // load or play it. Play rebuilds from scratch (currentSequence reset).
       if (userPaused) {

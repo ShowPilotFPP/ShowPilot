@@ -72,12 +72,26 @@ async function buildStatusResponse({ force }) {
   const masterHead = onMaster ? await updater.readHeadSha() : null;
   const masterAvailable = !!(onMaster && masterCheck.master && masterCheck.master.head === masterHead &&
     (masterCheck.master.available || masterCheck.master.behindBy > 0));
-  const masterNotes = masterAvailable ? (masterCheck.master.changes || []).map((c) => {
+  const commitNote = (c) => {
     const first = String(c.message).split('\n')[0];
     const v = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\s*[—–-]/.exec(first);
     return parseReleaseNote({ tag: v ? v[1] : c.shortSha, body: c.message, url: 'https://github.com/' + updater.repoSlug() + '/commit/' + c.sha, publishedAt: c.date });
-  }).filter(n => n.title || n.items.length).slice(0, 15) : null;
-  const newList = masterNotes || (updateAvailable ? whatsNew(notes, current, latestTag) : recentNotes(notes, current));
+  };
+  const masterNotes = masterAvailable ? (masterCheck.master.changes || []).map(commitNote)
+    .filter(n => n.title || n.items.length).slice(0, 15) : null;
+  // Up to date on Master (v0.33.282-master.2): the Master updates this
+  // install has since the last release come first (they have no GitHub
+  // Release, so the release notes alone showed the previous version), then
+  // the earlier releases.
+  let installedMaster = [];
+  if (onMaster && !masterAvailable && updater.isMasterVersion(current) && masterHead && Array.isArray(notes)) {
+    const base = notes.find(n => updater.compareVersions(n.tag, current) < 0);
+    const changes = base ? await updater.changesSince(base.tag, masterHead) : null;
+    installedMaster = (changes || []).map(commitNote)
+      .filter(n => /-master\.\d+$/.test(n.version) && (n.title || n.items.length)).slice(0, 15);
+  }
+  const newList = masterNotes || (updateAvailable ? whatsNew(notes, current, latestTag)
+    : installedMaster.concat(recentNotes(notes, current)));
 
   return {
     currentVersion: current,

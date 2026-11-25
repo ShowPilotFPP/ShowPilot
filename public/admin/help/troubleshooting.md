@@ -46,7 +46,7 @@ Full steps: [Connecting your show player](help:fpp-plugin).
 - **No Listen button on the viewer page:** check **Audio enabled** in [Settings › Audio](help:settings-audio). The button is also hidden while viewer control is **Off**; viewers need to reload the page after you turn it back on.
 - **The player says "Show is not playing"** or **"No audio for this sequence":** nothing is playing, or the current song has no audio file. Sync the plugin so ShowPilot has the file.
 - **"Audio is only available to listeners present at the show":** the distance gate is on and the viewer is outside the **Audio radius**. See [Phone audio, start to finish](help:phone-audio#5-distance-gate).
-- **Works on home Wi-Fi but not on cellular:** set the **Public base URL** in Settings › Audio, and make sure ShowPilot is reachable from the internet.
+- **Works on home Wi-Fi but not on cellular:** set the **Public web address** in [Settings › General](help:settings-general#public-web-address), and make sure ShowPilot is reachable from the internet.
 - **"Tap to resume audio":** the phone paused audio (a call, the screen locking). Tapping the player resumes it.
 - **Check the Audio Cache:** on the **Plugin** tab, **Cached files** should roughly match your songs. If it's empty, check **Audio enabled** and sync the plugin. **Clear All** forces a full re-upload on the next sync.
 

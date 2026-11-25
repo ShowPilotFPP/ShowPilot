@@ -1,6 +1,6 @@
 # Settings › General
 
-Settings that apply to your whole show, whichever viewer page template is active: your show's name, and whether this install is counted.
+Settings that apply to your whole show, whichever viewer page template is active: your show's name, its public web address, and whether this install is counted.
 
 ## Show name
 
@@ -15,6 +15,18 @@ ShowPilot uses it:
 Changes save as soon as you leave the box. Viewers see the new name the next time their page loads.
 
 > **Tip:** Keep it short and recognizable. It's what people see in their browser tabs and history when they come back next night.
+
+## Public web address
+
+The full web address where people reach your show from the internet, for example `https://lights.example.com`. It must start with `https://`. It's the address of your viewer page, and ShowPilot uses it for:
+
+- the **Viewer QR code** on the Dashboard,
+- **phone audio** for listeners on cellular data or anywhere off your home network (people on your own network still use the faster direct path),
+- the **ShowPilot phone app**: the app reaches your show through it, and the app's directory checks it belongs to this ShowPilot before listing your show.
+
+Leave it blank if your ShowPilot isn't reachable from the internet. To set one up, see [Settings › Public Access](help:settings-public-access).
+
+> **Note:** Before v0.33.280 this was called **Public base URL** and lived in Settings › Audio. The saved address carried over; nothing to re-enter.
 
 ## Install count
 

@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const GROUPS = ['Show control', 'Safeguards', 'Songs & categories', 'Viewer page', 'Status', 'FPP', 'Layout'];
+  const GROUPS = ['Show control', 'Safeguards', 'Songs & categories', 'Viewer page', 'Visitors', 'Status', 'FPP', 'Layout'];
 
   // FPP tiles read the FPP Monitor's answer (ctx.fpp); its view is null
   // until the show player has reported.
@@ -26,6 +26,8 @@
   // True when a layout uses any FPP tile, so the Cockpit only asks for FPP
   // data when it shows some.
   const usesFpp = (layout) => (layout || []).some((t) => /^fpp[A-Z]/.test(String(t && t.id)));
+  // Same for the Visitor Messages tile: messages are only fetched while it's on the Cockpit.
+  const usesMessages = (layout) => (layout || []).some((t) => t && t.id === 'messages');
 
   const cfgSwitch = (id, group, label, key, hint) =>
     ({ id, group, label, kind: 'switch', key, hint, size: 1 });
@@ -72,6 +74,12 @@
         ['bats', 'Bats'], ['confetti', 'Confetti'], ['petals', 'Petals'], ['embers', 'Embers'], ['bubbles', 'Bubbles'], ['rain', 'Rain']] },
     cfgSwitch('progressBar', 'Viewer page', 'Song progress bar', 'viewer_progress_bar'),
     cfgSwitch('translation', 'Viewer page', 'Translation', 'translation_enabled'),
+
+    // ---- Visitors (v0.33.284-master.6) ----
+    // Visitor messages, newest first, with Mark read / Delete (the same
+    // GET /messages, POST /messages/read and /messages/delete the admin's
+    // Messages tab uses). Drawn by messagesHtml() in cockpit.html.
+    { id: 'messages', group: 'Visitors', label: 'Visitor messages', kind: 'messages', size: 2, hint: 'Read, mark read and delete messages from visitors' },
 
     // ---- Status (read-only) ----
     { id: 'sWatching', group: 'Status', label: 'Watching now', kind: 'status', size: 1, value: (c) => String(c.stats.activeViewers ?? 0) },
@@ -132,5 +140,5 @@
   // Layout ids that are copies of a repeatable tile ('spacer3' -> 'spacer').
   function baseId(id) { const m = /^(spacer)\d+$/.exec(String(id || '')); return m ? m[1] : id; }
 
-  window.SPTiles = { GROUPS, catalog, DEFAULT_LAYOUT, parseCategories, baseId, usesFpp };
+  window.SPTiles = { GROUPS, catalog, DEFAULT_LAYOUT, parseCategories, baseId, usesFpp, usesMessages };
 })();

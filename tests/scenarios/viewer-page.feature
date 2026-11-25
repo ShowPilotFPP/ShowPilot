@@ -118,7 +118,7 @@ Scenario: The Live player decorations are available and draw without errors
   And 6 seconds pass
   Then phone 1's player has the "newyear-live" decoration
 
-Scenario: Audio timing has Detect my delay (restored from the old beta)
+Scenario: Audio timing no longer has Detect my delay (turned off in v0.33.282)
   Given the show has songs "Halloween Lights" and "Alpha"
   And the setting "audio_gate_enabled" is off
   And the mode is Jukebox
@@ -126,4 +126,46 @@ Scenario: Audio timing has Detect my delay (restored from the old beta)
   When phone 1 opens the viewer page
   And phone 1 opens Listen on Phone
   And phone 1 opens Audio timing
-  Then phone 1 sees "Detect my delay"
+  Then phone 1 does not see "Detect my delay"
+
+Scenario: Beep calibration is off by default, but ?calibrate=1 turns it on for one phone
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page with ?calibrate=1
+  And phone 1 opens Listen on Phone
+  And phone 1 opens Audio timing
+  Then phone 1 sees "Calibrate with beeps"
+  When phone 2 opens the viewer page
+  And phone 2 opens Listen on Phone
+  And phone 2 opens Audio timing
+  Then phone 2 does not see "Calibrate with beeps"
+
+Scenario: The show owner's switch offers beep calibration to every phone
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the setting "listener_beep_calibration" is on
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page
+  And phone 1 opens Listen on Phone
+  And phone 1 opens Audio timing
+  Then phone 1 sees "Calibrate with beeps"
+  And phone 1 does not see "Copy report"
+
+Scenario: A listener saves a timing as "My car" and it is still there after a reload
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page
+  And phone 1 opens Listen on Phone
+  And phone 1 opens Audio timing
+  And phone 1 nudges the timing "later"
+  And phone 1 saves the timing as "My car"
+  Then phone 1 sees "Using My car"
+  When phone 1 reloads the page
+  And phone 1 opens Listen on Phone
+  And phone 1 opens Audio timing
+  Then phone 1 sees "My car +50 ms"

@@ -583,6 +583,17 @@
     .whats-new-item ul { margin: 0.4rem 0 0.2rem 1.1rem; padding: 0; font-size: 0.85rem; line-height: 1.45; }
     .whats-new-item li { margin: 0.2rem 0; }
     .whats-new-item code { font-size: 0.8rem; }
+    /* v0.33.282: earlier updates folded behind one button */
+    .whats-new-earlier { margin-top: 0.7rem; }
+    .whats-new-earlier > summary { list-style: none; display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); user-select: none; }
+    .whats-new-earlier > summary::-webkit-details-marker { display: none; }
+    .whats-new-earlier > summary:hover { color: var(--text); border-color: var(--text-muted); }
+    .whats-new-earlier > summary::before { content: '▸'; font-size: 0.75rem; }
+    .whats-new-earlier[open] > summary::before { content: '▾'; }
+    .whats-new-earlier .wn-earlier-hide, .whats-new-earlier[open] .wn-earlier-show { display: none; }
+    .whats-new-earlier[open] .wn-earlier-hide { display: inline; }
+    .whats-new-earlier-list { margin-top: 0.5rem; }
+    .whats-new-earlier-list .whats-new-item:first-child { border-top: 0; }
     .wn-kind { display: inline-block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; padding: 0 0.4rem; border-radius: 4px; vertical-align: 1px; white-space: nowrap; }
     .wn-bug-fix { background: rgba(239,68,68,0.15); color: #f87171; }
     .wn-feature-update { background: rgba(59,130,246,0.15); color: #60a5fa; }
@@ -1504,6 +1515,8 @@
     .seq-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
     .seq-dot.on { background: var(--status-success, #22c55e); box-shadow: 0 0 0 3px var(--status-success-soft, rgba(34,197,94,.18)); }
     .seq-dot.off { background: var(--status-danger, #ef4444); box-shadow: 0 0 0 3px var(--status-danger-soft, rgba(239,68,68,.18)); }
+    /* Lead-in / lead-out song: plays, audio for phones only, hidden from viewers. */
+    .seq-dot.audio { background: var(--status-info, #3b82f6); box-shadow: 0 0 0 3px var(--status-info-soft, rgba(59,130,246,.18)); }
     tr.seq-inactive td:not(.col-status):not(.col-check):not(.col-actions) { opacity: 0.6; }
     /* Narrow columns shrink to their content so the text columns get the room. */
     #sequencesTable th.col-tight, #sequencesTable td.col-tight { width: 1%; white-space: nowrap; }
@@ -2101,7 +2114,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.280-beta.4</span>
+        <span class="app-version">v0.33.285-beta.1</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2216,7 +2229,7 @@
             <div class="stat-value" id="statQueue">0</div>
           </div>
           <div class="stat s-purple">
-            <div class="stat-label">Sequences played</div>
+            <div class="stat-label">Played by viewers</div>
             <div class="stat-value" id="statPlayed">0</div>
           </div>
           <div class="stat">
@@ -2289,7 +2302,7 @@
         <div class="card" id="qrNoUrlCard" style="display:none;">
           <h2>Viewer QR Code</h2>
           <p class="muted" style="font-size: 0.85rem;">
-            Set your <strong>Public base URL</strong> in Settings → Audio to enable the QR code generator.
+            Set your <strong>Public web address</strong> in Settings → General to enable the QR code generator.
           </p>
         </div>
 
@@ -3576,6 +3589,20 @@
               </p>
             </div>
 
+            <div style="margin-top: 1.25rem;">
+              <label for="cfg_public_base_url">Public web address</label>
+              <input type="text" id="cfg_public_base_url"
+                     placeholder="https://yourdomain.com"
+                     onchange="saveSetting('public_base_url', this.value.trim())"
+                     style="width: 100%; max-width: 400px;" />
+              <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
+                The full web address where people reach your show from the internet, starting with https://.
+                It's your viewer page's address, and ShowPilot uses it for the Viewer QR code, for phone audio
+                away from your home network, and for the ShowPilot phone app. Leave it blank if your ShowPilot
+                isn't reachable from the internet.
+              </p>
+            </div>
+
             <div id="installCountSection" style="margin-top: 1.5rem;">
               <h3>Install count</h3>
               <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
@@ -3642,6 +3669,11 @@
               <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide song from the request list after it plays</label>
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">The song that's playing drops off the viewer's request list until the next song starts. For a longer wait, use the song cooldown below.</p>
+            <div class="row" style="margin-top: 0.5rem;">
+              <input type="checkbox" id="cfg_jukebox_viewer_cancel" onchange="saveSetting('jukebox_viewer_cancel', this.checked ? 1 : 0)" />
+              <label for="cfg_jukebox_viewer_cancel" style="margin: 0;">Let visitors remove their own requests</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Each visitor gets a Remove button on their own requests in the queue list, until the request is sent to the show player. Not in Listen Only. To style it yourself, the button is <code>.queue-cancel</code> and the visitor's own queue entries have the class <code>showpilot-mine</code>; a <code>&lt;div id="cancelSuccessful"&gt;</code> on your page is used for the "removed" message.</p>
 
             <!-- Song cooldown (v0.33.258, tiered: show-wide → category → song; GitHub issue #41) -->
             <div class="cooldown-box">
@@ -3944,6 +3976,17 @@
               Suggests playing the show on a second phone's speaker and adjusting until the two sound together.
               For step-by-step help on the viewer page itself, add the <b>Audio Sync Help</b> block in the Visual Designer.
             </p>
+            <div class="row" style="margin-left: 1.5rem;">
+              <input type="checkbox" id="cfg_listener_beep_calibration"
+                     onchange="saveSetting('listener_beep_calibration', this.checked ? 1 : 0)" />
+              <label for="cfg_listener_beep_calibration" style="margin: 0;">Let listeners calibrate with beeps <span class="muted" style="font-size: 0.8rem;">(beta)</span></label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 3rem;">
+              Adds a "Calibrate with beeps" button to the timing sheet. The player pauses the song, plays a few short beeps
+              and listens through the phone's own microphone to measure how late the car, Bluetooth speaker or headphones play,
+              then sets the timing. Listeners can save the result under a name (like "My car") and switch between saved speakers.
+              Needs the microphone and the https:// page. Tested on Android (Bluetooth speakers and Android Auto); iPhone not yet confirmed.
+            </p>
 
             <div id="cfg_audio_subsection" style="margin-top: 1.5rem;">
             <h3>Audio distance gate <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(copyright safety)</span></h3>
@@ -4001,22 +4044,11 @@
             </div>
 
             <h3 style="margin-top: 1.5rem;">External audio access</h3>
-            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-              Listeners on cellular or away from your home network can't reach your local IP.
-              Set your public domain so the player automatically falls back to it for external listeners.
+            <p class="muted" style="font-size: 0.85rem; margin: 0;">
+              Listeners on cellular or away from your home network get the music from your
+              <strong>Public web address</strong> (<a href="#" class="sp-page-link" onclick="switchTab('general'); return false;">Settings &rarr; General</a>).
               Local listeners still use the direct path for best performance.
             </p>
-            <div>
-              <label for="cfg_public_base_url">Public base URL (your domain)</label>
-              <input type="text" id="cfg_public_base_url"
-                     placeholder="https://yourdomain.com"
-                     onchange="saveSetting('public_base_url', this.value.trim())"
-                     style="width: 100%; max-width: 400px;" />
-              <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
-                The full URL where this ShowPilot instance is publicly reachable.
-                Leave blank to disable external access.
-              </p>
-            </div>
           </div>
 
           <!-- APP — PWA install controls for admin & viewer -->
@@ -4133,7 +4165,7 @@
             </div>
 
             <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;">
-              It also needs a Public base URL that starts with https:// (<a href="#" class="sp-page-link" onclick="switchTab('audio'); return false;">Settings &rarr; Audio</a> &rarr; External audio access):
+              It also needs a Public web address that starts with https:// (<a href="#" class="sp-page-link" onclick="switchTab('general'); return false;">Settings &rarr; General</a>):
               phones on cellular reach your show through it. The app's main list shows your show to phones within about a mile of it,
               the same for every show; the Directory of Shows lets people search farther.
             </p>
@@ -5905,14 +5937,18 @@
             ? (isCurrent(data.whatsNew[0]) ? 'What\'s new in your version (v' + escapeHtml(data.whatsNew[0].version) + ')' : 'Recent updates')
             : 'What\'s new' + (many ? ' since v' + escapeHtml(data.currentVersion) + ' (' + data.whatsNew.length + ' updates)' : ' in v' + escapeHtml(data.whatsNew[0].version));
           statusHtml += `<div class="whats-new"><div class="whats-new-head">${head}</div>`;
+          // Up to date (v0.33.282): earlier updates stay behind one button
+          // so the page only shows your version's notes until asked.
+          const foldEarlier = installed && data.whatsNew.length > 1;
           data.whatsNew.forEach((n, i) => {
-            if (installed && i === 1) statusHtml += `<div class="whats-new-sub">Earlier updates</div>`;
+            if (foldEarlier && i === 1) statusHtml += `<details class="whats-new-earlier"><summary><span class="wn-earlier-show">Show earlier updates (${data.whatsNew.length - 1})</span><span class="wn-earlier-hide">Hide earlier updates</span></summary><div class="whats-new-earlier-list">`;
             const when = n.publishedAt ? new Date(n.publishedAt).toLocaleDateString() : '';
             const body = (n.items && n.items.length)
               ? '<ul>' + n.items.map(x => '<li>' + fmt(x) + '</li>').join('') + '</ul>'
               : '';
             statusHtml += `<details class="whats-new-item"${i === 0 ? ' open' : ''}><summary><strong>v${escapeHtml(n.version)}</strong>${n.title ? ' — ' + fmt(n.title) : ''}${when ? ' <span class="muted">· ' + escapeHtml(when) + '</span>' : ''}</summary>${body}</details>`;
           });
+          if (foldEarlier) statusHtml += `</div></details>`;
           statusHtml += `</div>`;
         }
 
@@ -6950,6 +6986,7 @@
       // (older installs that haven't migrated yet).
       setChk('cfg_block_request_currently_playing', c.block_request_currently_playing == null ? 1 : c.block_request_currently_playing);
       setChk('cfg_block_request_next_up',          c.block_request_next_up          == null ? 1 : c.block_request_next_up);
+      setChk('cfg_jukebox_viewer_cancel', c.jukebox_viewer_cancel === 1);
       setChk('cfg_block_vote_currently_playing',   c.block_vote_currently_playing   == null ? 1 : c.block_vote_currently_playing);
       setChk('cfg_block_vote_next_up',             c.block_vote_next_up             == null ? 1 : c.block_vote_next_up);
       setChk('cfg_prevent_multiple_votes', c.prevent_multiple_votes);
@@ -7002,6 +7039,7 @@
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
       setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);
       setChk('cfg_listener_timing_tip', c.listener_timing_tip !== 0);
+      setChk('cfg_listener_beep_calibration', c.listener_beep_calibration === 1);
       setChk('cfg_player_tall_layout', c.player_tall_layout === 1);
 
       setChk('cfg_pwa_admin_enabled', c.pwa_admin_enabled);
@@ -9093,9 +9131,12 @@
       sequencesCache = r.data;
       { const h = document.getElementById('seqCooldownUnitHead'); if (h) h.textContent = cooldownUnit === 'songs' ? '(songs)' : '(min)'; }
       {
-        const inactive = r.data.filter(s => s.active === 0).length;
-        document.getElementById('sequenceCount').textContent = inactive
-          ? `(${r.data.length - inactive} active, ${inactive} inactive)` : `(${r.data.length})`;
+        const inactive = r.data.filter(s => s.active === 0 && !s.audio_only).length;
+        const leadSongs = r.data.filter(s => s.audio_only).length;
+        const parts = [`${r.data.length - inactive - leadSongs} active`];
+        if (leadSongs) parts.push(`${leadSongs} lead-in/out`);
+        if (inactive) parts.push(`${inactive} inactive`);
+        document.getElementById('sequenceCount').textContent = parts.length > 1 ? `(${parts.join(', ')})` : `(${r.data.length})`;
       }
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
@@ -9154,20 +9195,26 @@
       const art = seq.image_url
         ? `<div class="art-wrap" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Change cover art"><img class="art-thumb" src="${escapeAttr(seq.image_url)}" alt="" /><span class="art-edit" aria-hidden="true">✎</span></div>`
         : `<div class="art-placeholder" tabindex="0" onclick="promptImageUrl(${seq.id})" onkeydown="if(event.key==='Enter')promptImageUrl(${seq.id})" title="Add cover art">+</div>`;
+      const leadSong = !!seq.audio_only;
       const inactive = seq.active === 0;
       if (inactive) tr.classList.add('seq-inactive');
+      const dot = leadSong
+        ? { cls: 'audio', label: 'Lead-in or lead-out', title: 'Lead-in or lead-out song: it plays in your show, and phones listening get its audio, but viewers can\'t see, vote for or request it.' }
+        : inactive
+          ? { cls: 'off', label: 'Inactive', title: 'Inactive — no longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again when the playlist lists it.' }
+          : { cls: 'on', label: 'Active', title: 'Active — in your show player\'s playlist' };
 
       tr.innerHTML = `
         <td class="col-tight col-check"><input type="checkbox" class="seq-row-check" data-seq-id="${seq.id}" ${_seqSelection.has(seq.id) ? 'checked' : ''} onchange="onSeqRowCheckChange(this)" /></td>
         <td class="col-tight drag-handle" title="Drag to reorder">⋮⋮</td>
-        <td class="col-tight col-status" style="text-align:center;"><span class="seq-dot ${inactive ? 'off' : 'on'}" role="img"
-              aria-label="${inactive ? 'Inactive' : 'Active'}"
-              title="${inactive ? 'Inactive — no longer in your show player\'s playlist. Kept with all its details and hidden from viewers; it becomes active again when the playlist lists it.' : 'Active — in your show player\'s playlist'}"></span></td>
+        <td class="col-tight col-status" style="text-align:center;"><span class="seq-dot ${dot.cls}" role="img"
+              aria-label="${dot.label}"
+              title="${dot.title}"></span></td>
         <td class="col-tight col-art">${art}</td>
         <td class="col-display"><span class="editable" contenteditable="true" title="${escapeAttr(seq.display_name)}"
                   onblur="updateSeqField(${seq.id}, 'display_name', this.innerText)">${escapeHtml(seq.display_name)}</span></td>
         <td class="col-seqname"><code title="${escapeAttr(seq.name)}">${escapeHtml(seq.name)}</code></td>
-        <td class="col-tight col-index" title="${inactive ? 'Not in the current playlist' : 'Position in your show player\'s playlist'}">${!inactive && seq.sort_order ? seq.sort_order : '—'}</td>
+        <td class="col-tight col-index" title="${leadSong ? 'Lead-in or lead-out: not offered to viewers' : inactive ? 'Not in the current playlist' : 'Position in your show player\'s playlist'}">${!inactive && seq.sort_order ? seq.sort_order : '—'}</td>
         <td class="col-artist"><span class="editable" contenteditable="true" title="${escapeAttr(seq.artist || '')}"
                   onblur="updateSeqField(${seq.id}, 'artist', this.innerText)">${escapeHtml(seq.artist || '')}</span></td>
         <td class="col-category"><div class="seq-cat-wrap"><select class="seq-category-select" style="padding: 0.3rem 0.4rem; font-size: 0.85rem;" title="${escapeAttr(seq.category || '')}"></select>${seq.category ? '<button class="secondary seq-cat-filter" title="Show only this category" aria-label="Filter by this category">' + SEQ_ICONS.filter + '</button>' : ''}</div></td>
@@ -9504,7 +9551,7 @@
 
     function seqMatchesFilter(seq, q) {
       if (_seqFilter === 'active' && seq.active === 0) return false;
-      if (_seqFilter === 'inactive' && seq.active !== 0) return false;
+      if (_seqFilter === 'inactive' && (seq.active !== 0 || seq.audio_only)) return false;
       if (_seqFilter === 'hidden' && seq.visible) return false;
       if (_seqCategoryFilter === SEQ_UNCATEGORIZED) { if (String(seq.category || '').trim()) return false; }
       else if (_seqCategoryFilter && String(seq.category || '').trim().toLowerCase() !== _seqCategoryFilter.trim().toLowerCase()) return false;

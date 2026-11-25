@@ -68,7 +68,7 @@ Flip the **Viewer control** switch in the top bar (or on the Dashboard) to on. Y
 
 ## 8. Tell people where to find you
 
-- The **Viewer QR Code** on the Dashboard gives visitors a code to scan. It appears once you've entered your **Public base URL** in [Settings › Audio](help:settings-audio).
+- The **Viewer QR Code** on the Dashboard gives visitors a code to scan. It appears once you've entered your **Public web address** in [Settings › General](help:settings-general#public-web-address).
 - To let visitors hear the music on their phones, follow [Phone audio, start to finish](help:phone-audio).
 
 If something isn't working, see [Troubleshooting](help:troubleshooting).

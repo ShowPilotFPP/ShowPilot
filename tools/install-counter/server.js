@@ -27,6 +27,7 @@ const crypto = require('crypto');
 const express = require('express');
 const Database = require('better-sqlite3');
 const { createDirectory } = require('./directory');
+const { createAdminAuth } = require('./admin-auth');
 
 const PORT = Number(process.env.PORT || 3040);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -200,6 +201,19 @@ app.get('/api/live', requireKey, (req, res) => {
   liveClients.add(res);
   req.on('close', () => liveClients.delete(res));
 });
+// ------------------------------------------------------------
+// Directory admin: username + password (admin-auth.js). Off until a user
+// is added on the server with `node admin-user.js add <name>`.
+// ------------------------------------------------------------
+const adminAuth = createAdminAuth(db);
+app.use('/api/admin', adminAuth.router);
+app.use('/api/admin', adminAuth.requireSession, directory.adminRouter);
+app.get('/admin', (req, res) => {
+  res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
+  if (!adminAuth.hasUsers()) return res.status(404).type('text').send('The admin page is off until an admin user exists. On the server, in this app\'s folder, run:  node admin-user.js add <username>');
+  res.sendFile(path.join(__dirname, 'admin', 'index.html'));
+});
+
 app.get('/', requireKey, (req, res) => {
   res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'public', 'index.html'));
 });

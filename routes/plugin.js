@@ -971,12 +971,14 @@ router.post('/position', (req, res) => {
 // POST /api/plugin/next
 // ============================================================
 router.post('/next', (req, res) => {
-  const { sequence, exact } = req.body || {};
+  const { sequence, exact, startsInMs, rttMs } = req.body || {};
   const name = (sequence || '').trim();
 
   // exact: the plugin/Player read this from the live play order (shuffle
   // included), so an empty value is the truth, not "unknown".
   setNextScheduled(name || null, exact === true);
+  // When it starts (plugin v0.14.30+), so phones can start it on time.
+  require('../lib/next-start').setNextStart(name, startsInMs, rttMs);
 
   // Interrupt-mode detection: cfg.interrupt_schedule may not be set when the
   // FPP plugin manages its own interrupt flag independently. Instead, detect
@@ -1122,9 +1124,19 @@ router.get('/show-buttons', (req, res) => {
 // active with everything intact. v0.33.236–246 deleted them instead, and
 // before that they stayed on the viewer page. An empty list never changes
 // anything (a playlist FPP couldn't read is far more likely than an empty show).
+//
+// audioOnly (v0.33.284-master.9): optional second list, same item shape, of
+// songs that play but aren't offered to viewers (the playlist's lead-in and
+// lead-out, e.g. an intro). They are stored with audio_only = 1 and kept
+// inactive, so viewers never see, vote for or request them, while phones get
+// their audio (Listen on Phone looks songs up by name). A name that is also
+// in `sequences` is a normal song. The answer's `audioOnly` count tells the
+// show player this server takes them; older servers ignore the field and
+// don't answer it, so show players only send their audio when it's there.
 // ============================================================
 router.post('/sync-sequences', (req, res) => {
   const { playlistName, sequences } = req.body || {};
+  const audioOnlyIn = Array.isArray((req.body || {}).audioOnly) ? req.body.audioOnly : [];
 
   if (!Array.isArray(sequences)) {
     return res.status(400).json({ error: 'sequences must be an array' });
@@ -1186,7 +1198,7 @@ router.post('/sync-sequences', (req, res) => {
     // v0.33.256: a song stored under a garbled name ("Idina Menzel â€“ …")
     // that the show player now sends correctly keeps its row (display name,
     // artist, cover, category, history) instead of becoming a new song.
-    renamed = require('../lib/mojibake').adoptRenamed(db, items.map((s) => s && s.name));
+    renamed = require('../lib/mojibake').adoptRenamed(db, [...items, ...audioOnlyIn].map((s) => s && s.name));
     items.forEach((seq, index) => {
       const name = String(seq.name || '').trim();
       if (!name) return;
@@ -1209,8 +1221,42 @@ router.post('/sync-sequences', (req, res) => {
       });
       inserted++;
     });
+    // Lead-in/lead-out songs: audio for phones only. New rows start inactive;
+    // a song that was in the main playlist before is made inactive by the
+    // sweep below (which also clears its votes and queued requests).
+    for (const seq of audioOnlyIn) {
+      const name = String((seq && seq.name) || '').trim();
+      if (!name || firstAt.has(name) || audioOnlyNames.has(name)) continue;
+      audioOnlyNames.add(name);
+      upsertAudioOnly.run({
+        name,
+        display_name: String(seq.displayName || toDisplayName(name)).trim(),
+        media_name: String(seq.mediaName || '').trim() || null,
+        duration_seconds: Number.isFinite(seq.durationSeconds) ? seq.durationSeconds : null,
+      });
+    }
   });
+  // sort_order 0: not a playlist position (viewer requests carry it as a hint).
+  const upsertAudioOnly = db.prepare(`
+    INSERT INTO sequences (name, display_name, media_name, duration_seconds, visible, votable, jukeboxable, sort_order, display_order, active, audio_only)
+    VALUES (@name, @display_name, @media_name, @duration_seconds, 1, 1, 1, 0, 0, 0, 1)
+    ON CONFLICT(name) DO UPDATE SET
+      audio_only = 1,
+      media_name = excluded.media_name,
+      duration_seconds = excluded.duration_seconds,
+      sort_order = 0,
+      display_name = CASE
+        WHEN sequences.display_name IS NULL OR sequences.display_name = '' OR sequences.display_name = sequences.name
+        THEN excluded.display_name ELSE sequences.display_name END
+  `);
+  const audioOnlyNames = new Set();
   tx(sequences);
+  // Songs back in the main playlist, or no longer listed at all, stop being
+  // audio-only (main songs are re-activated by the upsert above).
+  const notAudioOnly = db.prepare(`UPDATE sequences SET audio_only = 0 WHERE id = ?`);
+  for (const r of db.prepare(`SELECT id, name FROM sequences WHERE audio_only = 1`).all()) {
+    if (!audioOnlyNames.has(r.name)) notAudioOnly.run(r.id);
+  }
   if (renamed.length) console.log(`[sync] fixed garbled sequence name${renamed.length === 1 ? '' : 's'}: ${renamed.map((r) => `"${r.from}" -> "${r.to}"`).join(', ')}`);
 
   // Mark sequences no longer in the playlist inactive (v0.33.247+) — kept
@@ -1220,7 +1266,7 @@ router.post('/sync-sequences', (req, res) => {
   const keep = new Set(sequences.map((s) => String((s && s.name) || '').trim()).filter(Boolean));
   let removed = 0;
   if (keep.size) {
-    const stale = db.prepare(`SELECT id, name, media_name FROM sequences WHERE active = 1`).all().filter((r) => !keep.has(r.name));
+    const stale = db.prepare(`SELECT id, name, media_name, audio_only FROM sequences WHERE active = 1`).all().filter((r) => !keep.has(r.name));
     if (stale.length) {
       const delQueue = db.prepare(`DELETE FROM jukebox_queue WHERE sequence_id = ?`);
       const delVotes = db.prepare(`DELETE FROM votes WHERE sequence_id = ?`);
@@ -1228,11 +1274,15 @@ router.post('/sync-sequences', (req, res) => {
       db.transaction(() => {
         for (const r of stale) { delQueue.run(r.id); delVotes.run(r.id); removed += deactivate.run(r.id).changes; }
       })();
-      console.log(`[sync] marked ${removed} sequence(s) inactive (no longer in the playlist): ${stale.map((r) => r.name).join(', ')}`);
+      const gone = stale.filter((r) => !r.audio_only);
+      if (gone.length) console.log(`[sync] marked ${gone.length} sequence(s) inactive (no longer in the playlist): ${gone.map((r) => r.name).join(', ')}`);
+      const moved = stale.filter((r) => r.audio_only);
+      if (moved.length) console.log(`[sync] now lead-in/lead-out only (audio for phones, hidden from viewers): ${moved.map((r) => r.name).join(', ')}`);
+      removed = gone.length;
     // Cached audio for a media file no ACTIVE sequence uses is dropped; it
     // is fetched again if the sequence returns to the playlist.
     const dropCache = db.prepare(`DELETE FROM audio_cache_files WHERE media_name = ?
-      AND NOT EXISTS (SELECT 1 FROM sequences WHERE media_name = ? AND active = 1)`);
+      AND NOT EXISTS (SELECT 1 FROM sequences WHERE media_name = ? AND (active = 1 OR audio_only = 1))`);
     for (const r of stale) {
       if (r.media_name) { try { dropCache.run(r.media_name, r.media_name); } catch (e) { console.warn('[sync] cache cleanup:', e.message); } }
     }
@@ -1257,7 +1307,7 @@ router.post('/sync-sequences', (req, res) => {
   const io = req.app.get('io');
   if (io) io.emit('sequencesSynced', { count: inserted, removed, playlistName });
 
-  res.json({ ok: true, synced: inserted, removed });
+  res.json({ ok: true, synced: inserted, removed, audioOnly: audioOnlyNames.size });
 
   // After responding, kick off auto-cover-fetch for any sequences without art.
   // Runs detached — sync response is already sent. Rate-limited internally.

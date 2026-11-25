@@ -4508,6 +4508,30 @@
     }
     setInterval(() => { try { ltSpkAutoCheck(); } catch (_) {} }, 2000);
     let ltSpkNowMs = null;
+    const ltSpkSignals = [];   // recent speaker-change hints, for test mode
+    function ltSpkSignal(what) {
+      const t = new Date();
+      ltSpkSignals.push(t.toTimeString().slice(0, 8) + ' ' + what);
+      if (ltSpkSignals.length > 6) ltSpkSignals.shift();
+      console.log('[ShowPilot] speaker-change hint: ' + what);
+      if (ltSheet && ltChirpTest) { const el = ltSheet.querySelector('.sp-lt-spk-sig'); if (el) el.textContent = ltSpkSignals.join(' · '); }
+    }
+    // The audio clock usually stalls for a moment when the phone moves its
+    // output to another speaker. Logged only (test info): Android also has
+    // rare hiccups for no reason, so this alone doesn't change the timing.
+    (function () {
+      let lastCtx = null, lastA = 0, lastP = 0;
+      setInterval(() => {
+        const ctx = audioCtx;
+        if (!ctx || ctx.state !== 'running' || document.visibilityState !== 'visible') { lastCtx = null; return; }
+        const a = ctx.currentTime, pNow = performance.now() / 1000;
+        if (lastCtx === ctx) {
+          const lag = (pNow - lastP) - (a - lastA);
+          if (lag > 0.15) ltSpkSignal('audio clock stalled ' + Math.round(lag * 1000) + ' ms');
+        }
+        lastCtx = ctx; lastA = a; lastP = pNow;
+      }, 250);
+    })();
     // beta.2: when the phone switches speakers (Bluetooth on/off), Chrome on
     // Android can keep reporting the old speaker's delay for the running
     // audio context. On a device change: drop the old readings, and if the
@@ -4544,12 +4568,27 @@
       if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.outputLatency !== 'number') return;
       const ol = Math.round(audioCtx.outputLatency * 1000);
       if (ltSpkLastOLCtx !== audioCtx) { ltSpkLastOLCtx = audioCtx; ltSpkLastOL = ol; return; }
-      if (ltSpkLastOL !== null && Math.abs(ol - ltSpkLastOL) > 25) ltSpkOnDeviceChange('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms');
+      if (ltSpkLastOL !== null && Math.abs(ol - ltSpkLastOL) > 25) { ltSpkSignal('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms'); ltSpkOnDeviceChange('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms'); }
       ltSpkLastOL = ol;
     }, 1000);
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
-        navigator.mediaDevices.addEventListener('devicechange', () => ltSpkOnDeviceChange('devicechange'));
+        navigator.mediaDevices.addEventListener('devicechange', () => {
+          ltSpkSignal('devicechange');
+          // beta.4: a tap-to-use speaker (one that hides its delay) can't be
+          // recognized, but the phone changing audio devices means it may be
+          // gone (turned off): drop its timing back to 0. Picking it again
+          // is one tap. Auto speakers are re-checked below as before.
+          const act = ltSpkList().find(e => e.id === ltSpkActive);
+          if (act && !ltSpkCanAuto(act) && !ltDetectBusy) {
+            ltSpkApplying = true;
+            try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
+            ltSpkSetActive(null);
+            ltSpkRender();
+            console.log('[ShowPilot] audio devices changed: "' + act.name + '" may be off, timing back to 0');
+          }
+          ltSpkOnDeviceChange('devicechange');
+        });
       }
     } catch (_) {}
     function ltSpkRender() {
@@ -4568,7 +4607,7 @@
         (list.length ? '<p style="font-size:12px;color:#7d8699">Tap a name to use it. Ones marked “auto” are picked by themselves when this phone connects to them (usually cars); most Bluetooth speakers don’t tell the phone they’re connected, so tap those.</p>' : '') +
         (active ? '<p style="font-size:13px">Using <b>' + ltSpkEsc(active.name) + '</b>' + (ltSpkAuto ? ' (picked automatically)' : '') + '.</p>' : '') +
         (ltChirpTest ? '<p class="sp-lt-auto-detail">Test info: phone reports <span class="sp-lt-spk-now">' + (ltSpkNowMs === null ? 'not settled' : ltSpkNowMs + ' ms') + '</span> now; saved: ' +
-          (list.length ? list.map(e => ltSpkEsc(e.name) + ' ' + (isFinite(e.rep) ? e.rep + ' ms' : 'no reading')).join(', ') : 'none') + '.</p>' : '') +
+          (list.length ? list.map(e => ltSpkEsc(e.name) + ' ' + (isFinite(e.rep) ? e.rep + ' ms' : 'no reading')).join(', ') : 'none') + '.<br>Speaker-change hints: <span class="sp-lt-spk-sig">' + (ltSpkSignals.length ? ltSpkEsc(ltSpkSignals.join(' · ')) : 'none yet') + '</span></p>' : '') +
         '<form class="sp-lt-spk-form"><input type="text" maxlength="40" placeholder="Name, e.g. My car" aria-label="Name for this timing" value="' + ltSpkEsc(active ? active.name : '') + '">' +
         '<button type="submit">Save this timing</button></form>';
     }
@@ -4655,7 +4694,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'beta-3', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'beta-4', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };

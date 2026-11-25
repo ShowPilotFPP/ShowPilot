@@ -251,6 +251,69 @@
     return Object.assign(base, { ok: true, lagSec: mean, strength: Math.min.apply(null, agree.map(r => r.strength)) });
   }
 
-  root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2, roundTrip, roundTripWindow };
+  // ---- Chirp calibration (test build) ----
+  // The player plays a few short sweeps on their own (the song is silenced)
+  // and records the microphone together with what it sent to the speakers,
+  // in the same audio blocks. For each sweep, both the sent copy and the
+  // heard copy are located with the same template, so any template bias
+  // cancels: lag = heard start - sent start = output delay + mic delay.
+  function makeChirp(sampleRate, durSec, f0, f1) {
+    const n = Math.round(durSec * sampleRate), out = new Float32Array(n);
+    const k = (f1 - f0) / durSec;
+    for (let i = 0; i < n; i++) {
+      const t = i / sampleRate;
+      const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+      out[i] = 0.8 * w * Math.sin(2 * Math.PI * (f0 * t + 0.5 * k * t * t));
+    }
+    return out;
+  }
+  function findOnsets(tap, sampleRate, minGapSec) {
+    const thr = 0.02, gap = Math.round(minGapSec * sampleRate), on = [];
+    let last = -Infinity;
+    for (let i = 0; i < tap.length; i++) {
+      if (Math.abs(tap[i]) > thr) { if (i - last > gap) on.push(i); last = i; }
+    }
+    return on;
+  }
+  const CH_MAX_LAG_SEC = 1.0, CH_PRE_SEC = 0.05, CH_MIN_STRENGTH = 8, CH_AGREE_SEC = 0.015;
+  function chirpLags(mic, tap, sampleRate, chirp) {
+    const sr = sampleRate, band = [600, 6000];
+    const onsets = findOnsets(tap, sr, 0.4);
+    const each = [];
+    for (const on of onsets) {
+      const t0 = Math.max(0, on - Math.round(0.1 * sr));
+      const t1 = Math.min(tap.length, on + chirp.length + Math.round(0.1 * sr));
+      if (t1 - t0 < chirp.length + 2) continue;
+      const ct = gccPhat(chirp, tap.subarray(t0, t1), sr, band);
+      const pt = findPeaks(ct, 1, 1)[0];
+      if (!pt) continue;
+      const sent = t0 + pt.k;
+      const m0 = Math.max(0, Math.round(sent - CH_PRE_SEC * sr));
+      const m1 = Math.min(mic.length, Math.round(sent + CH_MAX_LAG_SEC * sr) + chirp.length);
+      if (m1 - m0 < chirp.length + 2) { each.push({ ok: false, cut: true }); continue; }
+      const cm = gccPhat(chirp, mic.subarray(m0, m1), sr, band);
+      const peaks = findPeaks(cm, Math.round(0.002 * sr), 12);
+      if (!peaks.length) { each.push({ ok: false }); continue; }
+      const best = peaks[0];
+      const strength = peakRatio(cm, best.v);
+      // The direct sound arrives first; a louder reflection can come later.
+      let pick = best;
+      for (const q of peaks) if (q.k < pick.k && pick.k - q.k <= 0.06 * sr && q.v >= 0.35 * best.v) pick = q;
+      each.push({ ok: strength >= CH_MIN_STRENGTH, lagSec: (m0 + pick.k - sent) / sr, strength });
+    }
+    const runs = each.filter(e => e.lagSec !== undefined).map(e => Math.round(e.lagSec * 1000));
+    const base = { sent: onsets.length, runs, strengths: each.map(e => e.strength ? Math.round(e.strength) : 0) };
+    const good = each.filter(e => e.ok);
+    if (!onsets.length) return Object.assign(base, { ok: false, reason: 'the beeps never played (the phone may have paused the audio when the microphone turned on)' });
+    if (good.length < 3) return Object.assign(base, { ok: false, reason: 'the microphone could not hear the beeps clearly — turn the volume up' });
+    const lags = good.map(e => e.lagSec).sort((a, b) => a - b);
+    const med = lags[lags.length >> 1];
+    const agree = good.filter(e => Math.abs(e.lagSec - med) <= CH_AGREE_SEC);
+    if (agree.length < 3) return Object.assign(base, { ok: false, reason: 'the beeps disagreed (' + runs.join(', ') + ' ms) — keep still and try again' });
+    const mean = agree.reduce((a, e) => a + e.lagSec, 0) / agree.length;
+    return Object.assign(base, { ok: true, lagSec: mean, agreed: agree.length });
+  }
+
+  root.SPMicCore = { fft, gccPhat, findPeaks, analyze, nextPow2, roundTrip, roundTripWindow, makeChirp, chirpLags };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SPMicCore;
 })(typeof window !== 'undefined' ? window : globalThis);

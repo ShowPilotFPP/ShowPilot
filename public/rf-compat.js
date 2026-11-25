@@ -4174,10 +4174,10 @@
       if (el) el.innerHTML = html;
     }
     function ltLoadMicCore() {
-      if (window.SPMicCore && window.SPMicCore.roundTrip) return Promise.resolve();
+      if (window.SPMicCore && window.SPMicCore.roundTrip && window.SPMicCore.chirpLags) return Promise.resolve();
       return new Promise((resolve, reject) => {
         const sc = document.createElement('script');
-        sc.src = '/sp-mic.js?v=4';
+        sc.src = '/sp-mic.js?v=5';
         sc.onload = () => (window.SPMicCore && window.SPMicCore.roundTrip ? resolve() : reject(new Error('measurement code missing')));
         sc.onerror = () => reject(new Error('could not load the measurement code'));
         document.head.appendChild(sc);
@@ -4207,10 +4207,10 @@
       } catch (_) { /* keep the first stream */ }
       return { stream, devices: devices.map(d => d.label || '?') };
     }
-    function ltCapture(stream, secs, onTick) {
+    function ltCapture(stream, secs, onTick, tapNode) {
       return new Promise((resolve, reject) => {
         const sr = audioCtx.sampleRate, need = Math.round(secs * sr);
-        const tapFrom = gainNode;
+        const tapFrom = tapNode || gainNode;
         const src = audioCtx.createMediaStreamSource(stream);
         const merger = audioCtx.createChannelMerger(2);   // each input is mixed down to mono
         const proc = audioCtx.createScriptProcessor(4096, 2, 1);
@@ -4269,7 +4269,7 @@
       }
       if (isMuted) { ltDetectMsg('Unmute the player first — the microphone needs to hear the music.'); return; }
       ltDetectBusy = true;
-      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
       if (btn) btn.disabled = true;
       const prevMs = Math.round(listenerOffsetSec * 1000);
       let stream = null, micOpened = false;
@@ -4330,8 +4330,144 @@
         if (stream) stream.getTracks().forEach(t => t.stop());
         if (micOpened) ltRestoreAudio();
         ltDetectBusy = false;
-        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
         if (b2) b2.disabled = false;
+      }
+    }
+    // ---- Beep calibration (TEST BUILD, branch claude/web-calibrate-test) ----
+    // Shown only on a phone that opened the page once with ?calibrate=1
+    // (remembered on that phone; ?calibrate=0 turns it off). Every platform,
+    // Android included, so we can see what each phone really does.
+    // Differences from "Detect my delay": no song needed (the song is
+    // silenced and short beeps play instead), and it records a full report
+    // of the speaker delay before the mic opens, after, and during the
+    // beeps. If those disagree, opening the mic moved the audio (Android
+    // call mode / Bluetooth hands-free) and the number can't be trusted.
+    const LT_CHIRP_KEY = 'sp_calibrate_test';
+    const ltChirpOk = (() => {
+      try {
+        const q = new URLSearchParams(window.location.search).get('calibrate');
+        if (q === '0') localStorage.removeItem(LT_CHIRP_KEY);
+        else if (q !== null) localStorage.setItem(LT_CHIRP_KEY, '1');
+        return localStorage.getItem(LT_CHIRP_KEY) === '1';
+      } catch (_) { return false; }
+    })() && !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const LT_CHIRP_COUNT = 6, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
+    let ltChirpLast = null, ltChirpReport = null;
+    function ltChirpMsg(html) {
+      ltChirpLast = html;
+      const el = ltSheet && ltSheet.querySelector('.sp-lt-chirp-msg');
+      if (el) el.innerHTML = html;
+    }
+    function ltDelaySnapshot() {
+      const ms = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 1000) : null;
+      let measured = null;
+      try { measured = ms(measuredOutputDelaySec()); } catch (_) {}
+      return {
+        state: audioCtx ? audioCtx.state : null,
+        outputLatencyMs: audioCtx ? ms(audioCtx.outputLatency) : null,
+        baseLatencyMs: audioCtx ? ms(audioCtx.baseLatency) : null,
+        measuredMs: measured,
+      };
+    }
+    async function ltChirp() {
+      if (ltDetectBusy) return;
+      if (!audioCtx || !gainNode || audioCtx.state !== 'running') {
+        ltChirpMsg('Start listening first, then try this.'); return;
+      }
+      ltDetectBusy = true;
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
+      if (btn) btn.disabled = true;
+      const prevMs = Math.round(listenerOffsetSec * 1000);
+      const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
+      const info = {
+        build: 'calibrate-test-1', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
+        before: ltDelaySnapshot(),
+      };
+      let stream = null, micOpened = false, bus = null;
+      try {
+        await ltLoadMicCore();
+        ltChirpMsg('Allow the microphone if your phone asks…');
+        const got = await ltGetMic();
+        stream = got.stream;
+        micOpened = true;
+        const track = stream.getAudioTracks()[0];
+        const st = (track && track.getSettings) ? track.getSettings() : {};
+        const reportedIn = Number(st.latency);
+        const inSec = (isFinite(reportedIn) && reportedIn > 0 && reportedIn < 0.5) ? reportedIn : LT_MIC_ASSUMED_SEC;
+        info.mic = track ? track.label : ''; info.inputs = got.devices;
+        info.micMs = Math.round(inSec * 1000); info.micReported = inSec !== LT_MIC_ASSUMED_SEC;
+        // Give the phone a moment to re-route (if it's going to), then look.
+        ltChirpMsg('Getting ready…');
+        await new Promise(r => setTimeout(r, 700));
+        info.afterMic = ltDelaySnapshot();
+        if (audioCtx.state !== 'running') { try { await audioCtx.resume(); } catch (_) {} }
+        info.afterResume = audioCtx.state;
+        gainNode.gain.value = 0; // silence the song while the beeps play
+        const sr = audioCtx.sampleRate;
+        const chirp = window.SPMicCore.makeChirp(sr, LT_CHIRP_LEN, 800, 5000);
+        const buf = audioCtx.createBuffer(1, chirp.length, sr);
+        buf.getChannelData(0).set(chirp);
+        bus = audioCtx.createGain(); bus.gain.value = 1; bus.connect(audioCtx.destination);
+        const secs = Math.ceil(0.8 + LT_CHIRP_COUNT * LT_CHIRP_GAP + 1.2);
+        const capP = ltCapture(stream, secs, (left) =>
+          ltChirpMsg('Beeping… ' + left + ' s. Keep the volume up and stay still.'), bus);
+        const t0 = audioCtx.currentTime + 0.8;
+        for (let i = 0; i < LT_CHIRP_COUNT; i++) {
+          const b = audioCtx.createBufferSource(); b.buffer = buf; b.connect(bus); b.start(t0 + i * LT_CHIRP_GAP);
+        }
+        const cap = await capP;
+        info.during = ltDelaySnapshot();
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltChirpMsg('Working it out…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.chirpLags(cap.mic, cap.tap, cap.sr, chirp);
+        info.result = { ok: r.ok, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs, strengths: r.strengths, sent: r.sent };
+        // Did opening the mic move the audio? Compare the delay the player
+        // saw before the mic with what it saw while beeping.
+        const pick = (snap) => snap.measuredMs !== null ? snap.measuredMs : snap.outputLatencyMs;
+        const a = pick(info.before), d = pick(info.during);
+        info.routeChanged = info.during.state !== 'running' || (a !== null && d !== null && Math.abs(a - d) > 40);
+        if (!r.ok) {
+          ltChirpMsg('<b>No result:</b> ' + r.reason + '.' + (info.routeChanged ? ' Opening the microphone changed how this phone plays audio.' : ''));
+          return;
+        }
+        // The speaker delay while beeping already includes whatever the
+        // player covered automatically at that moment; use the pre-mic
+        // "covered" so the offset matches normal listening.
+        const needMs = Math.round((r.lagSec - inSec - covered) * 1000);
+        info.neededMs = needMs;
+        if (info.routeChanged) {
+          ltChirpMsg('<b>Not applied:</b> opening the microphone changed how this phone plays audio (delay ' + a + ' ms before, ' + d + ' ms during), so the beeps measured a different path than normal listening. It would have set ' + needMs + ' ms.');
+          return;
+        }
+        setListenerOffsetMs(needMs);
+        const appliedMs = Math.round(listenerOffsetSec * 1000);
+        info.appliedMs = appliedMs;
+        ltChirpMsg((Math.abs(needMs) < 30
+            ? 'Already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
+            : 'Your speakers play <b>' + Math.abs(needMs) + ' ms ' + (needMs > 0 ? 'late' : 'early') + '</b>. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.') +
+          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>');
+      } catch (e) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        info.error = (e && (e.name + ': ' + e.message)) || String(e);
+        ltChirpMsg(e && e.name === 'NotAllowedError'
+          ? 'Microphone permission was denied.'
+          : '<b>No result:</b> ' + (e && e.message ? e.message : e) + '.');
+      } finally {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        try { if (bus) bus.disconnect(); } catch (_) {}
+        try { if (gainNode) gainNode.gain.value = isMuted ? 0 : 1; } catch (_) {}
+        if (micOpened) ltRestoreAudio();
+        ltDetectBusy = false;
+        ltChirpReport = JSON.stringify(info, null, 1);
+        console.log('[ShowPilot] beep calibration:', JSON.stringify(info));
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
+        if (b2) b2.disabled = false;
+        const rep = ltSheet && ltSheet.querySelector('.sp-lt-chirp-report');
+        if (rep) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
       }
     }
     function ltEnsureStyles() {
@@ -4414,6 +4550,12 @@
           '<button type="button" class="sp-lt-detect">\ud83c\udfa4 Detect my delay <small>(beta)</small></button>' +
           '<p style="font-size:13px">Listens through the microphone for about ' + LT_DETECT_SECS + ' seconds to hear how late your Bluetooth, car or headphones play the music, then fixes it. Keep the volume up.</p>' +
           '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
+        (ltChirpOk ? '<div class="sp-lt-auto">' +
+          '<button type="button" class="sp-lt-detect sp-lt-chirp">\ud83d\udd0a Calibrate with beeps <small>(test)</small></button>' +
+          '<p style="font-size:13px">Pauses the song, plays ' + LT_CHIRP_COUNT + ' short beeps and listens through the microphone to measure your Bluetooth, car or headphone delay. Keep the volume up.</p>' +
+          '<div class="sp-lt-auto-msg sp-lt-chirp-msg" aria-live="polite"></div>' +
+          '<div class="sp-lt-chirp-report" hidden><textarea readonly rows="5" style="width:100%;box-sizing:border-box;font:11px ui-monospace,monospace;background:#0e1320;color:#cfd5e2;border:1px solid rgba(255,255,255,.15);border-radius:8px"></textarea>' +
+          '<button type="button" class="sp-lt-undo sp-lt-chirp-copy" style="margin:6px 0 0">Copy report</button></div></div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
@@ -4422,7 +4564,7 @@
         setListenerOffsetMs(Math.round(listenerOffsetSec * 1000) + Number(b.dataset.ltNudge))));
       ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.addEventListener('click', () => setListenerOffsetMs(Number(b.dataset.ltPreset))));
       ltSheet.querySelector('.sp-lt-reset').addEventListener('click', () => setListenerOffsetMs(0));
-      const det = ltSheet.querySelector('.sp-lt-detect');
+      const det = ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
       if (det) {
         det.addEventListener('click', () => ltDetect());
         if (ltDetectBusy) det.disabled = true;
@@ -4432,6 +4574,27 @@
           if (!u) return;
           setListenerOffsetMs(Number(u.dataset.prev) || 0);
           ltDetectMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
+        });
+      }
+      const chb = ltSheet.querySelector('.sp-lt-chirp');
+      if (chb) {
+        chb.addEventListener('click', () => ltChirp());
+        if (ltDetectBusy) chb.disabled = true;
+        const cm = ltSheet.querySelector('.sp-lt-chirp-msg');
+        if (ltChirpLast) cm.innerHTML = ltChirpLast;
+        cm.addEventListener('click', (e) => {
+          const u = e.target.closest('.sp-lt-undo');
+          if (!u) return;
+          setListenerOffsetMs(Number(u.dataset.prev) || 0);
+          ltChirpMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
+        });
+        const rep = ltSheet.querySelector('.sp-lt-chirp-report');
+        if (ltChirpReport) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
+        ltSheet.querySelector('.sp-lt-chirp-copy').addEventListener('click', (e) => {
+          const ta = rep.querySelector('textarea');
+          const done = () => { e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy report'; }, 1500); };
+          try { navigator.clipboard.writeText(ta.value).then(done, () => { ta.select(); document.execCommand('copy'); done(); }); }
+          catch (_) { ta.select(); try { document.execCommand('copy'); done(); } catch (__) {} }
         });
       }
       ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
@@ -5630,7 +5793,9 @@
 
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
-      let base = (l > 0 && l < 0.4) ? l : 0;
+      // Test build: cap raised from 0.4 to 0.8 s (same as the measured path);
+      // car stereos and some Bluetooth speakers really do report 400+ ms.
+      let base = (l > 0 && l < 0.8) ? l : 0;
       if (!outTimingForcedReported) {
         const m = measuredOutputDelaySec();
         if (m !== null) base = m;

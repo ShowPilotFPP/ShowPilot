@@ -89,7 +89,7 @@ async function openPhone(ctx, phone, how = '') {
   ctx.pages.set('phone ' + phone, page);
   // A page whose script hangs never finishes loading; later steps say
   // whether that was expected ("... is frozen") or not ("... responds").
-  await page.goto(ctx.sp.base + '/', { timeout: 15000 }).catch(() => {});
+  await page.goto(ctx.sp.base + (h.includes('calibrate') ? '/?calibrate=1' : '/'), { timeout: 15000 }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   return page;
 }
@@ -585,8 +585,8 @@ const STEPS = [
     } },
 
   // ===== Phones in a browser =====
-  { doc: 'phone 1 opens the viewer page [as an iPhone | in Facebook\'s browser]',
-    re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser))?$/i,
+  { doc: 'phone 1 opens the viewer page [as an iPhone | in Facebook\'s browser | with ?calibrate=1]',
+    re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser|with \?calibrate=1))?$/i,
     browser: true,
     fn: async (ctx, phone, how) => { await openPhone(ctx, phone, how || ''); } },
   { doc: 'phone 1 opens Listen on Phone   (taps the headphones button)',

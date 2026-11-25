@@ -127,3 +127,17 @@ Scenario: Audio timing no longer has Detect my delay (turned off in v0.33.282)
   And phone 1 opens Listen on Phone
   And phone 1 opens Audio timing
   Then phone 1 does not see "Detect my delay"
+
+Scenario: The beep calibration test shows only on a phone that opened ?calibrate=1 (test build)
+  Given the show has songs "Halloween Lights" and "Alpha"
+  And the setting "audio_gate_enabled" is off
+  And the mode is Jukebox
+  And the show player plays "Halloween Lights"
+  When phone 1 opens the viewer page with ?calibrate=1
+  And phone 1 opens Listen on Phone
+  And phone 1 opens Audio timing
+  Then phone 1 sees "Calibrate with beeps"
+  When phone 2 opens the viewer page
+  And phone 2 opens Listen on Phone
+  And phone 2 opens Audio timing
+  Then phone 2 does not see "Calibrate with beeps"

@@ -4109,6 +4109,20 @@
     const ltTipEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.listenerTimingTip === false);
     const LT_PRESETS = [['Phone speaker', 0], ['Bluetooth headphones', 150], ['Car Bluetooth', 250]];
     let listenerOffsetSec = 0;
+    // beta.6: quick resync. Normally a big error is fixed by a jump at most
+    // once per 10 s and anything under 150 ms by a slight speed change
+    // (~10 s per 50 ms), so a new timing or a speaker switch could take
+    // 20-30 s to line up. After such a change the drift loop jumps straight
+    // to the right spot once (if it's 30 ms or more off), ignoring the
+    // cooldown. Requested by: a timing change, a speaker change, and a
+    // change in the measured speaker delay.
+    let quickResyncFrom = 0, quickResyncUntil = 0, quickResyncWhy = '';
+    function requestQuickResync(why) {
+      const now = performance.now();
+      quickResyncFrom = now + 1200;      // let the smoothed drift catch up first
+      quickResyncUntil = now + 20000;
+      quickResyncWhy = why;
+    }
     const clampOffsetMs = (ms) => Math.max(LT_MIN_MS, Math.min(LT_MAX_MS, Math.round((Number(ms) || 0) / 10) * 10));
     if (listenerTimingEnabled) {
       try {
@@ -4139,9 +4153,11 @@
     }
     function setListenerOffsetMs(ms) {
       ms = clampOffsetMs(ms);
+      const prevSec = listenerOffsetSec;
       listenerOffsetSec = ms / 1000;
       try { if (ms) localStorage.setItem(LT_KEY, String(ms)); else localStorage.removeItem(LT_KEY); } catch (_) {}
       ltUpdateUi();
+      if (Math.round(prevSec * 1000) !== ms) requestQuickResync('timing ' + ms + ' ms');
       try { ltSpkOnManualChange(); } catch (_) {}
       console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
     }
@@ -4453,6 +4469,7 @@
       ltSpkApplying = true;
       try { setListenerOffsetMs(e.ms); } finally { ltSpkApplying = false; }
       ltSpkSetActive(e.id, auto);
+      requestQuickResync('picked ' + e.name);
       ltSpkRender();
       console.log('[ShowPilot] using saved speaker "' + e.name + '" (' + e.ms + ' ms)' + (auto ? ', picked automatically' : ''));
     }
@@ -4520,6 +4537,7 @@
       if (now - ltSpkRouteAt < 5000) return;   // one switch, one action
       ltSpkRouteAt = now;
       console.log('[ShowPilot] speaker changed (' + why + ')');
+      requestQuickResync('speaker changed');
       if (ltSheet && ltChirpTest) { const el = ltSheet.querySelector('.sp-lt-spk-sig'); if (el) el.textContent += ' \u2192 SPEAKER CHANGED'; }
       if (ltDetectBusy) return;
       // A tap-to-use speaker can't be recognized: it may be gone, so drop
@@ -4716,7 +4734,7 @@
       const prevMs = Math.round(listenerOffsetSec * 1000);
       const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
       const info = {
-        build: 'beta-5', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        build: 'beta-6', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
         timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
         before: ltDelaySnapshot(),
       };
@@ -6113,6 +6131,7 @@
       // from other causes when a correction fires.
       if ((outDelayMs === null) !== (outDelayLoggedMs === null) ||
           (outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) > 25)) {
+        if (outDelayLoggedMs !== null && outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) >= 40) requestQuickResync('speaker delay ' + outDelayLoggedMs + ' \u2192 ' + outDelayMs + ' ms');
         console.log('[ShowPilot] speaker delay now', outDelayMs === null ? 'unknown (using reported)' : outDelayMs + ' ms',
           '(was ' + (outDelayLoggedMs === null ? 'unknown' : outDelayLoggedMs + ' ms') + ')');
         outDelayLoggedMs = outDelayMs;
@@ -8209,7 +8228,18 @@
           loopEst && loopEst.n >= 3 && loopEst.newestAgeMs < 1500 &&
           currentBuffer && currentSource && currentSourceGain;
 
-        if (!canCorrect) {
+        const pNowQ = performance.now();
+        if (quickResyncUntil && pNowQ > quickResyncUntil) quickResyncUntil = 0;
+        if (canCorrect && quickResyncUntil && pNowQ >= quickResyncFrom) {
+          quickResyncUntil = 0;
+          if (Math.abs(correctionDriftMs) >= SETTLE_THRESHOLD_MS) {
+            const targetPos = loopEst.pos
+              - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+              + loopLatencySec;
+            console.log('[ShowPilot] quick resync (' + quickResyncWhy + '): drift', correctionDriftMs + 'ms →', targetPos.toFixed(3) + 's');
+            if (crossfadeTo(targetPos)) { smoothedDriftMs = 0; lastAppliedRate = 1.0; }
+          }
+        } else if (!canCorrect) {
           // No trustworthy reference right now: don't keep nudging blindly,
           // but keep playing at the learned clock-speed difference.
           rateTrimLastCtx = 0;

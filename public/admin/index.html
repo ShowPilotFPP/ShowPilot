@@ -2114,7 +2114,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.285-master.4</span>
+        <span class="app-version">v0.33.285</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -3975,6 +3975,19 @@
             <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 3rem;">
               Suggests playing the show on a second phone's speaker and adjusting until the two sound together.
               For step-by-step help on the viewer page itself, add the <b>Audio Sync Help</b> block in the Visual Designer.
+            </p>
+            <div class="row" style="margin-left: 1.5rem;">
+              <input type="checkbox" id="cfg_listener_beep_calibration"
+                     onchange="saveSetting('listener_beep_calibration', this.checked ? 1 : 0)" />
+              <label for="cfg_listener_beep_calibration" style="margin: 0;">Let listeners calibrate with beeps <span class="muted" style="font-size: 0.8rem;">(beta)</span></label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem 3rem;">
+              Adds a "Calibrate with beeps" button to the timing sheet. The player pauses the song, plays a few short beeps
+              and listens through the phone's own microphone to measure how late the car, Bluetooth speaker or headphones play,
+              then sets the timing. Listeners can save the result under a name (like "My car") and switch between saved speakers.
+              Needs the microphone and the https:// page. Android only: on iPhone the button doesn't appear, because iPhones switch to
+              phone-call audio when a web page uses the microphone, which measures the wrong path in a car or on Bluetooth.
+              iPhone listeners still get the timing buttons and saved speakers.
             </p>
 
             <div id="cfg_audio_subsection" style="margin-top: 1.5rem;">
@@ -7040,6 +7053,7 @@
       setVal('cfg_listener_timing_min_ms', c.listener_timing_min_ms ?? -500);
       setVal('cfg_listener_timing_max_ms', c.listener_timing_max_ms ?? 1000);
       setChk('cfg_listener_timing_tip', c.listener_timing_tip !== 0);
+      setChk('cfg_listener_beep_calibration', c.listener_beep_calibration === 1);
       setChk('cfg_player_tall_layout', c.player_tall_layout === 1);
 
       setChk('cfg_pwa_admin_enabled', c.pwa_admin_enabled);

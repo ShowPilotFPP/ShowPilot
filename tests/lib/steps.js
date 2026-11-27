@@ -97,7 +97,7 @@ async function openPhone(ctx, phone, how = '') {
   ctx.pages.set('phone ' + phone, page);
   // A page whose script hangs never finishes loading; later steps say
   // whether that was expected ("... is frozen") or not ("... responds").
-  await page.goto(ctx.sp.base + '/', { timeout: 15000 }).catch(() => {});
+  await page.goto(ctx.sp.base + (h.includes('calibrate') ? '/?calibrate=1' : '/'), { timeout: 15000 }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   return page;
 }
@@ -606,8 +606,8 @@ const STEPS = [
     } },
 
   // ===== Phones in a browser =====
-  { doc: 'phone 1 opens the viewer page [as an iPhone | in Facebook\'s browser]',
-    re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser))?$/i,
+  { doc: 'phone 1 opens the viewer page [as an iPhone | in Facebook\'s browser | with ?calibrate=1]',
+    re: /^phone (\w+) opens the viewer page(?: (as an iphone|in facebook's browser|with \?calibrate=1))?$/i,
     browser: true,
     fn: async (ctx, phone, how) => { await openPhone(ctx, phone, how || ''); } },
   { doc: 'phone 1 opens Listen on Phone   (taps the headphones button)',
@@ -636,6 +636,24 @@ const STEPS = [
   { doc: 'phone 1 opens Audio timing   (the timing button on the player)',
     re: /^phone (\w+) opens audio timing$/i,
     fn: async (ctx, phone) => { const p = pageOf(ctx, 'phone ' + phone); await p.click('#sp-lt-btn'); await p.waitForTimeout(600); } },
+  { doc: 'phone 1 nudges the timing "later" | "earlier"   (one tap in the Audio timing sheet)',
+    re: new RegExp(`^phone (\\w+) nudges the timing ${q}$`, 'i'),
+    fn: async (ctx, phone, dir) => {
+      const p = pageOf(ctx, 'phone ' + phone);
+      await p.click(/earlier/i.test(dir) ? '.sp-lt-nudge[data-lt-nudge^="-"]' : '.sp-lt-nudge:not([data-lt-nudge^="-"])');
+      await p.waitForTimeout(200);
+    } },
+  { doc: 'phone 1 saves the timing as "My car"   (My speakers in the Audio timing sheet)',
+    re: new RegExp(`^phone (\\w+) saves the timing as ${q}$`, 'i'),
+    fn: async (ctx, phone, name) => {
+      const p = pageOf(ctx, 'phone ' + phone);
+      await p.fill('.sp-lt-spk-form input', name);
+      await p.click('.sp-lt-spk-form button[type="submit"]');
+      await p.waitForTimeout(300);
+    } },
+  { doc: 'phone 1 reloads the page',
+    re: /^phone (\w+) reloads the page$/i,
+    fn: async (ctx, phone) => { const p = pageOf(ctx, 'phone ' + phone); await p.reload({ timeout: 15000 }).catch(() => {}); await p.waitForTimeout(1500); } },
   { doc: 'phone 1\'s player has the "christmas" decoration',
     re: new RegExp(`^phone (\\w+)'s player has the ${q} decoration$`, 'i'),
     fn: async (ctx, phone, theme) => eventually(async () => {

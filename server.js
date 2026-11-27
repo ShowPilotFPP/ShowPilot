@@ -499,23 +499,10 @@ app.get('/', async (req, res) => {
     // Detect admin login so the viewer can render a small "Admin" pill
     // that takes logged-in admins back to the admin dashboard. Failing
     // verification (no cookie, expired, tampered) just leaves isAdmin
-    // false — the pill silently doesn't render. The check is cheap;
-    // we already require jwt for admin routes.
-    let isAdmin = false;
-    try {
-      const adminToken = req.cookies[config.sessionCookieName];
-      if (adminToken) {
-        const jwt = require('jsonwebtoken');
-        const payload = jwt.verify(adminToken, config.jwtSecret);
-        if (payload && payload.userId) {
-          const user = db.prepare('SELECT enabled FROM users WHERE id = ?').get(payload.userId);
-          if (user && user.enabled) isAdmin = true;
-        }
-      }
-    } catch {
-      // Invalid/expired token — leave isAdmin false. Don't clear the
-      // cookie here; that's the admin auth path's job.
-    }
+    // false — the pill silently doesn't render. The same flag turns off the
+    // page's GPS prompt (signed-in admins skip the GPS check). Doesn't clear
+    // a bad cookie; that's the admin auth path's job.
+    const isAdmin = require('./lib/admin-session').isAdminRequest(req);
 
     // Now-playing timer (v0.32.9+) — same convention as /api/state. Look
     // up the now-playing sequence's duration directly so PSAs / hidden /

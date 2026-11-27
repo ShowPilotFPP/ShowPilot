@@ -107,9 +107,19 @@ function cooldownRejection(st) {
   };
 }
 
+// The GPS check applies to this request: it's turned on, and the caller isn't
+// a signed-in admin with "Signed-in admins skip location checks" on. That lets
+// the show owner test requests and votes from anywhere (inside the house, away
+// from home) by signing in to the admin on the same phone. The access code
+// still applies to everyone.
+function gpsCheckApplies(req, cfg) {
+  return !!cfg.check_viewer_present && cfg.viewer_present_mode === 'GPS'
+    && !require('../lib/admin-session').skipsLocationChecks(req, cfg);
+}
+
 function viewerPresenceCheck(req, cfg) {
-  // GPS check
-  if (cfg.check_viewer_present && cfg.viewer_present_mode === 'GPS') {
+  // GPS check (can be skipped for signed-in admins, see gpsCheckApplies)
+  if (gpsCheckApplies(req, cfg)) {
     if (!cfg.show_latitude || !cfg.show_longitude) {
       return { ok: false, error: 'Show location not configured on server' };
     }
@@ -317,7 +327,9 @@ router.get('/state', (req, res) => {
     uncategorizedLabel: categories.uncategorizedLabel(cfg),
     voteCounts,
     queue,
-    requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
+    // false for a signed-in admin when admins skip location checks, so their
+    // page doesn't ask for location
+    requiresLocation: gpsCheckApplies(req, cfg),
     requiresLocationCode: cfg.location_code_enabled === 1,
     // Vote shifting (v0.32.6+): mirror of bootstrap allowVoteChange so an
     // admin toggling this mid-show propagates to viewers without a reload.
@@ -1024,7 +1036,9 @@ router.get('/visual-config', (req, res) => {
   } else if (req.query.gateCheck === 'mode') {
     // Page-level visibility check — only care about control mode here.
     // Location enforcement is the click-time + in-player concern.
-  } else if (cfg.audio_gate_enabled === 1 && cfg.show_latitude && cfg.show_longitude) {
+  } else if (cfg.audio_gate_enabled === 1 && cfg.show_latitude && cfg.show_longitude
+             && !require('../lib/admin-session').skipsLocationChecks(req, cfg)) {
+    // (signed-in admins can skip the audio distance limit: admin_skip_location)
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
     if (!isFinite(lat) || !isFinite(lng)) {
@@ -1154,7 +1168,8 @@ router.get('/now-playing-audio', (req, res) => {
   if (cfg.viewer_control_mode === 'OFF') {
     audioGateBlocked = true;
     audioGateReason = 'Show is offline.';
-  } else if (cfg.audio_gate_enabled === 1) {
+  } else if (cfg.audio_gate_enabled === 1 && !require('../lib/admin-session').skipsLocationChecks(req, cfg)) {
+    // (signed-in admins can skip the audio distance limit: admin_skip_location)
     if (!cfg.show_latitude || !cfg.show_longitude) {
       // Admin enabled gate but didn't set show coords — fail open (otherwise
       // they'd lock everyone out and not realize why).

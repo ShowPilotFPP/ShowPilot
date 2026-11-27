@@ -61,6 +61,13 @@ const seqId = (ctx, name) => {
   assert(row, `no song called "${name}"`);
   return row.id;
 };
+// A phone's cookies: its viewer cookie, plus the admin session cookie once
+// "phone 1 is signed in to the admin".
+const adminPhones = (ctx) => (ctx.adminPhones ||= new Set());
+function phoneCookie(ctx, phone) {
+  const c = ctx.sp.viewerCookie(phone);
+  return adminPhones(ctx).has(String(phone)) ? `${c}; ${ctx.sp.adminCookie}` : c;
+}
 function phoneBody(ctx, phone, extra) {
   const loc = ctx.phoneLoc.get(phone);
   return loc ? { ...extra, viewerLat: loc.lat, viewerLng: loc.lng } : extra;
@@ -84,6 +91,7 @@ async function openPhone(ctx, phone, how = '') {
   const browser = await ctx.browser();
   const c = await browser.newContext(opts);
   await c.addCookies([{ name: ctx.sp.cookieName + '_viewer', value: 'phone-' + phone, url: ctx.sp.base }]);
+  if (adminPhones(ctx).has(String(phone))) await c.addCookies([{ name: ctx.sp.cookieName, value: ctx.sp.adminToken, url: ctx.sp.base }]);
   const page = await c.newPage();
   page.on('pageerror', e => ctx.pageErrors.push(`phone ${phone}: ${e.message}`));
   ctx.pages.set('phone ' + phone, page);
@@ -370,9 +378,22 @@ const STEPS = [
       loc.accuracy = rough ? 6000 : 10;
       ctx.phoneLoc.set(phone, loc);
     } },
+  { doc: 'phone 1 is signed in to the admin   (its browser also has the admin session cookie)',
+    re: /^phone (\w+) is signed in to the admin$/i,
+    fn: async (ctx, phone) => { adminPhones(ctx).add(String(phone)); } },
+  { doc: 'phone 1 can listen | can\'t listen   (the check the Listen button makes, with the phone\'s location if it has one)',
+    re: /^phone (\w+) (can|can't|cannot) listen$/i,
+    fn: async (ctx, phone, can) => {
+      const loc = ctx.phoneLoc.get(phone);
+      const qs = loc ? `?lat=${encodeURIComponent(loc.lat)}&lng=${encodeURIComponent(loc.lng)}` : '';
+      const r = await http(ctx, 'GET', '/api/visual-config' + qs, { cookie: phoneCookie(ctx, phone) });
+      assert(r.status === 200 && r.body && typeof r.body.audioGateBlocked === 'boolean', `listen check answered HTTP ${r.status}: ${JSON.stringify(r.body).slice(0, 200)}`);
+      const want = can.toLowerCase() === 'can';
+      assert(r.body.audioGateBlocked === !want, want ? `phone ${phone} was refused: "${r.body.audioGateReason}"` : `phone ${phone} was allowed to listen`);
+    } },
   { doc: 'phone 1 votes for "A"',
     re: new RegExp(`^phone (\\w+) votes for ${q}$`, 'i'),
-    fn: async (ctx, phone, name) => { ctx.last.answer = await http(ctx, 'POST', '/api/vote', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { sequenceName: name }) }); } },
+    fn: async (ctx, phone, name) => { ctx.last.answer = await http(ctx, 'POST', '/api/vote', { cookie: phoneCookie(ctx, phone), body: phoneBody(ctx, phone, { sequenceName: name }) }); } },
   { doc: 'N phones vote for "A"',
     re: new RegExp(`^(\\d+) phones vote for ${q}$`, 'i'),
     fn: async (ctx, n, name) => {
@@ -391,7 +412,7 @@ const STEPS = [
     } },
   { doc: 'phone 1 requests "A"',
     re: new RegExp(`^phone (\\w+) requests ${q}$`, 'i'),
-    fn: async (ctx, phone, name) => { ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/add', { cookie: ctx.sp.viewerCookie(phone), body: phoneBody(ctx, phone, { sequenceName: name }) }); } },
+    fn: async (ctx, phone, name) => { ctx.last.answer = await http(ctx, 'POST', '/api/jukebox/add', { cookie: phoneCookie(ctx, phone), body: phoneBody(ctx, phone, { sequenceName: name }) }); } },
   { doc: 'phone 1 removes its request for "A"   (no browser)',
     re: new RegExp(`^phone (\\w+) removes (?:its|their) request for ${q}$`, 'i'),
     fn: async (ctx, phone, name) => {

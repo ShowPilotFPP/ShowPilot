@@ -33,6 +33,7 @@ Turn on **Require viewers be within radius of show location** so only people nea
 
 - **Show latitude** and **Show longitude** are your display's position.
 - **Radius (miles)** is how close viewers must be. The default is **0.5**; you can set 0.1 to 50.
+- **Signed-in admins skip location checks** (off by default) lets you vote, request and listen from inside the house or away from home. A phone that's signed in to the admin then skips this check and the [audio distance limit](help:settings-audio). Sign in to the admin in the same browser you open the viewer page in. Everyone else is still checked, and the access code (if it's on) still applies to you.
 
 > **Miles or kilometres:** ShowPilot picks the unit from your show's location: miles in the US and UK, kilometres elsewhere. All radius fields, and the message viewers see when they're too far away, use it. It changes on its own a moment after you set the location.
 

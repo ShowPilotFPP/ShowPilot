@@ -4109,6 +4109,20 @@
     const ltTipEnabled = !(window.__SHOWPILOT__ && window.__SHOWPILOT__.listenerTimingTip === false);
     const LT_PRESETS = [['Phone speaker', 0], ['Bluetooth headphones', 150], ['Car Bluetooth', 250]];
     let listenerOffsetSec = 0;
+    // beta.6: quick resync. Normally a big error is fixed by a jump at most
+    // once per 10 s and anything under 150 ms by a slight speed change
+    // (~10 s per 50 ms), so a new timing or a speaker switch could take
+    // 20-30 s to line up. After such a change the drift loop jumps straight
+    // to the right spot once (if it's 30 ms or more off), ignoring the
+    // cooldown. Requested by: a timing change, a speaker change, and a
+    // change in the measured speaker delay.
+    let quickResyncFrom = 0, quickResyncUntil = 0, quickResyncWhy = '';
+    function requestQuickResync(why) {
+      const now = performance.now();
+      quickResyncFrom = now + 1200;      // let the smoothed drift catch up first
+      quickResyncUntil = now + 20000;
+      quickResyncWhy = why;
+    }
     const clampOffsetMs = (ms) => Math.max(LT_MIN_MS, Math.min(LT_MAX_MS, Math.round((Number(ms) || 0) / 10) * 10));
     if (listenerTimingEnabled) {
       try {
@@ -4139,9 +4153,12 @@
     }
     function setListenerOffsetMs(ms) {
       ms = clampOffsetMs(ms);
+      const prevSec = listenerOffsetSec;
       listenerOffsetSec = ms / 1000;
       try { if (ms) localStorage.setItem(LT_KEY, String(ms)); else localStorage.removeItem(LT_KEY); } catch (_) {}
       ltUpdateUi();
+      if (Math.round(prevSec * 1000) !== ms) requestQuickResync('timing ' + ms + ' ms');
+      try { ltSpkOnManualChange(); } catch (_) {}
       console.log('[ShowPilot] listener audio timing: ' + ms + ' ms');
     }
     // ---- Detect my delay (v0.33.238-beta) ----
@@ -4174,10 +4191,10 @@
       if (el) el.innerHTML = html;
     }
     function ltLoadMicCore() {
-      if (window.SPMicCore && window.SPMicCore.roundTrip) return Promise.resolve();
+      if (window.SPMicCore && window.SPMicCore.roundTrip && window.SPMicCore.chirpLags) return Promise.resolve();
       return new Promise((resolve, reject) => {
         const sc = document.createElement('script');
-        sc.src = '/sp-mic.js?v=4';
+        sc.src = '/sp-mic.js?v=6';
         sc.onload = () => (window.SPMicCore && window.SPMicCore.roundTrip ? resolve() : reject(new Error('measurement code missing')));
         sc.onerror = () => reject(new Error('could not load the measurement code'));
         document.head.appendChild(sc);
@@ -4191,8 +4208,25 @@
       // it back to 'playback' when the mic closes, so normal listening is
       // unchanged. Feature-detected: a no-op outside Safari. (Thanks jddocea, #71)
       try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (_) {}
-      let stream = await navigator.mediaDevices.getUserMedia({ audio: base });
-      let devices = [];
+      let stream = null, devices = [], direct = null;
+      // calibrate-test-3: with mic permission already granted, labels are
+      // readable before opening anything, so go straight to the phone's own
+      // mic. Opening the default first picks the car's hands-free mic, which
+      // can switch the phone to call mode before we ever switch away.
+      try {
+        const perm = navigator.permissions && await navigator.permissions.query({ name: 'microphone' });
+        if (perm && perm.state === 'granted') {
+          const ins = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+          const usable = ins.filter(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && d.label && !LT_BT_RE.test(d.label));
+          direct = usable.find(d => /built-?in|speakerphone|phone|bottom|back|internal/i.test(d.label)) || usable[0] || null;
+          if (direct) stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, base, { deviceId: { exact: direct.deviceId } }) });
+        }
+      } catch (_) { stream = null; }
+      if (stream) {
+        const all = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(d => d.kind === 'audioinput');
+        return { stream, devices: all.map(d => d.label || '?'), direct: direct.label };
+      }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: base });
       try {
         devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
         const cur = stream.getAudioTracks()[0];
@@ -4207,10 +4241,10 @@
       } catch (_) { /* keep the first stream */ }
       return { stream, devices: devices.map(d => d.label || '?') };
     }
-    function ltCapture(stream, secs, onTick) {
+    function ltCapture(stream, secs, onTick, tapNode) {
       return new Promise((resolve, reject) => {
         const sr = audioCtx.sampleRate, need = Math.round(secs * sr);
-        const tapFrom = gainNode;
+        const tapFrom = tapNode || gainNode;
         const src = audioCtx.createMediaStreamSource(stream);
         const merger = audioCtx.createChannelMerger(2);   // each input is mixed down to mono
         const proc = audioCtx.createScriptProcessor(4096, 2, 1);
@@ -4269,7 +4303,7 @@
       }
       if (isMuted) { ltDetectMsg('Unmute the player first — the microphone needs to hear the music.'); return; }
       ltDetectBusy = true;
-      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
       if (btn) btn.disabled = true;
       const prevMs = Math.round(listenerOffsetSec * 1000);
       let stream = null, micOpened = false;
@@ -4330,8 +4364,486 @@
         if (stream) stream.getTracks().forEach(t => t.stop());
         if (micOpened) ltRestoreAudio();
         ltDetectBusy = false;
-        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect');
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
         if (b2) b2.disabled = false;
+      }
+    }
+    // ---- Beep calibration (TEST BUILD, branch claude/web-calibrate-test) ----
+    // Shown only on a phone that opened the page once with ?calibrate=1
+    // (remembered on that phone; ?calibrate=0 turns it off). Every platform,
+    // Android included, so we can see what each phone really does.
+    // Differences from "Detect my delay": no song needed (the song is
+    // silenced and short beeps play instead), and it records a full report
+    // of the speaker delay before the mic opens, after, and during the
+    // beeps. If those disagree, opening the mic moved the audio (Android
+    // call mode / Bluetooth hands-free) and the number can't be trusted.
+    const LT_CHIRP_KEY = 'sp_calibrate_test';
+    // v0.33.285-beta.1: the show owner's switch (listener_beep_calibration)
+    // offers it to everyone; ?calibrate=1 still turns it on for one phone
+    // and also shows the report box (for testing).
+    const ltChirpTest = (() => {
+      try {
+        const q = new URLSearchParams(window.location.search).get('calibrate');
+        if (q === '0') localStorage.removeItem(LT_CHIRP_KEY);
+        else if (q !== null) localStorage.setItem(LT_CHIRP_KEY, '1');
+        return localStorage.getItem(LT_CHIRP_KEY) === '1';
+      } catch (_) { return false; }
+    })();
+    // beta.7: not on iPhone/iPad. When a web page opens the mic, iOS puts
+    // the audio in phone-call mode; in a car (CarPlay / car Bluetooth) the
+    // beeps then play over the hands-free call channel, not the music
+    // channel, and the result is wrong (field test: 61 ms measured, sync
+    // badly off). Android avoids it by opening the phone's own mic; iOS
+    // switches anyway. Test mode (?calibrate=1) still shows it, with a warning.
+    const ltChirpOk = (ltChirpTest || (!IS_IOS && !!(window.__SHOWPILOT__ && window.__SHOWPILOT__.beepCalibration === true))) &&
+      !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const LT_CHIRP_COUNT = 8, LT_CHIRP_GAP = 1.1, LT_CHIRP_LEN = 0.12;
+    let ltChirpLast = null, ltChirpReport = null;
+    try { if (ltChirpTest) ltChirpReport = localStorage.getItem('sp_calibrate_last_report'); } catch (_) {}
+    function ltChirpMsg(html) {
+      ltChirpLast = html;
+      const el = ltSheet && ltSheet.querySelector('.sp-lt-chirp-msg');
+      if (el) el.innerHTML = html;
+    }
+    function ltDelaySnapshot() {
+      const ms = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 1000) : null;
+      let measured = null;
+      try { measured = ms(measuredOutputDelaySec()); } catch (_) {}
+      return {
+        state: audioCtx ? audioCtx.state : null,
+        outputLatencyMs: audioCtx ? ms(audioCtx.outputLatency) : null,
+        baseLatencyMs: audioCtx ? ms(audioCtx.baseLatency) : null,
+        measuredMs: measured,
+      };
+    }
+    // ---- Saved speakers (v0.33.285-beta.1) ----
+    // A listener can save the current timing under a name ("My car",
+    // "Kitchen speaker") and switch between them. Kept on this phone in
+    // localStorage (per show site), like the timing itself. Each entry also
+    // keeps the speaker delay the phone itself reported when it was saved
+    // ('rep', ms); when the player sees that delay again and no other saved
+    // speaker is close, it picks that entry by itself (connect to the car →
+    // the car's timing). Never overrides a timing the listener just changed
+    // by hand unless the reported delay moves (a different speaker).
+    const LT_SPK_KEY = 'sp_lt_speakers', LT_SPK_ACTIVE = 'sp_lt_speaker_active';
+    const LT_SPK_MATCH_MS = 15, LT_SPK_APART_MS = 40, LT_SPK_MAX = 8;
+    // beta.3: a speaker whose saved delay looks like the phone's own speaker
+    // (under 60 ms) doesn't tell the phone its delay (a JBL read 22 ms, same
+    // as the phone speaker, yet added ~410 ms). It can't be recognized, so
+    // it's never picked or dropped automatically: the listener taps it.
+    const LT_SPK_AUTO_MIN_MS = 60;
+    const ltSpkCanAuto = (e) => isFinite(e.rep) && e.rep >= LT_SPK_AUTO_MIN_MS;
+    function ltSpkList() {
+      try {
+        const a = JSON.parse(localStorage.getItem(LT_SPK_KEY) || '[]');
+        return Array.isArray(a) ? a.filter(e => e && typeof e.name === 'string' && isFinite(e.ms)).slice(0, LT_SPK_MAX) : [];
+      } catch (_) { return []; }
+    }
+    function ltSpkSave(list) { try { localStorage.setItem(LT_SPK_KEY, JSON.stringify(list.slice(0, LT_SPK_MAX))); } catch (_) {} }
+    let ltSpkActive = (() => { try { return localStorage.getItem(LT_SPK_ACTIVE) || null; } catch (_) { return null; } })();
+    let ltSpkAuto = false; // the active entry was picked by itself
+    function ltSpkSetActive(id, auto) {
+      ltSpkActive = id || null; ltSpkAuto = !!(id && auto);
+      try { if (id) localStorage.setItem(LT_SPK_ACTIVE, id); else localStorage.removeItem(LT_SPK_ACTIVE); } catch (_) {}
+    }
+    // The phone's own reported speaker delay right now (no listener offset).
+    function ltSpkRepMs() {
+      const v = getOutputLatencySec() - listenerOffsetSec;
+      return isFinite(v) && v > 0 ? Math.round(v * 1000) : null;
+    }
+    function ltSpkEsc(t) { return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function ltSpkStore(name) {
+      name = String(name || '').trim().slice(0, 40);
+      if (!name) return null;
+      const list = ltSpkList();
+      const ms = Math.round(listenerOffsetSec * 1000), repMs = ltSpkRepMs();
+      let e = list.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (e) { e.name = name; e.ms = ms; if (repMs !== null) e.rep = repMs; }
+      else {
+        if (list.length >= LT_SPK_MAX) list.shift();
+        e = { id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, ms, rep: repMs };
+        list.push(e);
+      }
+      ltSpkSave(list);
+      ltSpkSetActive(e.id, false);
+      console.log('[ShowPilot] saved speaker "' + name + '": ' + ms + ' ms (phone reported ' + repMs + ' ms)');
+      return e;
+    }
+    function ltSpkUse(id, auto) {
+      const e = ltSpkList().find(x => x.id === id);
+      if (!e) return;
+      ltSpkApplying = true;
+      try { setListenerOffsetMs(e.ms); } finally { ltSpkApplying = false; }
+      ltSpkSetActive(e.id, auto);
+      requestQuickResync('picked ' + e.name);
+      ltSpkRender();
+      console.log('[ShowPilot] using saved speaker "' + e.name + '" (' + e.ms + ' ms)' + (auto ? ', picked automatically' : ''));
+    }
+    function ltSpkDelete(id) {
+      ltSpkSave(ltSpkList().filter(x => x.id !== id));
+      if (ltSpkActive === id) ltSpkSetActive(null);
+      ltSpkRender();
+    }
+    let ltSpkApplying = false;
+    // Called by setListenerOffsetMs: a hand change means no saved speaker
+    // is exactly in use any more.
+    function ltSpkOnManualChange() {
+      if (ltSpkApplying || !ltSpkActive) return;
+      ltSpkSetActive(null);
+      ltSpkRender();
+    }
+    // Automatic pick: once the phone's delay readings settle, and again
+    // whenever the reported delay jumps (switched speakers).
+    let ltSpkLastRep = null, ltSpkLastCtx = null;
+    function ltSpkAutoCheck() {
+      if (!audioCtx || audioCtx.state !== 'running' || ltDetectBusy) return;
+      const all = ltSpkList();
+      const list = all.filter(ltSpkCanAuto);
+      if (!list.length) return;
+      // Only trust settled, measured readings for this.
+      let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
+      if (m === null) return;
+      const repMs = Math.round(m * 1000);
+      ltSpkNowMs = repMs;
+      if (ltSheet && ltChirpTest) { const n = ltSheet.querySelector('.sp-lt-spk-now'); if (n) n.textContent = repMs + ' ms'; }
+      if (ltSpkLastCtx === audioCtx && ltSpkLastRep !== null && Math.abs(repMs - ltSpkLastRep) <= 60) return;
+      ltSpkLastCtx = audioCtx; ltSpkLastRep = repMs;
+      const near = list.map(e => ({ e, d: Math.abs(e.rep - repMs) })).sort((a, b) => a.d - b.d);
+      console.log('[ShowPilot] speakers check: phone reports ' + repMs + ' ms; saved ' +
+        near.map(x => '"' + x.e.name + '" ' + x.e.rep + ' ms').join(', ') + '; in use: ' +
+        ((all.find(e => e.id === ltSpkActive) || {}).name || 'none'));
+      if (near[0].d > LT_SPK_MATCH_MS) {
+        // Left the saved speaker that was in use (e.g. got out of the car):
+        // its timing no longer fits, so go back to no adjustment.
+        const act = list.find(e => e.id === ltSpkActive);
+        if (act && Math.abs(act.rep - repMs) > 60) {
+          ltSpkApplying = true;
+          try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
+          ltSpkSetActive(null);
+          ltSpkRender();
+          console.log('[ShowPilot] speaker changed (phone reports ' + repMs + ' ms, "' + act.name + '" was ' + act.rep + ' ms): timing back to 0');
+        }
+        return;
+      }
+      if (near[1] && near[1].d - near[0].d < LT_SPK_APART_MS) return; // two saved speakers look alike: let the listener pick
+      if (ltSpkActive === near[0].e.id && Math.round(listenerOffsetSec * 1000) === near[0].e.ms) return;
+      ltSpkUse(near[0].e.id, true);
+    }
+    setInterval(() => { try { ltSpkAutoCheck(); } catch (_) {} }, 2000);
+    let ltSpkNowMs = null;
+    // beta.5: what a speaker switch looks like on Android (JBL turned off):
+    // the audio clock stalls ~250 ms AND the reported delay jumps (43 → 317
+    // ms) within the same second or two; Chrome sent no devicechange. A
+    // stall alone is an ordinary hiccup and a jump alone is the delay
+    // settling later (317 → 58 ms, 22 s on): only the two together, or a
+    // devicechange, count as a speaker change.
+    let ltSpkStallAt = 0, ltSpkJumpAt = 0, ltSpkRouteAt = 0;
+    function ltSpkRouteChanged(why) {
+      const now = performance.now();
+      if (now - ltSpkRouteAt < 5000) return;   // one switch, one action
+      ltSpkRouteAt = now;
+      console.log('[ShowPilot] speaker changed (' + why + ')');
+      requestQuickResync('speaker changed');
+      if (ltSheet && ltChirpTest) { const el = ltSheet.querySelector('.sp-lt-spk-sig'); if (el) el.textContent += ' \u2192 SPEAKER CHANGED'; }
+      if (ltDetectBusy) return;
+      // A tap-to-use speaker can't be recognized: it may be gone, so drop
+      // its timing (tap it again to use it).
+      const act = ltSpkList().find(e => e.id === ltSpkActive);
+      if (act && !ltSpkCanAuto(act)) {
+        ltSpkApplying = true;
+        try { setListenerOffsetMs(0); } finally { ltSpkApplying = false; }
+        ltSpkSetActive(null);
+        ltSpkRender();
+        console.log('[ShowPilot] "' + act.name + '" may be off: timing back to 0');
+      }
+      ltSpkOnDeviceChange(why);
+    }
+    const ltSpkSignals = [];   // recent speaker-change hints, for test mode
+    function ltSpkSignal(what) {
+      const t = new Date();
+      ltSpkSignals.push(t.toTimeString().slice(0, 8) + ' ' + what);
+      if (ltSpkSignals.length > 6) ltSpkSignals.shift();
+      console.log('[ShowPilot] speaker-change hint: ' + what);
+      if (ltSheet && ltChirpTest) { const el = ltSheet.querySelector('.sp-lt-spk-sig'); if (el) el.textContent = ltSpkSignals.join(' · '); }
+    }
+    // The audio clock usually stalls for a moment when the phone moves its
+    // output to another speaker. Logged only (test info): Android also has
+    // rare hiccups for no reason, so this alone doesn't change the timing.
+    (function () {
+      let lastCtx = null, lastA = 0, lastP = 0;
+      setInterval(() => {
+        const ctx = audioCtx;
+        if (!ctx || ctx.state !== 'running' || document.visibilityState !== 'visible') { lastCtx = null; return; }
+        const a = ctx.currentTime, pNow = performance.now() / 1000;
+        if (lastCtx === ctx) {
+          const lag = (pNow - lastP) - (a - lastA);
+          if (lag > 0.15) {
+            ltSpkSignal('audio clock stalled ' + Math.round(lag * 1000) + ' ms');
+            ltSpkStallAt = performance.now();
+            if (ltSpkStallAt - ltSpkJumpAt < 3000) ltSpkRouteChanged('clock stall + delay jump');
+          }
+        }
+        lastCtx = ctx; lastA = a; lastP = pNow;
+      }, 250);
+    })();
+    // beta.2: when the phone switches speakers (Bluetooth on/off), Chrome on
+    // Android can keep reporting the old speaker's delay for the running
+    // audio context. On a device change: drop the old readings, and if the
+    // reported delay hasn't moved after a few seconds, restart the player
+    // once so it reads the new speaker's delay, then check again.
+    let ltSpkDevTimer = 0;
+    function ltSpkOnDeviceChange(why) {
+      if (!audioCtx || ltDetectBusy || !ltSpkList().some(ltSpkCanAuto)) return;
+      const before = ltSpkNowMs;
+      console.log('[ShowPilot] audio device changed (' + why + '); phone reported ' + before + ' ms before');
+      clearTimeout(ltSpkDevTimer);
+      ltSpkDevTimer = setTimeout(() => {
+        try { outDelaySamples.length = 0; } catch (_) {}
+        ltSpkLastRep = null;
+        setTimeout(() => {
+          let m = null; try { m = measuredOutputDelaySec(); } catch (_) {}
+          const now = m === null ? null : Math.round(m * 1000);
+          if (ltDetectBusy || !audioCtx || panelMode === 'closed' || _showNotPlaying) return;
+          if (now !== null && before !== null && Math.abs(now - before) > 25) {
+            console.log('[ShowPilot] speaker delay after the change: ' + now + ' ms'); ltSpkAutoCheck(); return;
+          }
+          console.log('[ShowPilot] speaker delay looks unchanged (' + now + ' ms): restarting the player to read the new speaker');
+          try { stopAudio(); } catch (_) {}
+          try { teardown(); } catch (_) {}
+          try { startup(); } catch (_) {}
+          ltSpkLastRep = null; // the next settled reading is evaluated fresh
+        }, 3000);
+      }, 800);
+    }
+    // Speakers without a microphone may not fire devicechange; a jump in the
+    // delay the browser reports for this context also counts.
+    let ltSpkLastOL = null, ltSpkLastOLCtx = null;
+    setInterval(() => {
+      if (!audioCtx || audioCtx.state !== 'running' || typeof audioCtx.outputLatency !== 'number') return;
+      const ol = Math.round(audioCtx.outputLatency * 1000);
+      if (ltSpkLastOLCtx !== audioCtx) { ltSpkLastOLCtx = audioCtx; ltSpkLastOL = ol; return; }
+      if (ltSpkLastOL !== null && Math.abs(ol - ltSpkLastOL) > 25) {
+        ltSpkSignal('reported delay ' + ltSpkLastOL + ' \u2192 ' + ol + ' ms');
+        ltSpkJumpAt = performance.now();
+        if (ltSpkJumpAt - ltSpkStallAt < 3000) ltSpkRouteChanged('delay jump + clock stall');
+      }
+      ltSpkLastOL = ol;
+    }, 1000);
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+        navigator.mediaDevices.addEventListener('devicechange', () => {
+          ltSpkSignal('devicechange');
+          ltSpkRouteChanged('devicechange');
+        });
+      }
+    } catch (_) {}
+    function ltSpkRender() {
+      if (!ltSheet) return;
+      const box = ltSheet.querySelector('.sp-lt-spk');
+      if (!box) return;
+      const list = ltSpkList();
+      const active = list.find(e => e.id === ltSpkActive);
+      box.innerHTML =
+        '<div class="sp-lt-presets-label">My speakers</div>' +
+        (list.length ? '<div class="sp-lt-presets">' + list.map(e =>
+          '<span class="sp-lt-spk-item"><button type="button" data-lt-spk="' + e.id + '" aria-pressed="' + (e.id === ltSpkActive) + '">' +
+            ltSpkEsc(e.name) + ' <small>' + (e.ms > 0 ? '+' : '') + e.ms + ' ms' + (ltSpkCanAuto(e) ? ' · auto' : '') + '</small></button>' +
+          '<button type="button" class="sp-lt-spk-del" data-lt-spk-del="' + e.id + '" aria-label="Forget ' + ltSpkEsc(e.name) + '">×</button></span>').join('') + '</div>'
+          : '<p style="font-size:13px">Save this timing under a name, like “My car”, to switch back to it later.</p>') +
+        (list.length ? '<p style="font-size:12px;color:#7d8699">Tap a name to use it. Ones marked “auto” are picked by themselves when this phone connects to them (usually cars); most Bluetooth speakers don’t tell the phone they’re connected, so tap those.</p>' : '') +
+        (active ? '<p style="font-size:13px">Using <b>' + ltSpkEsc(active.name) + '</b>' + (ltSpkAuto ? ' (picked automatically)' : '') + '.</p>' : '') +
+        (ltChirpTest ? '<p class="sp-lt-auto-detail">Test info: phone reports <span class="sp-lt-spk-now">' + (ltSpkNowMs === null ? 'not settled' : ltSpkNowMs + ' ms') + '</span> now; saved: ' +
+          (list.length ? list.map(e => ltSpkEsc(e.name) + ' ' + (isFinite(e.rep) ? e.rep + ' ms' : 'no reading')).join(', ') : 'none') + '.<br>Speaker-change hints: <span class="sp-lt-spk-sig">' + (ltSpkSignals.length ? ltSpkEsc(ltSpkSignals.join(' · ')) : 'none yet') + '</span></p>' : '') +
+        '<form class="sp-lt-spk-form"><input type="text" maxlength="40" placeholder="Name, e.g. My car" aria-label="Name for this timing" value="' + ltSpkEsc(active ? active.name : '') + '">' +
+        '<button type="submit">Save this timing</button></form>';
+    }
+    function ltSpkBind() {
+      const box = ltSheet && ltSheet.querySelector('.sp-lt-spk');
+      if (!box) return;
+      box.addEventListener('click', (e) => {
+        const del = e.target.closest('[data-lt-spk-del]');
+        if (del) { ltSpkDelete(del.dataset.ltSpkDel); return; }
+        const b = e.target.closest('[data-lt-spk]');
+        if (b) ltSpkUse(b.dataset.ltSpk, false);
+      });
+      box.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const inp = box.querySelector('input');
+        if (!inp.value.trim()) { inp.focus(); return; }
+        ltSpkStore(inp.value);
+        ltSpkRender();
+      });
+      ltSpkRender();
+    }
+    // Is the audio clock actually moving? A context can say 'running' while
+    // the phone has parked its output on a call channel (Android Auto when
+    // the mic opens): then currentTime stops or crawls.
+    async function ltCtxAdvancing(ms) {
+      const ctx = audioCtx;
+      if (!ctx || ctx.state !== 'running') return false;
+      const a = ctx.currentTime;
+      await new Promise(r => setTimeout(r, ms));
+      return ctx === audioCtx && ctx.state === 'running' && (ctx.currentTime - a) > (ms / 1000) * 0.5;
+    }
+    // Recovery after the mic closes (calibrate-test-2). Android stays in call
+    // mode for a moment after the mic is released; a player rebuilt inside
+    // that moment opens its output on the call channel and stays silent
+    // (seen on Android Auto). So: wait, rebuild, check the clock moves, and
+    // rebuild once more if it doesn't. Last resort: a tap rebuilds it.
+    async function ltChirpRestore(info) {
+      const rebuild = () => {
+        try { stopAudio(); } catch (_) {}
+        try { teardown(); } catch (_) {}
+        if (panelMode === 'closed' || _showNotPlaying) return false;
+        try { startup(); } catch (_) {}
+        return true;
+      };
+      const steps = [];
+      for (const waitMs of [1500, 2500]) {
+        await new Promise(r => setTimeout(r, waitMs));
+        if (!rebuild()) { steps.push('player closed'); break; }
+        await new Promise(r => setTimeout(r, 1500));
+        const ok = await ltCtxAdvancing(600);
+        steps.push('rebuilt after ' + waitMs + ' ms: ' + (ok ? 'sound running' : 'still stuck (' + (audioCtx ? audioCtx.state : 'no context') + ')'));
+        if (ok) break;
+      }
+      if (info) info.restore = steps;
+      if (steps.length && !/sound running|player closed/.test(steps[steps.length - 1])) {
+        // 'click' counts as a user activation on Android; pointerdown from a
+        // finger doesn't. The new context is made inside the tap, the same
+        // way the Listen button does it.
+        const tapFix = () => {
+          document.removeEventListener('click', tapFix, true);
+          try { stopAudio(); } catch (_) {}
+          try { teardown(); } catch (_) {}
+          try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+          try { _pendingGestureAudioCtx = spNewAudioContext(); _pendingGestureAudioCtx.resume().catch(() => {}); } catch (_) {}
+          if (panelMode !== 'closed' && !_showNotPlaying) { try { startup(); } catch (_) {} }
+          setTimeout(async () => {
+            const ok = await ltCtxAdvancing(600);
+            console.log('[ShowPilot] beep calibration: tap restart ' + (ok ? 'worked' : 'did not bring the sound back'));
+            if (!ok) ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Still no sound. Close the player and open it again, or reload the page.</div>');
+          }, 2500);
+        };
+        document.addEventListener('click', tapFix, true);
+        ltChirpMsg((ltChirpLast || '') + '<div class="sp-lt-auto-detail" style="color:#dfe3ec">The sound didn\'t come back on its own. Tap anywhere on the page to restart it.</div>');
+      }
+    }
+    async function ltChirp() {
+      if (ltDetectBusy) return;
+      if (!audioCtx || !gainNode || audioCtx.state !== 'running') {
+        ltChirpMsg('Start listening first, then try this.'); return;
+      }
+      ltDetectBusy = true;
+      const btn = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
+      if (btn) btn.disabled = true;
+      const prevMs = Math.round(listenerOffsetSec * 1000);
+      const covered = Math.max(0, getOutputLatencySec() - listenerOffsetSec);
+      const info = {
+        build: 'beta-7', ua: navigator.userAgent, sampleRate: audioCtx.sampleRate,
+        timing: outputTimingSource(), coveredMs: Math.round(covered * 1000), previousMs: prevMs,
+        before: ltDelaySnapshot(),
+      };
+      let stream = null, micOpened = false, bus = null;
+      try {
+        await ltLoadMicCore();
+        ltChirpMsg('Allow the microphone if your phone asks…');
+        const got = await ltGetMic();
+        stream = got.stream;
+        micOpened = true;
+        const track = stream.getAudioTracks()[0];
+        const st = (track && track.getSettings) ? track.getSettings() : {};
+        const reportedIn = Number(st.latency);
+        const inSec = (isFinite(reportedIn) && reportedIn > 0 && reportedIn < 0.5) ? reportedIn : LT_MIC_ASSUMED_SEC;
+        info.mic = track ? track.label : ''; info.inputs = got.devices; info.micOpenedDirect = got.direct || null;
+        info.micMs = Math.round(inSec * 1000); info.micReported = inSec !== LT_MIC_ASSUMED_SEC;
+        // Give the phone a moment to re-route (if it's going to), then look.
+        ltChirpMsg('Getting ready…');
+        await new Promise(r => setTimeout(r, 700));
+        info.afterMic = ltDelaySnapshot();
+        if (audioCtx.state !== 'running') { try { await audioCtx.resume(); } catch (_) {} }
+        info.afterResume = audioCtx.state;
+        info.clockMoving = await ltCtxAdvancing(400);
+        if (!info.clockMoving) {
+          info.result = { ok: false, reason: 'audio stopped when the microphone opened' };
+          info.routeChanged = true;
+          ltChirpMsg('<b>Stopped:</b> turning on the microphone made this phone stop playing audio (it switched to phone-call mode — common with Android Auto and car Bluetooth). No beeps were played. Bringing the sound back…');
+          return;
+        }
+        gainNode.gain.value = 0; // silence the song while the beeps play
+        const sr = audioCtx.sampleRate;
+        const chirp = window.SPMicCore.makeChirp(sr, LT_CHIRP_LEN, 800, 5000);
+        const buf = audioCtx.createBuffer(1, chirp.length, sr);
+        buf.getChannelData(0).set(chirp);
+        bus = audioCtx.createGain(); bus.gain.value = 1; bus.connect(audioCtx.destination);
+        const secs = Math.ceil(0.8 + LT_CHIRP_COUNT * LT_CHIRP_GAP + 1.2);
+        const capP = ltCapture(stream, secs, (left) =>
+          ltChirpMsg('Beeping… ' + left + ' s. Keep the volume up and stay still.'), bus);
+        const t0 = audioCtx.currentTime + 0.8;
+        for (let i = 0; i < LT_CHIRP_COUNT; i++) {
+          const b = audioCtx.createBufferSource(); b.buffer = buf; b.connect(bus); b.start(t0 + i * LT_CHIRP_GAP);
+        }
+        const cap = await capP;
+        info.during = ltDelaySnapshot();
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        ltChirpMsg('Working it out…');
+        await new Promise(r => setTimeout(r, 30));
+        const r = window.SPMicCore.chirpLags(cap.mic, cap.tap, cap.sr, chirp);
+        info.result = { ok: r.ok, split: !!r.split, reason: r.reason || null, roundTripMs: r.ok ? Math.round(r.lagSec * 1000) : null, runs: r.runs, strengths: r.strengths, sent: r.sent };
+        // Did opening the mic move the audio? Compare the delay the player
+        // saw before the mic with what it saw while beeping.
+        const pick = (snap) => snap.measuredMs !== null ? snap.measuredMs : snap.outputLatencyMs;
+        const a = pick(info.before), d = pick(info.during);
+        info.routeChanged = info.during.state !== 'running' || (a !== null && d !== null && Math.abs(a - d) > 40);
+        if (!r.ok) {
+          ltChirpMsg('<b>No result:</b> ' + r.reason + '.' + (info.routeChanged ? ' Opening the microphone changed how this phone plays audio.' : ''));
+          return;
+        }
+        // The speaker delay while beeping already includes whatever the
+        // player covered automatically at that moment; use the pre-mic
+        // "covered" so the offset matches normal listening.
+        const needMs = Math.round((r.lagSec - inSec - covered) * 1000);
+        info.neededMs = needMs;
+        if (info.routeChanged) {
+          ltChirpMsg('<b>Not applied:</b> opening the microphone changed how this phone plays audio (delay ' + a + ' ms before, ' + d + ' ms during), so the beeps measured a different path than normal listening. It would have set ' + needMs + ' ms.');
+          return;
+        }
+        setListenerOffsetMs(needMs);
+        const appliedMs = Math.round(listenerOffsetSec * 1000);
+        info.appliedMs = appliedMs;
+        ltChirpMsg((Math.abs(needMs) < 30
+            ? 'Already in sync. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.'
+            : 'Your speakers play <b>' + Math.abs(needMs) + ' ms ' + (needMs > 0 ? 'late' : 'early') + '</b>. Timing set to ' + (appliedMs > 0 ? '+' : '') + appliedMs + ' ms.') +
+          ' <button type="button" class="sp-lt-undo" data-prev="' + prevMs + '">Undo</button>' +
+          (r.split ? '<div class="sp-lt-auto-detail">Your speaker shifted its delay during the test (' + r.runs.join(', ') + ' ms); the later beeps were used.</div>' : '') +
+          '<div class="sp-lt-auto-detail" style="color:#dfe3ec">Give it a name under <b>My speakers</b> to keep it for next time.' +
+          (covered * 1000 < 60 && needMs > 150 ? ' This speaker doesn\'t tell the phone it\'s connected, so tap its name when you use it.' : '') + '</div>');
+        setTimeout(() => { const i = ltSheet && ltSheet.querySelector('.sp-lt-spk-form input'); if (i && !i.value) i.focus(); }, 50);
+      } catch (e) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        info.error = (e && (e.name + ': ' + e.message)) || String(e);
+        ltChirpMsg(e && e.name === 'NotAllowedError'
+          ? 'Microphone permission was denied.'
+          : '<b>No result:</b> ' + (e && e.message ? e.message : e) + '.');
+      } finally {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        try { if (bus) bus.disconnect(); } catch (_) {}
+        try { if (gainNode) gainNode.gain.value = isMuted ? 0 : 1; } catch (_) {}
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+        if (micOpened) { try { await ltChirpRestore(info); } catch (_) {} }
+        if (info.restore && /sound running/.test(info.restore[info.restore.length - 1] || '') && /Bringing the sound back/.test(ltChirpLast || '')) {
+          ltChirpMsg(ltChirpLast.replace('Bringing the sound back…', 'The sound is back.'));
+        }
+        ltDetectBusy = false;
+        ltChirpReport = JSON.stringify(info, null, 1);
+        // Kept on the phone so it survives a reload if the sound broke.
+        try { localStorage.setItem('sp_calibrate_last_report', ltChirpReport); } catch (_) {}
+        console.log('[ShowPilot] beep calibration:', JSON.stringify(info));
+        const b2 = ltSheet && ltSheet.querySelector('.sp-lt-chirp');
+        if (b2) b2.disabled = false;
+        const rep = ltSheet && ltSheet.querySelector('.sp-lt-chirp-report');
+        if (rep && ltChirpTest) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
       }
     }
     function ltEnsureStyles() {
@@ -4376,6 +4888,15 @@
         '#sp-lt-sheet .sp-lt-auto-msg b{color:#fff;font-weight:800}' +
         '#sp-lt-sheet .sp-lt-undo{margin-left:6px;padding:2px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:transparent;font-size:13px;font-weight:600}' +
         '#sp-lt-sheet .sp-lt-auto-detail{margin-top:4px;font-size:12px;color:#7d8699;overflow-wrap:anywhere}' +
+        '#sp-lt-sheet .sp-lt-spk{display:flex;flex-direction:column;gap:10px}' +
+        '#sp-lt-sheet .sp-lt-spk-item{display:inline-flex;align-items:stretch}' +
+        '#sp-lt-sheet [data-lt-spk]{min-height:40px;padding:0 12px;border-radius:999px 0 0 999px;border:1px solid rgba(255,255,255,.2);border-right:0;background:transparent;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-spk] small{color:#9aa3b5;font-weight:600}' +
+        '#sp-lt-sheet [data-lt-spk][aria-pressed="true"]{border-color:var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.18)}' +
+        '#sp-lt-sheet .sp-lt-spk-del{min-width:36px;border-radius:0 999px 999px 0;border:1px solid rgba(255,255,255,.2);background:transparent;color:#9aa3b5;font-size:18px;line-height:1}' +
+        '#sp-lt-sheet .sp-lt-spk-form{display:flex;gap:8px}' +
+        '#sp-lt-sheet .sp-lt-spk-form input{flex:1;min-width:0;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font:inherit}' +
+        '#sp-lt-sheet .sp-lt-spk-form button{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--sp-lt-accent,#60a5fa);background:rgba(255,255,255,.08);font-weight:700;white-space:nowrap}' +
         '#sp-lt-sheet :focus-visible,#sp-lt-btn:focus-visible{outline:2px solid var(--sp-lt-accent,#60a5fa);outline-offset:2px}';
       document.head.appendChild(st);
     }
@@ -4414,15 +4935,23 @@
           '<button type="button" class="sp-lt-detect">\ud83c\udfa4 Detect my delay <small>(beta)</small></button>' +
           '<p style="font-size:13px">Listens through the microphone for about ' + LT_DETECT_SECS + ' seconds to hear how late your Bluetooth, car or headphones play the music, then fixes it. Keep the volume up.</p>' +
           '<div class="sp-lt-auto-msg" aria-live="polite"></div></div>' : '') +
+        (ltChirpOk ? '<div class="sp-lt-auto">' +
+          '<button type="button" class="sp-lt-detect sp-lt-chirp">\ud83d\udd0a Calibrate with beeps <small>(beta)</small></button>' +
+          (IS_IOS ? '<p style="font-size:13px;color:#fbbf24">Test only on iPhone: iPhones switch to phone-call audio when the microphone is on, so in a car or on Bluetooth the result is usually wrong.</p>' : '') +
+          '<p style="font-size:13px">Pauses the song, plays ' + LT_CHIRP_COUNT + ' short beeps and listens through the microphone to measure your Bluetooth, car or headphone delay. Keep the volume up.</p>' +
+          '<div class="sp-lt-auto-msg sp-lt-chirp-msg" aria-live="polite"></div>' +
+          (ltChirpTest ? '<div class="sp-lt-chirp-report" hidden><textarea readonly rows="5" style="width:100%;box-sizing:border-box;font:11px ui-monospace,monospace;background:#0e1320;color:#cfd5e2;border:1px solid rgba(255,255,255,.15);border-radius:8px"></textarea>' +
+          '<button type="button" class="sp-lt-undo sp-lt-chirp-copy" style="margin:6px 0 0">Copy report</button></div>' : '') + '</div>' : '') +
         '<div class="sp-lt-presets-label">Presets</div>' +
         '<div class="sp-lt-presets">' + LT_PRESETS.filter(p => p[1] >= LT_MIN_MS && p[1] <= LT_MAX_MS).map(p => '<button type="button" data-lt-preset="' + p[1] + '">' + p[0] + '</button>').join('') + '</div>' +
+        '<div class="sp-lt-spk"></div>' +
         '<div class="sp-lt-foot"><span>Saved on this phone only.</span><button type="button" class="sp-lt-reset">Reset</button></div>';
       ltSheet.querySelector('.sp-lt-done').addEventListener('click', ltClose);
       ltSheet.querySelectorAll('[data-lt-nudge]').forEach(b => b.addEventListener('click', () =>
         setListenerOffsetMs(Math.round(listenerOffsetSec * 1000) + Number(b.dataset.ltNudge))));
       ltSheet.querySelectorAll('[data-lt-preset]').forEach(b => b.addEventListener('click', () => setListenerOffsetMs(Number(b.dataset.ltPreset))));
       ltSheet.querySelector('.sp-lt-reset').addEventListener('click', () => setListenerOffsetMs(0));
-      const det = ltSheet.querySelector('.sp-lt-detect');
+      const det = ltSheet.querySelector('.sp-lt-detect:not(.sp-lt-chirp)');
       if (det) {
         det.addEventListener('click', () => ltDetect());
         if (ltDetectBusy) det.disabled = true;
@@ -4434,6 +4963,29 @@
           ltDetectMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
         });
       }
+      const chb = ltSheet.querySelector('.sp-lt-chirp');
+      if (chb) {
+        chb.addEventListener('click', () => ltChirp());
+        if (ltDetectBusy) chb.disabled = true;
+        const cm = ltSheet.querySelector('.sp-lt-chirp-msg');
+        if (ltChirpLast) cm.innerHTML = ltChirpLast;
+        cm.addEventListener('click', (e) => {
+          const u = e.target.closest('.sp-lt-undo');
+          if (!u) return;
+          setListenerOffsetMs(Number(u.dataset.prev) || 0);
+          ltChirpMsg('Undone — timing is back to ' + Math.round(listenerOffsetSec * 1000) + ' ms.');
+        });
+        const rep = ltSheet.querySelector('.sp-lt-chirp-report');
+        if (rep && ltChirpReport) { rep.hidden = false; rep.querySelector('textarea').value = ltChirpReport; }
+        const copyBtn = ltSheet.querySelector('.sp-lt-chirp-copy');
+        if (copyBtn) copyBtn.addEventListener('click', (e) => {
+          const ta = rep.querySelector('textarea');
+          const done = () => { e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy report'; }, 1500); };
+          try { navigator.clipboard.writeText(ta.value).then(done, () => { ta.select(); document.execCommand('copy'); done(); }); }
+          catch (_) { ta.select(); try { document.execCommand('copy'); done(); } catch (__) {} }
+        });
+      }
+      ltSpkBind();
       ltSheet.querySelector('.sp-lt-range').addEventListener('input', (e) => setListenerOffsetMs(e.target.value));
       document.body.appendChild(ltBackdrop);
       document.body.appendChild(ltSheet);
@@ -5586,6 +6138,7 @@
       // from other causes when a correction fires.
       if ((outDelayMs === null) !== (outDelayLoggedMs === null) ||
           (outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) > 25)) {
+        if (outDelayLoggedMs !== null && outDelayMs !== null && Math.abs(outDelayMs - outDelayLoggedMs) >= 40) requestQuickResync('speaker delay ' + outDelayLoggedMs + ' \u2192 ' + outDelayMs + ' ms');
         console.log('[ShowPilot] speaker delay now', outDelayMs === null ? 'unknown (using reported)' : outDelayMs + ' ms',
           '(was ' + (outDelayLoggedMs === null ? 'unknown' : outDelayLoggedMs + ' ms') + ')');
         outDelayLoggedMs = outDelayMs;
@@ -5630,7 +6183,9 @@
 
     function getOutputLatencySec() {
       const l = (audioCtx && (audioCtx.outputLatency || audioCtx.baseLatency)) || 0;
-      let base = (l > 0 && l < 0.4) ? l : 0;
+      // Test build: cap raised from 0.4 to 0.8 s (same as the measured path);
+      // car stereos and some Bluetooth speakers really do report 400+ ms.
+      let base = (l > 0 && l < 0.8) ? l : 0;
       if (!outTimingForcedReported) {
         const m = measuredOutputDelaySec();
         if (m !== null) base = m;
@@ -7680,7 +8235,18 @@
           loopEst && loopEst.n >= 3 && loopEst.newestAgeMs < 1500 &&
           currentBuffer && currentSource && currentSourceGain;
 
-        if (!canCorrect) {
+        const pNowQ = performance.now();
+        if (quickResyncUntil && pNowQ > quickResyncUntil) quickResyncUntil = 0;
+        if (canCorrect && quickResyncUntil && pNowQ >= quickResyncFrom) {
+          quickResyncUntil = 0;
+          if (Math.abs(correctionDriftMs) >= SETTLE_THRESHOLD_MS) {
+            const targetPos = loopEst.pos
+              - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+              + loopLatencySec;
+            console.log('[ShowPilot] quick resync (' + quickResyncWhy + '): drift', correctionDriftMs + 'ms →', targetPos.toFixed(3) + 's');
+            if (crossfadeTo(targetPos)) { smoothedDriftMs = 0; lastAppliedRate = 1.0; }
+          }
+        } else if (!canCorrect) {
           // No trustworthy reference right now: don't keep nudging blindly,
           // but keep playing at the learned clock-speed difference.
           rateTrimLastCtx = 0;
@@ -7899,6 +8465,25 @@
     // theme changes or animations are off.
     let liveOn = false, liveRaf = 0, liveAnalyser = null, liveBuf = null, liveBands = null;
     let liveEls = [], liveLvls = [], livePeaks = [], liveMeans = [], liveQueue = [], liveLastT = 0;
+    // v0.33.280: the live lights change only the glow elements' own opacity
+    // and transform (each on its own GPU layer), never a CSS variable on a
+    // parent. A variable on the bulb (or on #of-deco) restyled the whole
+    // subtree including the bulbs' SVG gradients 30 times a second, and on
+    // iPhone/iPad that memory piled up until iOS killed the page (~1.9 GB,
+    // page reload a few minutes in). Apple touch devices also update a bit
+    // less often (~20/s instead of ~30/s).
+    let liveTargets = [];      // bands: [{ halo, hot }] per bulb; party: { halo, glint, spots }
+    const LIVE_MIN_MS = (/iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) ? 48 : 30;
+    function liveClearInline() {
+      const clear = (el) => { if (el) { el.style.removeProperty('opacity'); el.style.removeProperty('transform'); } };
+      if (Array.isArray(liveTargets)) liveTargets.forEach(t => { clear(t.halo); clear(t.hot); });
+      else if (liveTargets) { clear(liveTargets.halo); clear(liveTargets.glint); clear(liveTargets.spots); }
+    }
+    function liveOff() {
+      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      liveClearInline();
+    }
     // Modes: 'bands' (christmas-live: one band per bulb) and 'party'
     // (newyear-live, v0.33.226-beta: bass/mid/treble + energy -> --beat,
     // --energy, --treble on #of-deco, plus confetti bursts on big jumps).
@@ -7909,11 +8494,16 @@
       liveEls = (liveMode === 'bands' && decoLayer) ? Array.from(decoLayer.querySelectorAll('.ofd-lb'))
         : (liveMode === 'party' && decoLayer && decoLayer.querySelector('.ofd-nyball')) ? [0, 1, 2] : [];
       liveParty = liveMode === 'party' ? { beat: 0, treble: 0, energy: 0, ePeak: 0.05, eSlow: -1, lastBurst: 0 } : null;
+      liveTargets = liveMode === 'bands'
+        ? liveEls.map(b => ({ halo: b.querySelector('.ofd-halo'), hot: b.querySelector('.ofd-hot') }))
+        : liveMode === 'party' && decoLayer
+          ? { halo: decoLayer.querySelector('.ofd-nyball .ofd-nyhalo'), glint: decoLayer.querySelector('.ofd-nyball .ofd-nyglint'), spots: decoLayer.querySelector('.ofd-nyspots') }
+          : [];
       liveLvls = liveEls.map(() => 0);
       livePeaks = liveEls.map(() => 0);
       liveMeans = liveEls.map(() => -1);
       liveQueue = []; liveBands = null;
-      if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+      liveOff();
       // In the ShowPilot app (master.21), ask the app for the levels of
       // these ranges; it plays the audio, so it has the analyser's job.
       if (isAppMode()) {
@@ -7966,7 +8556,7 @@
       liveRaf = 0;
       if (!liveOn) return;
       liveRaf = requestAnimationFrame(liveFrame);
-      if (t - liveLastT < 30) return;
+      if (t - liveLastT < LIVE_MIN_MS) return;
       liveLastT = t;
       // In the ShowPilot app the frames arrive from the app (already timed for
       // when they're heard) instead of from an analyser.
@@ -7975,7 +8565,7 @@
         ? (appLivePlaying && !isMuted && document.visibilityState === 'visible')
         : !!(currentSource && audioCtx && audioCtx.state === 'running' && !isMuted && document.visibilityState === 'visible');
       if (!playing || !liveEls.length || (!app && !liveEnsureAnalyser())) {
-        if (decoLayer) decoLayer.classList.remove('ofd-live-on');
+        liveOff();
         liveQueue = [];
         return;
       }
@@ -8010,9 +8600,10 @@
         P.energy = P.energy * 0.85 + Math.min(1, overall / P.ePeak) * 0.15;
         P.eSlow = P.eSlow < 0 ? overall : P.eSlow * 0.985 + overall * 0.015;
         if (overall > P.eSlow * 1.6 && overall > 0.15 && now - P.lastBurst > 4000) { P.lastBurst = now; liveConfettiBurst(); }
-        decoLayer.style.setProperty('--beat', P.beat.toFixed(3));
-        decoLayer.style.setProperty('--treble', P.treble.toFixed(3));
-        decoLayer.style.setProperty('--energy', P.energy.toFixed(3));
+        const T = liveTargets;
+        if (T.halo) { T.halo.style.opacity = (0.12 + P.beat * 0.88).toFixed(3); T.halo.style.transform = 'scale(' + (0.85 + P.beat * 0.45).toFixed(3) + ')'; }
+        if (T.glint) T.glint.style.opacity = (0.3 + P.treble * 0.7).toFixed(3);
+        if (T.spots) T.spots.style.opacity = (0.18 + P.energy * 0.55 + P.beat * 0.27).toFixed(3);
         return;
       }
       for (let i = 0; i < liveEls.length; i++) {
@@ -8026,7 +8617,9 @@
         livePeaks[i] = Math.max(x - liveMeans[i], livePeaks[i] * 0.99, 0.04);
         const v = x < 0.04 ? 0 : Math.min(1, Math.max(0, (x - liveMeans[i]) / livePeaks[i]));
         liveLvls[i] = Math.max(v, liveLvls[i] * 0.84);
-        liveEls[i].style.setProperty('--lvl', liveLvls[i].toFixed(3));
+        const L = liveLvls[i], T = liveTargets[i];
+        if (T && T.halo) { T.halo.style.opacity = (0.14 + L * 0.86).toFixed(3); T.halo.style.transform = 'scale(' + (0.72 + L * 0.62).toFixed(3) + ')'; }
+        if (T && T.hot) T.hot.style.opacity = (0.03 + L * 0.52).toFixed(3);
       }
     }
 
@@ -8261,8 +8854,9 @@
         @keyframes ofdHot  { from { opacity:.08; } to { opacity:.28; } }
         @keyframes ofdTwinkle { 0%,55%,100% { opacity:.6; } 65% { opacity:.05; } 72% { opacity:.7; } 80% { opacity:.12; } 88% { opacity:.65; } }
         /* "Live": while music plays, each bulb follows its frequency band (--lvl, set by the player). */
-        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity: calc(.14 + var(--lvl) * .86); transform: scale(calc(.72 + var(--lvl) * .62)); }
-        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity: calc(.03 + var(--lvl) * .52); }
+        /* (opacity/transform set per frame on the elements themselves; see liveFrame) */
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-halo { animation:none; opacity:.14; transform:scale(.72); will-change: opacity, transform; }
+        #of-deco.ofd-live-on .ofd-bulb.ofd-lb .ofd-hot  { animation:none; opacity:.03; }
       </style>
       <svg class="ofd ofd-wire" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
         <path d="${wire}" fill="none" stroke="#14532d" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
@@ -8729,9 +9323,10 @@
         #of-deco .ofd-nyspots.ofd-anim .ofd-nyspots-in { animation: ofdNySpots 16s linear infinite; }
         @keyframes ofdNySpots { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         /* Live: the music drives the light (variables set by the player). */
-        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity: calc(.12 + var(--beat, 0) * .88); transform: scale(calc(.85 + var(--beat, 0) * .45)); }
-        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity: calc(.3 + var(--treble, 0) * .7); }
-        #of-deco.ofd-live-on .ofd-nyspots { opacity: calc(.18 + var(--energy, 0) * .55 + var(--beat, 0) * .27); }
+        /* (opacity/transform set per frame on the elements themselves; see liveFrame) */
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyhalo { opacity:.12; transform:scale(.85); will-change: opacity, transform; }
+        #of-deco.ofd-live-on .ofd-nyball .ofd-nyglint { animation:none; opacity:.3; }
+        #of-deco.ofd-live-on .ofd-nyspots { opacity:.18; will-change: opacity; }
         #of-deco .ofd-nyburst .ofdny-bit { animation-iteration-count: 1 !important; }
       </style>
       <div class="ofd ofd-nyspots${A}"><div class="ofd-nyspots-in">${spots}</div></div>

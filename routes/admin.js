@@ -329,6 +329,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'show_latitude',
     'show_longitude',
     'check_radius_miles',
+    'admin_skip_location',   // signed-in admins skip GPS + audio distance checks
     // Location code (v0.33.24+)
     'location_code_enabled',
     'location_code',

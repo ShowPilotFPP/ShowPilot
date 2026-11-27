@@ -4207,6 +4207,13 @@
               <input type="checkbox" id="cfg_check_viewer_present" onchange="saveSetting('check_viewer_present', this.checked ? 1 : 0)" />
               <label for="cfg_check_viewer_present" style="margin: 0;">Require viewers be within radius of show location</label>
             </div>
+            <div class="row">
+              <input type="checkbox" id="cfg_admin_skip_location" onchange="saveSetting('admin_skip_location', this.checked ? 1 : 0)" />
+              <label for="cfg_admin_skip_location" style="margin: 0;">Signed-in admins skip location checks</label>
+            </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0.6rem;">
+              A phone that's signed in to the admin can vote, request and listen from anywhere: it skips this check and the audio distance limit. Sign in to the admin in the same browser you open the viewer page in. The location code still applies.
+            </p>
             <div class="grid-3">
               <div>
                 <label for="cfg_show_latitude">Show latitude</label>
@@ -7004,6 +7011,7 @@
       setVal('cfg_psa_trigger_mode', trigMode);
       applyPsaTriggerModeUi(trigMode);
       setChk('cfg_check_viewer_present', c.check_viewer_present);
+      setChk('cfg_admin_skip_location', c.admin_skip_location);
       setVal('cfg_show_latitude', c.show_latitude);
       setVal('cfg_show_longitude', c.show_longitude);
       setVal('cfg_check_radius_miles', spToUnits(c.check_radius_miles));

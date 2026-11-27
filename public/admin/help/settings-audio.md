@@ -41,6 +41,8 @@ Only lets people listen if they're near your show. Recommended if you play licen
 
 When a viewer taps the Listen button, their phone does a fresh location check, so an old or faked location doesn't get through. Location is checked again every 15 minutes while they listen, so someone who drives away is cut off.
 
+> **Admins:** with **Signed-in admins skip location checks** on in [Interaction Safeguards](help:settings-safeguards#gps-proximity-check), a phone that's signed in to the admin skips this limit, so you can listen from anywhere. Everyone else is still checked.
+
 > **Important:** The gate measures distance from your show's location, which you set in [Interaction Safeguards](help:settings-safeguards). Set that first, or the gate can't work.
 
 ## Audio sync offset
